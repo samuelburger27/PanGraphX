@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "pangraphx-core",
+    "pangraphx-cli"
+]
+resolver = "2"
+
