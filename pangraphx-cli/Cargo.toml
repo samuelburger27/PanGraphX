@@ -2,5 +2,10 @@
 name = "pangraphx-cli"
 version = "0.1.0"
 edition = "2024"
+description = "CLI tool based on PanGraphX: converting and inspecting genome graphs."
+license = "MIT"
 
 [dependencies]
+anyhow = "1.0.100"
+clap = { version = "4.5.50", features = ["derive"] }
+pangraphx-core = { path = "../pangraphx-core" }

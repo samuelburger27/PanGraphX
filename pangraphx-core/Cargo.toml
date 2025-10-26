@@ -2,5 +2,11 @@
 name = "pangraphx-core"
 version = "0.1.0"
 edition = "2024"
+description = "Core library for PanGraphX: a toolkit for genome graph loading and format conversion."
+license = "MIT"
+repository = "https://github.com/samuelburger27/PanGraphX"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+gfa = "0.10.1"
+thiserror = "2.0.17"
