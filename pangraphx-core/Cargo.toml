@@ -9,4 +9,5 @@ repository = "https://github.com/samuelburger27/PanGraphX"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 gfa = "0.10.1"
+log = "0.4.28"
 thiserror = "2.0.17"

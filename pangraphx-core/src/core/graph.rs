@@ -1,6 +1,5 @@
+use gfa::cigar::CIGAR;
 use gfa::gfa::orientation::Orientation as GFAOrientation;
-use gfa::gfa::{GFA, SegmentId};
-use gfa::optfields::OptFields;
 use std::collections::HashMap;
 /// A unique identifier for a node/segment in the graph.
 pub type NodeId = u64;
@@ -50,9 +49,9 @@ pub struct Step {
 /// A named, ordered traversal through nodes in the graph.
 #[derive(Debug, Clone)]
 pub struct Path {
-    pub name: String,
+    pub name: Vec<u8>,
     pub steps: Vec<Step>,
-    pub overlap: Vec<Vec<u8>>,
+    pub overlaps: Vec<Option<CIGAR>>,
 }
 
 /// The central, in-memory representation of a genome graph.
@@ -66,45 +65,4 @@ pub struct CoreGraph {
     pub edges: Vec<Edge>,
     /// Stores all paths, keyed by their name.
     pub paths: HashMap<Vec<u8>, Path>,
-}
-
-impl CoreGraph {
-    pub fn from_gfa<T: OptFields>(gfa: GFA<usize, T>) -> Self {
-        let mut graph = CoreGraph::default();
-        let nodes: HashMap<NodeId, Node> = gfa
-            .segments
-            .into_iter()
-            .map(|seq| {
-                let node_id = seq.name as NodeId;
-                let sequence = seq.sequence;
-                (
-                    node_id,
-                    Node {
-                        id: node_id,
-                        sequence,
-                    },
-                )
-            })
-            .collect();
-        let edges: Vec<Edge> = gfa
-            .links
-            .into_iter()
-            .map(|link| Edge {
-                from_node: link.from_segment as NodeId,
-                from_orient: Orientation::from_gfa_lib(link.from_orient),
-                to_node: link.to_segment as NodeId,
-                to_orient: Orientation::from_gfa_lib(link.to_orient),
-                overlap: link.overlap,
-            })
-            .collect();
-
-        let paths = gfa
-            .paths
-            .into_iter()
-            .map(|p| {
-                // TODO finish
-            })
-            .collect();
-        graph
-    }
 }

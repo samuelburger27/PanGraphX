@@ -1,4 +1,6 @@
 use clap::{Args, Parser, Subcommand};
+use log::{debug, error};
+use pangraphx_core::{CoreGraph, GraphFormat, PanResult};
 use std::path::Path;
 
 #[derive(Parser, Debug)]
@@ -58,10 +60,4 @@ pub struct ValidateArgs {
     pub file: String,
 }
 
-/// Infer graph format from file extension (e.g., .gfa, .vg)
-pub fn infer_format(path: &str) -> Option<String> {
-    Path::new(path)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_lowercase())
-}
+

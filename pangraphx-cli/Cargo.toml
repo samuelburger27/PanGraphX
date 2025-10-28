@@ -8,4 +8,7 @@ license = "MIT"
 [dependencies]
 anyhow = "1.0.100"
 clap = { version = "4.5.50", features = ["derive"] }
+simplelog = "0.12"
+log = "0.4.28"
 pangraphx-core = { path = "../pangraphx-core" }
+env_logger = "0.11.8"
