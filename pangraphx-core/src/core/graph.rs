@@ -1,8 +1,10 @@
+use std::fmt::Display;
+
 use gfa::cigar::CIGAR;
 use gfa::gfa::orientation::Orientation as GFAOrientation;
-use std::collections::HashMap;
 /// A unique identifier for a node/segment in the graph.
-pub type NodeId = u64;
+pub type NodeId = Vec<u8>;
+pub type PathName = Vec<u8>;
 
 /// Represents the orientation of a node traversal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -11,9 +13,18 @@ pub enum Orientation {
     Reverse,
 }
 
+impl Display for Orientation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Orientation::Forward => write!(f, "+"),
+            Orientation::Reverse => write!(f, "-"),
+        }
+    }
+}
+
 impl Orientation {
     /// Create an Orientation from internal GFA representation
-    pub fn from_gfa_lib(orientation: GFAOrientation) -> Self {
+    pub fn from_gfa(orientation: GFAOrientation) -> Self {
         match orientation {
             GFAOrientation::Forward => Orientation::Forward,
             GFAOrientation::Backward => Orientation::Reverse,
@@ -22,14 +33,14 @@ impl Orientation {
 }
 
 /// A node (or segment) in the graph, containing a DNA sequence.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Node {
     pub id: NodeId,
     pub sequence: Vec<u8>, // Using Vec<u8> is efficient for ASCII/DNA
 }
 
 /// An edge (or link) connecting two nodes with specific orientations.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Edge {
     pub from_node: NodeId,
     pub from_orient: Orientation,
@@ -40,29 +51,24 @@ pub struct Edge {
 }
 
 /// A single step in a path.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Step {
     pub node_id: NodeId,
     pub orientation: Orientation,
 }
 
 /// A named, ordered traversal through nodes in the graph.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Path {
-    pub name: Vec<u8>,
+    pub name: PathName,
     pub steps: Vec<Step>,
     pub overlaps: Vec<Option<CIGAR>>,
 }
 
 /// The central, in-memory representation of a genome graph.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CoreGraph {
-    // TODO maybe use Vec instead of HashMap, further benchmarks needed
-    // TODO nodes uses NodeId which is also in the Node struct, redundant?
-    /// Stores all nodes, keyed by their ID for fast lookup.
-    pub nodes: HashMap<NodeId, Node>,
-    /// Stores all edges.
+    pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
-    /// Stores all paths, keyed by their name.
-    pub paths: HashMap<Vec<u8>, Path>,
+    pub paths: Vec<Path>,
 }

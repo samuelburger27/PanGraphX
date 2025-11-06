@@ -10,6 +10,7 @@ pub trait GraphParser {
 
 /// A trait for any structure that can serialize a `CoreGraph` to a stream.
 pub trait GraphSerializer {
+    // TODO maybe rewrite using BufWriter
     /// Writes a `CoreGraph` to a writer in a specific format.
     fn serialize(&self, graph: &CoreGraph, writer: &mut dyn Write) -> PanResult<()>;
 }
