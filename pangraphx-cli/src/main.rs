@@ -1,13 +1,13 @@
 mod cli;
 mod convert;
+mod handle_formats;
+mod handle_info;
 use anyhow::Result;
-use clap::{Parser, error};
+use clap::Parser;
 use cli::args_parser::{Cli, Commands};
 use convert::handle_conversion;
-use env_logger::{Target, builder};
-use log::{debug, error, info, warn};
-use pangraphx_core::{CoreGraph, GraphFormat, PanResult};
-use std::io::Write;
+use handle_formats::handle_formats;
+use log::{debug};
 
 fn main() -> Result<()> {
     // TODO production logging configuration
@@ -27,21 +27,16 @@ fn main() -> Result<()> {
             // TODO
             debug!("Arguments for info: {:?}", args);
             // Handle info command
-            info!("Getting info for {:?}", args.file);
-            Ok(())
+            println!("Getting info for {:?}", args.file);
+            todo!("TODO");
         }
         Commands::Validate(args) => {
             // TODO
             // Handle validate command
             debug!("Arguments for validation: {:?}", args);
-            info!("Validating {:?}", args.file);
-            Ok(())
+            println!("Validating {:?}", args.file);
+            todo!("TODO");
         }
-        Commands::Formats => {
-            // TODO
-            // Handle formats command
-            info!("Listing supported formats");
-            Ok(())
-        }
+        Commands::Formats => handle_formats(),
     }
 }
