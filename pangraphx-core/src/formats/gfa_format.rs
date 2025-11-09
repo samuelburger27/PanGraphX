@@ -70,7 +70,7 @@ impl GraphSerializer for GFACodec {
                         .map(|pair| pair.to_string())
                         .collect::<Vec<_>>()
                         .join(","),
-                    None => "".to_string(),
+                    None => "*".to_string(),
                 })
                 .collect::<Vec<_>>()
                 .join(",");
