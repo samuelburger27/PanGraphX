@@ -32,6 +32,16 @@ impl Orientation {
     }
 }
 
+impl From<bool> for Orientation {
+    fn from(is_reverse: bool) -> Self {
+        if is_reverse {
+            Orientation::Reverse
+        } else {
+            Orientation::Forward
+        }
+    }
+}
+
 /// A node (or segment) in the graph, containing a DNA sequence.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Node {

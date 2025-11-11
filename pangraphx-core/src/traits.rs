@@ -1,11 +1,10 @@
 use crate::core::graph::CoreGraph;
 use crate::error::PanResult;
-use std::io::{BufRead, Write};
+use std::io::{Read, Seek, Write};
 
 /// A trait for any structure that can parse a graph format from a stream.
-pub trait GraphParser {
-    /// Parses data from a reader into the `CoreGraph` representation.
-    fn parse(&self, reader: &mut dyn BufRead) -> PanResult<CoreGraph>;
+pub trait GraphParser<R: Read + Seek> {
+    fn parse(&self, reader: &mut R) -> PanResult<CoreGraph>;
 }
 
 /// A trait for any structure that can serialize a `CoreGraph` to a stream.

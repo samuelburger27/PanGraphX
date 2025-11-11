@@ -1,7 +1,4 @@
 use clap::{Args, Parser, Subcommand};
-use log::{debug, error};
-use pangraphx_core::{CoreGraph, GraphFormat, PanResult};
-use std::path::Path;
 
 #[derive(Parser, Debug)]
 #[command(version, about, subcommand_required = true, long_about = None)]
@@ -59,5 +56,3 @@ pub struct ValidateArgs {
     #[arg(help = "Graph file to validate")]
     pub file: String,
 }
-
-

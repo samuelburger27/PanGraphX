@@ -2,15 +2,16 @@ use crate::core::graph::CoreGraph;
 use crate::error::PanResult;
 use crate::traits::{GraphParser, GraphSerializer};
 use gfa::parser::{GFAParser, GFAParserBuilder};
-use std::io::BufRead;
+use std::io::{BufRead, BufReader, Read, Seek};
 
 pub struct GFACodec;
 
 /// Implementation of GraphParser for GFA format
 /// Uses gfa crate to parse GFA files and converts to CoreGraph
-impl GraphParser for GFACodec {
-    fn parse(&self, reader: &mut dyn BufRead) -> PanResult<CoreGraph> {
-        let lines: Vec<String> = reader.lines().collect::<Result<Vec<_>, _>>()?;
+impl<R: Read + Seek> GraphParser<R> for GFACodec {
+    fn parse(&self, reader: &mut R) -> PanResult<CoreGraph> {
+        let buf_reader = BufReader::new(reader);
+        let lines: Vec<String> = buf_reader.lines().collect::<Result<Vec<_>, _>>()?;
         let lines_iter = lines.iter().map(|s| s.as_bytes());
         // TODO in future maybe support optional fields
         let parser: GFAParser<Vec<u8>, ()> = GFAParserBuilder::all().build();

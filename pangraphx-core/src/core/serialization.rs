@@ -2,7 +2,11 @@ use crate::CoreGraph;
 use crate::GraphFormat;
 use crate::PanResult;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write, Seek};
+
+pub trait GraphReader : BufRead + Seek {}
+
+impl<T: BufRead + Seek> GraphReader for T {}
 
 impl CoreGraph {
     pub fn load_from_file(path: &str, format: GraphFormat) -> PanResult<CoreGraph> {
@@ -11,8 +15,8 @@ impl CoreGraph {
         Self::load(&mut reader, format)
     }
 
-    pub fn load(reader: &mut dyn BufRead, format: GraphFormat) -> PanResult<CoreGraph> {
-        format.get_parser().parse(reader)
+    pub fn load<R: GraphReader>(reader: &mut R, format: GraphFormat) -> PanResult<CoreGraph> {
+        format.get_parser::<R>().parse(reader)
     }
 
     pub fn save_to_file(&self, path: &str, format: GraphFormat) -> PanResult<()> {

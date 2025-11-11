@@ -410,6 +410,7 @@ dependencies = [
  "gbwt",
  "gfa",
  "log",
+ "simple-sds-sbwt",
  "tempfile",
  "thiserror",
 ]

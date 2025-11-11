@@ -11,6 +11,7 @@ clap = { version = "4", features = ["derive"] }
 gbwt = "0.3.1"
 gfa = "0.10.1"
 log = "0.4.28"
+simple-sds-sbwt = "0.3.2"
 thiserror = "2.0.17"
 
 [dev-dependencies]
