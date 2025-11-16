@@ -7,7 +7,7 @@ pub use core::graph::CoreGraph;
 pub use error::PanResult;
 use std::fmt::Display;
 
-use crate::formats::{GBZCodec, GFACodec, VGCodec};
+use crate::formats::{GBZCodec, GFACodec, VGCodec, FastgCodec};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::io::{Read, Seek};
 
@@ -17,6 +17,7 @@ pub enum GraphFormat {
     GBZ,
     GFA,
     VG,
+    FASTG,
 }
 
 impl Display for GraphFormat {
@@ -25,6 +26,7 @@ impl Display for GraphFormat {
             GraphFormat::GBZ => write!(f, "GBZ"),
             GraphFormat::GFA => write!(f, "GFA"),
             GraphFormat::VG => write!(f, "VG"),
+            GraphFormat::FASTG => write!(f, "FASTG"),
         }
     }
 }
@@ -39,6 +41,7 @@ impl GraphFormat {
             GraphFormat::GBZ => "gbz",
             GraphFormat::GFA => "gfa",
             GraphFormat::VG => "vg",
+            GraphFormat::FASTG => "fastg",
         }
     }
 
@@ -47,6 +50,7 @@ impl GraphFormat {
             "gfa" => Some(GraphFormat::GFA),
             "vg" => Some(GraphFormat::VG),
             "gbz" => Some(GraphFormat::GBZ),
+            "fastg" => Some(GraphFormat::FASTG),
             _ => None,
         }
     }
@@ -56,6 +60,7 @@ impl GraphFormat {
             GraphFormat::GFA => Box::new(GFACodec),
             GraphFormat::VG => Box::new(VGCodec),
             GraphFormat::GBZ => Box::new(GBZCodec),
+            GraphFormat::FASTG => Box::new(FastgCodec),
         }
     }
 
@@ -64,6 +69,7 @@ impl GraphFormat {
             GraphFormat::GFA => Box::new(GFACodec),
             GraphFormat::VG => Box::new(VGCodec),
             GraphFormat::GBZ => Box::new(GBZCodec),
+            GraphFormat::FASTG => Box::new(FastgCodec),
         }
     }
 }

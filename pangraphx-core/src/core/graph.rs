@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use gfa::cigar::CIGAR;
-use gfa::gfa::orientation::Orientation as GFAOrientation;
+
 /// A unique identifier for a node/segment in the graph.
 pub type NodeId = Vec<u8>;
 pub type PathName = Vec<u8>;
@@ -22,15 +22,6 @@ impl Display for Orientation {
     }
 }
 
-impl Orientation {
-    /// Create an Orientation from internal GFA representation
-    pub fn from_gfa(orientation: GFAOrientation) -> Self {
-        match orientation {
-            GFAOrientation::Forward => Orientation::Forward,
-            GFAOrientation::Backward => Orientation::Reverse,
-        }
-    }
-}
 
 impl From<bool> for Orientation {
     fn from(is_reverse: bool) -> Self {
