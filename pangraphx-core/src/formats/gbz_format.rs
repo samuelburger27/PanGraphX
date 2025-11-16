@@ -16,11 +16,12 @@ fn id_to_bytes(id: usize) -> NodeId {
 }
 
 // Helper to map GBWT specific orientation to internal CoreGraph orientation
-#[inline]
-fn map_orientation(o: GbwtOrientation) -> Orientation {
-    match o {
-        GbwtOrientation::Forward => Orientation::Forward,
-        GbwtOrientation::Reverse => Orientation::Reverse,
+impl From<GbwtOrientation> for Orientation {
+    fn from(o: GbwtOrientation) -> Self {
+        match o {
+            GbwtOrientation::Forward => Orientation::Forward,
+            GbwtOrientation::Reverse => Orientation::Reverse,
+        }
     }
 }
 
@@ -85,7 +86,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                                 from_node: segment.name.to_vec(),
                                 from_orient: Orientation::Forward,
                                 to_node: successor.name.to_vec(),
-                                to_orient: map_orientation(orientation),
+                                to_orient: orientation.into(),
                                 overlap: Vec::new(), // GBZ does not store overlap information TODO check, workaround ?
                             });
                         }
@@ -104,7 +105,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                                 from_node: segment.name.to_vec(),
                                 from_orient: Orientation::Reverse,
                                 to_node: successor.name.to_vec(),
-                                to_orient: map_orientation(orientation),
+                                to_orient: orientation.into(),
                                 overlap: Vec::new(), // GBZ does not store overlap information TODO check, workaround ?
                             });
                         }
@@ -121,7 +122,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                                 from_node: id_to_bytes(node_id),
                                 from_orient: Orientation::Forward,
                                 to_node: id_to_bytes(successor),
-                                to_orient: map_orientation(orientation),
+                                to_orient: orientation.into(),
                                 overlap: Vec::new(), // GBZ does not store overlap information TODO check, workaround ?
                             });
                         }
@@ -136,7 +137,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                                 from_node: id_to_bytes(node_id),
                                 from_orient: Orientation::Reverse,
                                 to_node: id_to_bytes(successor),
-                                to_orient: map_orientation(orientation),
+                                to_orient: orientation.into(),
                                 overlap: Vec::new(), // GBZ does not store overlap information TODO check, workaround ?
                             });
                         }
@@ -160,7 +161,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                     Some(iter) => iter
                         .map(|(segment, orientation)| Step {
                             node_id: segment.name.to_vec(),
-                            orientation: map_orientation(orientation),
+                            orientation: orientation.into(),
                         })
                         .collect(),
 
@@ -171,7 +172,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                         })?
                         .map(|(node_id, orientation)| Step {
                             node_id: id_to_bytes(node_id),
-                            orientation: map_orientation(orientation),
+                            orientation: orientation.into(),
                         })
                         .collect(),
                 };
@@ -193,7 +194,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
 }
 
 impl GraphSerializer for GBZCodec {
-    fn serialize(&self, _graph: &CoreGraph, _writer: &mut dyn std::io::Write) -> PanResult<()> {
+    fn serialize(&self, graph: &CoreGraph, writer: &mut dyn std::io::Write) -> PanResult<()> {
         todo!("GBZ format serializer not implemented yet")
     }
 }

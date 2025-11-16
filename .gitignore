@@ -16,3 +16,6 @@ target
 temp
 
 .vscode
+
+# merged file for LLM analyses
+pangraphx-core/merged.rs

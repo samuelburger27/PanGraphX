@@ -1,10 +1,20 @@
-use crate::core::graph::CoreGraph;
+use crate::core::graph::{CoreGraph, Edge, Node, Orientation, Path, Step, NodeId};
 use crate::error::PanResult;
 use crate::traits::{GraphParser, GraphSerializer};
+use gfa::gfa::orientation::Orientation as GFAOrientation;
 use gfa::parser::{GFAParser, GFAParserBuilder};
 use std::io::{BufRead, BufReader, Read, Seek};
 
 pub struct GFACodec;
+
+impl From<GFAOrientation> for Orientation {
+    fn from(orientation: GFAOrientation) -> Self {
+        match orientation {
+            GFAOrientation::Forward => Orientation::Forward,
+            GFAOrientation::Backward => Orientation::Reverse,
+        }
+    }
+}
 
 /// Implementation of GraphParser for GFA format
 /// Uses gfa crate to parse GFA files and converts to CoreGraph
@@ -15,9 +25,53 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
         let lines_iter = lines.iter().map(|s| s.as_bytes());
         // TODO in future maybe support optional fields
         let parser: GFAParser<Vec<u8>, ()> = GFAParserBuilder::all().build();
-        let gfa_graph = parser.parse_lines(lines_iter)?;
-        println!("{:?}", gfa_graph.header);
-        Ok(CoreGraph::from(gfa_graph))
+        let gfa = parser.parse_lines(lines_iter)?;
+        println!("{:?}", gfa.header);
+        // TODO handle options fields properly
+        let nodes: Vec<Node> = gfa
+            .segments
+            .into_iter()
+            .map(|seq| Node {
+                id: seq.name,
+                sequence: seq.sequence,
+            })
+            .collect();
+        let edges: Vec<Edge> = gfa
+            .links
+            .into_iter()
+            .map(|link| Edge {
+                from_node: link.from_segment as NodeId,
+                from_orient: link.from_orient.into(),
+                to_node: link.to_segment as NodeId,
+                to_orient: link.to_orient.into(),
+                overlap: link.overlap,
+            })
+            .collect();
+
+        let paths: Vec<Path> = gfa
+            .paths
+            .into_iter()
+            .map(|p| {
+                let steps: Vec<Step> = p
+                    .iter()
+                    .map(|(id, orient)| Step {
+                        node_id: id.to_vec(),
+                        orientation: orient.into(),
+                    })
+                    .collect();
+                Path {
+                    name: p.path_name,
+                    steps,
+                    overlaps: p.overlaps,
+                }
+            })
+            .collect();
+
+        Ok(CoreGraph {
+            nodes,
+            edges,
+            paths,
+        })
     }
 }
 
