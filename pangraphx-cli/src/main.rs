@@ -1,16 +1,18 @@
 mod cli;
 mod convert;
+mod handle_de_bruijn;
 mod handle_formats;
 mod handle_info;
 use anyhow::Result;
 use clap::Parser;
 use cli::args_parser::{Cli, Commands};
 use convert::handle_conversion;
+use handle_de_bruijn::handle_de_bruijn;
 use handle_formats::handle_formats;
-use log::{debug};
+use log::debug;
 
 fn main() -> Result<()> {
-    // TODO production logging configuration
+    // production logging configuration
     // builder()
     //     .target(Target::Stderr)
     //     .format(|buf, record| {
@@ -23,6 +25,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Convert(args) => handle_conversion(&args),
+        Commands::DeBruijn(args) => handle_de_bruijn(&args),
         Commands::Info(args) => {
             // TODO
             debug!("Arguments for info: {:?}", args);

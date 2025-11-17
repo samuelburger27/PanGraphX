@@ -37,7 +37,8 @@ impl From<bool> for Orientation {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Node {
     pub id: NodeId,
-    pub sequence: Vec<u8>, // Using Vec<u8> is efficient for ASCII/DNA
+    // TODO: use a more efficient representation for sequences
+    pub sequence: Vec<u8>,
 }
 
 /// An edge (or link) connecting two nodes with specific orientations.

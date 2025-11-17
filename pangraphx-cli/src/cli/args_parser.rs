@@ -12,6 +12,9 @@ pub enum Commands {
     /// Convert genome graphs between formats
     Convert(ConvertArgs),
 
+    /// Convert variation graph to de Bruijn graph
+    DeBruijn(DeBruijnArgs),
+
     /// Show basic info about a graph file
     Info(InfoArgs),
 
@@ -32,11 +35,11 @@ pub struct ConvertArgs {
     #[arg(short = 'o', long)]
     pub output: String,
 
-    /// Override input format (e.g., gfa, vg, dbg)
+    /// Override input format (e.g. gfa, gbz, fastg)
     #[arg(long)]
     pub from: Option<String>,
 
-    /// Override output format (e.g., gfa, vg, dbg)
+    /// Override output format (e.g. gfa, gbz, fastg)
     #[arg(long)]
     pub to: Option<String>,
 
@@ -55,4 +58,27 @@ pub struct InfoArgs {
 pub struct ValidateArgs {
     #[arg(help = "Graph file to validate")]
     pub file: String,
+}
+
+#[derive(Args, Debug)]
+pub struct DeBruijnArgs {
+    /// k-mer size
+    #[arg(short = 'k', long, default_value_t = 31)]
+    pub kmer_size: usize,
+
+    /// Input file path (format inferred from suffix)
+    #[arg(short = 'i', long)]
+    pub input: String,
+
+    /// Output file path (format inferred from suffix)
+    #[arg(short = 'o', long)]
+    pub output: String,
+
+    /// Override input format (e.g. gfa, gbz, fastg)
+    #[arg(long)]
+    pub from: Option<String>,
+
+    /// Override output format (e.g. gfa, gbz, fastg)
+    #[arg(long)]
+    pub to: Option<String>,
 }

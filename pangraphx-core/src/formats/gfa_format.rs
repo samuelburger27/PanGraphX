@@ -1,4 +1,4 @@
-use crate::core::graph::{CoreGraph, Edge, Node, Orientation, Path, Step, NodeId};
+use crate::core::graph::{CoreGraph, Edge, Node, NodeId, Orientation, Path, Step};
 use crate::error::PanResult;
 use crate::traits::{GraphParser, GraphSerializer};
 use gfa::gfa::orientation::Orientation as GFAOrientation;
@@ -26,7 +26,6 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
         // TODO in future maybe support optional fields
         let parser: GFAParser<Vec<u8>, ()> = GFAParserBuilder::all().build();
         let gfa = parser.parse_lines(lines_iter)?;
-        println!("{:?}", gfa.header);
         // TODO handle options fields properly
         let nodes: Vec<Node> = gfa
             .segments

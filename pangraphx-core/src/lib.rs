@@ -1,13 +1,15 @@
 pub mod core;
+pub mod de_bruijn_conversion;
 pub mod error;
 pub mod formats;
 pub mod traits;
 
-pub use core::graph::CoreGraph;
+pub use core::{graph::CoreGraph, lookup_graph::LookUpGraph};
 pub use error::PanResult;
+pub use de_bruijn_conversion::k_mers::Kmer;
 use std::fmt::Display;
 
-use crate::formats::{GBZCodec, GFACodec, VGCodec, FastgCodec};
+use crate::formats::{FastgCodec, GBZCodec, GFACodec, VGCodec};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::io::{Read, Seek};
 

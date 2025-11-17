@@ -1,4 +1,5 @@
 use crate::core::graph::{CoreGraph, Edge, Node, NodeId, Orientation};
+use crate::core::graph_utils::reverse_complement;
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::collections::HashMap;
@@ -129,19 +130,6 @@ impl<R: Read + Seek> GraphParser<R> for FastgCodec {
     }
 }
 
-fn reverse_complement(sequence: &Vec<u8>) -> Vec<u8> {
-    sequence
-        .iter()
-        .rev()
-        .map(|b| match b {
-            b'A' => b'T',
-            b'T' => b'A',
-            b'C' => b'G',
-            b'G' => b'C',
-            _ => *b,
-        })
-        .collect()
-}
 
 /// Records a node into the core graph, checking for duplicates.
 fn record_node(

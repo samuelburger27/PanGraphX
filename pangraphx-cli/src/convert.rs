@@ -27,7 +27,7 @@ pub fn handle_conversion(args: &ConvertArgs) -> Result<()> {
 }
 
 /// Infer graph format from specified format or file extension if no format specified
-fn infer_graph_format(path: &str, specified_format: &Option<String>) -> Option<GraphFormat> {
+pub fn infer_graph_format(path: &str, specified_format: &Option<String>) -> Option<GraphFormat> {
     if let Some(ext) = specified_format {
         GraphFormat::from_extension(&ext)
     } else {
