@@ -37,4 +37,18 @@ impl LookUpGraph<'_> {
             }
         })
     }
+    /// Return the original sequence of the node for the given step in a path.
+    pub(crate) fn path_node_original_sequence<'a>(
+        &'a self,
+        path: &'a Path,
+    ) -> impl Iterator<Item = &[u8]> + 'a {
+        path.steps.iter().map(move |step| {
+            // Node id should always exist in the lookup graph
+            let index = *self
+                .node_index
+                .get(&step.node_id)
+                .expect("unknown node id in path");
+            self.graph.nodes[index].sequence.as_slice()
+        })
+    }
 }

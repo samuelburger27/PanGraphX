@@ -5,8 +5,8 @@ pub mod formats;
 pub mod traits;
 
 pub use core::{graph::CoreGraph, lookup_graph::LookUpGraph};
-pub use error::PanResult;
 pub use de_bruijn_conversion::k_mers::Kmer;
+pub use error::PanResult;
 use std::fmt::Display;
 
 use crate::formats::{FastgCodec, GBZCodec, GFACodec, VGCodec};
@@ -35,7 +35,9 @@ impl Display for GraphFormat {
 
 impl GraphFormat {
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::GFA, Self::VG, Self::GBZ].iter().copied()
+        [Self::GBZ, Self::GFA, Self::VG, Self::FASTG]
+            .iter()
+            .copied()
     }
 
     pub fn get_extension(&self) -> &str {

@@ -107,8 +107,8 @@ impl LookUpGraph<'_> {
         let mut window = Vec::with_capacity(k);
 
         // Iterate over node sequences as slices
-        for seq in self.path_node_sequences(path) {
-            for &base in seq.as_ref() {
+        for seq in self.path_node_original_sequence(path) {
+            for &base in seq {
                 // Fill window until size k
                 if window.len() < k {
                     window.push(base);

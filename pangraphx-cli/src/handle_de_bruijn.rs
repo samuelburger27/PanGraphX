@@ -3,7 +3,6 @@ use crate::cli::args_parser::DeBruijnArgs;
 use anyhow::{Ok, Result};
 use log::{debug, warn};
 use pangraphx_core::{CoreGraph, GraphFormat, Kmer, LookUpGraph};
-use std::path::Path;
 
 pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
     // Function implementation goes here
