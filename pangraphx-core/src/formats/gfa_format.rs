@@ -77,21 +77,21 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
 impl GraphSerializer for GFACodec {
     fn serialize(&self, graph: &CoreGraph, writer: &mut dyn std::io::Write) -> PanResult<()> {
         // write header
-        // TODO maybe incolde newer version
-        writer.write(b"H\tVN:Z:1.0\n")?;
+        // TODO maybe include newer version
+        writer.write_all(b"H\tVN:Z:1.0\n")?;
 
         // write nodes
         for node in &graph.nodes {
             let id = String::from_utf8_lossy(&node.id);
             let seq = String::from_utf8_lossy(&node.sequence);
-            writer.write(format!("S\t{}\t{}\n", id, seq).as_bytes())?;
+            writer.write_all(format!("S\t{}\t{}\n", id, seq).as_bytes())?;
         }
         // Write edges
         for edge in &graph.edges {
             let from_id = String::from_utf8_lossy(&edge.from_node);
             let to_id = String::from_utf8_lossy(&edge.to_node);
             let overlap = String::from_utf8_lossy(&edge.overlap);
-            writer.write(
+            writer.write_all(
                 format!(
                     "L\t{}\t{}\t{}\t{}\t{}\n",
                     from_id, edge.from_orient, to_id, edge.to_orient, overlap
@@ -129,7 +129,7 @@ impl GraphSerializer for GFACodec {
                 .collect::<Vec<_>>()
                 .join(",");
             let name = String::from_utf8_lossy(&path.name);
-            writer.write(format!("P\t{}\t{}\t{}\n", name, segments, overlaps).as_bytes())?;
+            writer.write_all(format!("P\t{}\t{}\t{}\n", name, segments, overlaps).as_bytes())?;
         }
 
         Ok(())

@@ -17,5 +17,7 @@ temp
 
 .vscode
 
-# merged file for LLM analyses
+# merged file for LLM analysis
 pangraphx-core/merged.rs
+
+.Ds_Store

@@ -1,8 +1,10 @@
+use std::collections::HashSet;
+
 use super::convert::infer_graph_format;
 use crate::cli::args_parser::DeBruijnArgs;
 use anyhow::{Ok, Result};
-use log::{debug, warn};
-use pangraphx_core::{CoreGraph, GraphFormat, Kmer, LookUpGraph};
+use log::debug;
+use pangraphx_core::{CoreGraph, DeBruijn};
 
 pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
     // Function implementation goes here
@@ -12,17 +14,25 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
             args.input
         )
     })?;
+    let output_format = infer_graph_format(&args.output, &args.to).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Output graph format is not supported or couldn't be inferred: {}",
+            args.output
+        )
+    })?;
+
     debug!("Input format: {:?}", input_format);
-    let graph = CoreGraph::load_from_file(&args.input, input_format)?;
-    // Here would be the logic to convert to de Bruijn graph
-    // For now only print k-mers
-    // TODO
-    let lookup_graph = LookUpGraph::new(&graph);
-    let kmers = lookup_graph.extract_canonical_kmers(args.kmer_size);
-    println!("Extracted k-mers:");
-    for (i, kmer) in kmers.iter().enumerate() {
-        println!("{}.: {}", i, kmer.to_string());
-    }
-    println!("De Bruijn graph conversion is not yet implemented.");
+    debug!("Output format: {:?}", output_format);
+    let mut graph = CoreGraph::load_from_file(&args.input, input_format)?;
+    let db_graph = DeBruijn::from_directed_graph(&graph, args.kmer_size);
+    graph = db_graph.into();
+    // debug
+    let set = graph
+        .nodes
+        .iter()
+        .map(|node| node.sequence.clone())
+        .collect::<HashSet<_>>();
+    println!("Different nodes in de Bruijn graph: {}", set.len());
+    graph.save_to_file(&args.output, output_format)?;
     Ok(())
 }

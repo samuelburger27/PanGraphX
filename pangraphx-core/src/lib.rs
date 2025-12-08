@@ -5,7 +5,7 @@ pub mod formats;
 pub mod traits;
 
 pub use core::{graph::CoreGraph, lookup_graph::LookUpGraph};
-pub use de_bruijn_conversion::k_mers::Kmer;
+pub use de_bruijn_conversion::{de_bruijn_graph::DeBruijn, k_mers::Kmer};
 pub use error::PanResult;
 use std::fmt::Display;
 

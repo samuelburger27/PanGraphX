@@ -1,4 +1,7 @@
-use crate::core::graph::{CoreGraph, Path};
+use std::collections::HashMap;
+use std::fmt::Display;
+
+use crate::core::graph::{Node, Orientation, Path};
 use crate::core::lookup_graph::LookUpGraph;
 
 /// Encode 2-bit DNA: A=0, C=1, G=2, T=3, N=0
@@ -25,7 +28,7 @@ fn rc_base(x: u8) -> u8 {
     }
 }
 
-// TODO max k-mer can be increased if needed ???
+/// max k-mer can be increased if needed ???
 /// 2-bit encoded k-mer stored in u128 (supports k ≤ 63)
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Kmer {
@@ -70,40 +73,72 @@ impl Kmer {
         if self.code <= rc.code { *self } else { rc }
     }
 
-    pub fn to_string(&self) -> String {
-        let mut s = String::with_capacity(self.k);
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(self.k);
         let mut x = self.code;
-        let mut bases = vec![b'A'; self.k];
         for i in (0..self.k).rev() {
             let b = (x & 3) as u8;
-            bases[i] = match b {
+            let base = match b {
                 0 => b'A',
                 1 => b'C',
                 2 => b'G',
                 3 => b'T',
                 _ => b'N',
             };
+            bytes.push(base);
             x >>= 2;
         }
-        s.push_str(&String::from_utf8_lossy(&bases));
-        s
+        bytes
+    }
+}
+
+impl Display for Kmer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let bytes = self.to_bytes();
+        write!(f, "{}", String::from_utf8_lossy(&bytes))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct OrientedKmer {
+    pub kmer: Kmer,
+    pub direction: Orientation,
+}
+
+impl OrientedKmer {
+    #[inline]
+    pub fn from_bases(bases: &[u8]) -> Self {
+        let raw = Kmer::from_bases(bases);
+        let canonical = raw.canonical();
+        if canonical.code == raw.code {
+            return Self {
+                kmer: canonical,
+                direction: Orientation::Forward,
+            };
+        }
+        return Self {
+            kmer: canonical,
+            direction: Orientation::Reverse,
+        };
     }
 }
 
 impl LookUpGraph<'_> {
-    /// Extract canonical k-mers from path sequences as Kmer structs.
-    pub fn extract_canonical_kmers(&self, k: usize) -> Vec<Kmer> {
-        let mut kmers = Vec::new();
+    /// Extract oriented k-mers from path sequences.
+    pub fn extract_oriented_kmers(&self, k: usize) -> HashMap<&Path, Vec<OrientedKmer>> {
+        let mut kmers = HashMap::new();
         for path in &self.graph.paths {
-            self.extract_kmers_from_path(path, k, &mut kmers);
+            let extracted = self.extract_kmers_from_path(path, k);
+            kmers.insert(path, extracted);
         }
 
         kmers
     }
 
-    /// Extract k-mers from a single path into existing Vec<Kmer>
+    /// Extract k-mers from a single path
     #[inline]
-    fn extract_kmers_from_path(&self, path: &Path, k: usize, out: &mut Vec<Kmer>) {
+    fn extract_kmers_from_path(&self, path: &Path, k: usize) -> Vec<OrientedKmer> {
+        let mut result = Vec::new();
         let mut window = Vec::with_capacity(k);
 
         // Iterate over node sequences as slices
@@ -113,17 +148,18 @@ impl LookUpGraph<'_> {
                 if window.len() < k {
                     window.push(base);
                     if window.len() == k {
-                        let kmer = Kmer::from_bases(&window).canonical();
-                        out.push(kmer);
+                        let kmer = OrientedKmer::from_bases(&window);
+                        result.push(kmer);
                     }
                 } else {
                     // Slide: drop first, push new
                     window.remove(0); // O(k) → can be optimized
                     window.push(base);
-                    let kmer = Kmer::from_bases(&window).canonical();
-                    out.push(kmer);
+                    let kmer = OrientedKmer::from_bases(&window);
+                    result.push(kmer);
                 }
             }
         }
+        result
     }
 }

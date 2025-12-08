@@ -194,7 +194,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
 }
 
 impl GraphSerializer for GBZCodec {
-    fn serialize(&self, graph: &CoreGraph, writer: &mut dyn std::io::Write) -> PanResult<()> {
+    fn serialize(&self, _graph: &CoreGraph, _writer: &mut dyn std::io::Write) -> PanResult<()> {
         todo!("GBZ format serializer not implemented yet")
     }
 }

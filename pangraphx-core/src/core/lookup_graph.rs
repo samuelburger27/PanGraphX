@@ -1,4 +1,4 @@
-use super::graph::{CoreGraph, Node, NodeId, Orientation, Path, PathName, Step};
+use super::graph::{CoreGraph, NodeId, PathName};
 use std::collections::HashMap;
 
 pub struct LookUpGraph<'a> {

@@ -3,7 +3,7 @@ use super::lookup_graph::LookUpGraph;
 use std::borrow::Cow;
 
 /// Returns the reverse complement of a DNA sequence
-pub fn reverse_complement(sequence: &Vec<u8>) -> Vec<u8> {
+pub fn reverse_complement(sequence: &[u8]) -> Vec<u8> {
     sequence
         .iter()
         .rev()
@@ -41,7 +41,7 @@ impl LookUpGraph<'_> {
     pub(crate) fn path_node_original_sequence<'a>(
         &'a self,
         path: &'a Path,
-    ) -> impl Iterator<Item = &[u8]> + 'a {
+    ) -> impl Iterator<Item = &'a [u8]> + 'a {
         path.steps.iter().map(move |step| {
             // Node id should always exist in the lookup graph
             let index = *self

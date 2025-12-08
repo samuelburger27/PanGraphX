@@ -6,7 +6,7 @@ use std::io::{Read, Seek};
 pub struct VGCodec;
 
 impl<R: Read + Seek> GraphParser<R> for VGCodec {
-    fn parse(&self, reader: &mut R) -> PanResult<CoreGraph> {
+    fn parse(&self, _reader: &mut R) -> PanResult<CoreGraph> {
         todo!("VG format parser not implemented yet")
     }
 }

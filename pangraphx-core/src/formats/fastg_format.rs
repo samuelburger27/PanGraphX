@@ -10,7 +10,8 @@ pub struct FastgCodec;
 impl<R: Read + Seek> GraphParser<R> for FastgCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraph> {
         // TODO maybe parse name it often contains metadata ?
-
+        println!("Warning: FASTG file doesn't contain path information.");
+        println!("Only nodes and edges will be parsed.");
         let buf_reader = BufReader::new(reader);
         let seq_characters: [u8; 5] = [b'A', b'C', b'G', b'T', b'N'];
         let mut recorded_nodes: HashMap<Vec<u8>, usize> = HashMap::new();
@@ -130,7 +131,6 @@ impl<R: Read + Seek> GraphParser<R> for FastgCodec {
     }
 }
 
-
 /// Records a node into the core graph, checking for duplicates.
 fn record_node(
     node_id: NodeId,
@@ -143,19 +143,23 @@ fn record_node(
         node_sequence = reverse_complement(&node_sequence);
     }
 
-    if recorded_nodes.contains_key(&node_id) {
-        if node_sequence != core_nodes[recorded_nodes[&node_id]].sequence {
-            return Err(PanGraphXError::Parse(format!(
-                "Duplicate node ID {} with different sequences found in FASTG file",
-                String::from_utf8_lossy(&node_id)
-            )));
+    match recorded_nodes.insert(node_id.clone(), core_nodes.len()) {
+        // Node ID already recorded
+        // Verify that the sequence matches
+        Some(node_index) => {
+            if node_sequence != core_nodes[node_index].sequence {
+                return Err(PanGraphXError::Parse(format!(
+                    "Duplicate node ID {} with different sequences found in FASTG file",
+                    String::from_utf8_lossy(&node_id)
+                )));
+            }
         }
-    } else {
-        core_nodes.push(Node {
-            id: node_id.clone(),
-            sequence: node_sequence.clone(),
-        });
-        recorded_nodes.insert(node_id, core_nodes.len() - 1);
+        None => {
+            core_nodes.push(Node {
+                id: node_id.clone(),
+                sequence: node_sequence.clone(),
+            });
+        }
     }
     Ok(())
 }
@@ -166,10 +170,7 @@ impl GraphSerializer for FastgCodec {
         println!("Only nodes and edges will be serialized.");
         let mut node_edge_map: HashMap<&NodeId, Vec<&Edge>> = HashMap::new();
         for edge in &graph.edges {
-            node_edge_map
-                .entry(&edge.from_node)
-                .or_insert_with(Vec::new)
-                .push(edge);
+            node_edge_map.entry(&edge.from_node).or_default().push(edge);
         }
         for node in &graph.nodes {
             let edges = node_edge_map.get(&node.id);
