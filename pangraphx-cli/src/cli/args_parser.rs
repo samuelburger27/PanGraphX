@@ -12,8 +12,8 @@ pub enum Commands {
     /// Convert genome graphs between formats
     Convert(ConvertArgs),
 
-    /// Convert variation graph to de Bruijn graph
-    DeBruijn(DeBruijnArgs),
+    /// Convert variation graph to De Bruijn graph
+    DBG(DeBruijnArgs),
 
     /// Show basic info about a graph file
     Info(InfoArgs),

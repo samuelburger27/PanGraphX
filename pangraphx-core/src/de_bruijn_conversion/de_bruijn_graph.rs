@@ -1,10 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::core::graph::{Node};
+use crate::core::graph::Node;
 use crate::core::lookup_graph::LookUpGraph;
 use crate::de_bruijn_conversion::k_mers::OrientedKmer;
 use crate::{CoreGraph, Kmer};
-// use std::collections::
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct DbgEdge {
@@ -15,6 +14,7 @@ pub struct DbgEdge {
 pub struct DeBruijn {
     pub kmers: HashSet<Kmer>,
     pub edges: Vec<DbgEdge>,
+    pub k_size: u32,
 }
 
 impl DeBruijn {
@@ -36,6 +36,7 @@ impl DeBruijn {
         DeBruijn {
             kmers: all_kmers,
             edges,
+            k_size: k as u32,
         }
     }
 }
@@ -57,6 +58,7 @@ impl From<DeBruijn> for CoreGraph {
                 )
             })
             .collect();
+        
         //Create edges from dbg edges
         let edges: Vec<crate::core::graph::Edge> = db_graph
             .edges
@@ -69,7 +71,7 @@ impl From<DeBruijn> for CoreGraph {
                     from_orient: dbg_edge.from.direction,
                     to_node: to_node.id.clone(),
                     to_orient: dbg_edge.to.direction,
-                    overlap: Vec::new(), // In de Bruijn graph, overlap is implicit
+                    overlap: db_graph.k_size - 1,
                 }
             })
             .collect();
@@ -81,4 +83,10 @@ impl From<DeBruijn> for CoreGraph {
             paths: Vec::new(), // Paths are not represented in de Bruijn graph
         }
     }
+}
+
+pub struct ColorfulDeBruijn {
+    pub kmers: HashSet<Kmer>,
+    pub edges: Vec<DbgEdge>,
+    pub kmer_colors: HashMap<Kmer, HashSet<String>>,
 }

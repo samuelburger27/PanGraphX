@@ -87,7 +87,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                                 from_orient: Orientation::Forward,
                                 to_node: successor.name.to_vec(),
                                 to_orient: orientation.into(),
-                                overlap: Vec::new(), // GBZ does not store overlap information TODO check, workaround ?
+                                overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
                         }
                     }
@@ -106,7 +106,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                                 from_orient: Orientation::Reverse,
                                 to_node: successor.name.to_vec(),
                                 to_orient: orientation.into(),
-                                overlap: Vec::new(), // GBZ does not store overlap information TODO check, workaround ?
+                                overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
                         }
                     }
@@ -123,7 +123,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                                 from_orient: Orientation::Forward,
                                 to_node: id_to_bytes(successor),
                                 to_orient: orientation.into(),
-                                overlap: Vec::new(), // GBZ does not store overlap information TODO check, workaround ?
+                                overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
                         }
                     }
@@ -138,7 +138,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                                 from_orient: Orientation::Reverse,
                                 to_node: id_to_bytes(successor),
                                 to_orient: orientation.into(),
-                                overlap: Vec::new(), // GBZ does not store overlap information TODO check, workaround ?
+                                overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
                         }
                     }
@@ -176,7 +176,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                         })
                         .collect(),
                 };
-                let overlaps = vec![None; steps.len().saturating_sub(1)];
+                let overlaps: Vec<u32> = vec![0; steps.len().saturating_sub(1)]; // GBZ does not store overlaps, default to 0
                 paths.push(Path {
                     name: contig_name.as_bytes().to_vec(),
                     steps,

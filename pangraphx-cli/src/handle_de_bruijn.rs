@@ -26,13 +26,6 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
     let mut graph = CoreGraph::load_from_file(&args.input, input_format)?;
     let db_graph = DeBruijn::from_directed_graph(&graph, args.kmer_size);
     graph = db_graph.into();
-    // debug
-    let set = graph
-        .nodes
-        .iter()
-        .map(|node| node.sequence.clone())
-        .collect::<HashSet<_>>();
-    println!("Different nodes in de Bruijn graph: {}", set.len());
     graph.save_to_file(&args.output, output_format)?;
     Ok(())
 }

@@ -49,7 +49,7 @@ pub struct Edge {
     pub to_node: NodeId,
     pub to_orient: Orientation,
     /// Represents overlap
-    pub overlap: Vec<u8>,
+    pub overlap: u32,
 }
 
 /// A single step in a path.
@@ -64,7 +64,7 @@ pub struct Step {
 pub struct Path {
     pub name: PathName,
     pub steps: Vec<Step>,
-    pub overlaps: Vec<Option<CIGAR>>,
+    pub overlaps: Vec<u32>,
 }
 
 /// The central, in-memory representation of a genome graph.

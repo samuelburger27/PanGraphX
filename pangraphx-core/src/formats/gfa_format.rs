@@ -1,9 +1,11 @@
 use crate::core::graph::{CoreGraph, Edge, Node, NodeId, Orientation, Path, Step};
 use crate::error::PanResult;
 use crate::traits::{GraphParser, GraphSerializer};
+use gfa::cigar::CIGAR;
 use gfa::gfa::orientation::Orientation as GFAOrientation;
 use gfa::parser::{GFAParser, GFAParserBuilder};
-use std::io::{BufRead, BufReader, Read, Seek};
+use log::debug;
+use std::io::{BufRead, BufReader, Read, Seek, Write};
 
 pub struct GFACodec;
 
@@ -13,6 +15,35 @@ impl From<GFAOrientation> for Orientation {
             GFAOrientation::Forward => Orientation::Forward,
             GFAOrientation::Backward => Orientation::Reverse,
         }
+    }
+}
+/// Converts CIGAR to overlap length
+/// For now ignore everything except matches
+#[inline]
+fn cigar_to_overlap(cigar: CIGAR) -> u32 {
+    let mut result: u32 = 0;
+    for pair in cigar.0 {
+        let (count, op) = pair.into_pair();
+        if op == gfa::cigar::CIGAROp::M {
+            result += count;
+        } else {
+            debug!(
+                "Non-match CIGAR op encountered: {:?} with count {}",
+                op, count
+            );
+            debug!("Ignoring non-match operations for overlap calculation");
+        }
+    }
+    result
+}
+
+// Can be made faster by avoiding parsing CIGAR completely
+// For now, this seems sufficient
+#[inline]
+fn parse_overlap(cigar_str: &[u8]) -> u32 {
+    match CIGAR::from_bytestring(cigar_str) {
+        Some(cigar) => cigar_to_overlap(cigar),
+        None => 0,
     }
 }
 
@@ -35,6 +66,19 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
                 sequence: seq.sequence,
             })
             .collect();
+        println!("All saved overlaps: ");
+        for link in &gfa.links {
+            // vec[u8] to ascii string
+            println!("{}", String::from_utf8_lossy(&link.overlap));
+        }
+        println!("All path overlaps: ");
+        for path in &gfa.paths {
+            for cigar in &path.overlaps {
+                if let Some(cigar) = cigar {
+                    println!("{}", cigar);
+                }
+            }
+        }
         let edges: Vec<Edge> = gfa
             .links
             .into_iter()
@@ -43,7 +87,7 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
                 from_orient: link.from_orient.into(),
                 to_node: link.to_segment as NodeId,
                 to_orient: link.to_orient.into(),
-                overlap: link.overlap,
+                overlap: parse_overlap(&link.overlap),
             })
             .collect();
 
@@ -58,10 +102,19 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
                         orientation: orient.into(),
                     })
                     .collect();
+
+                let overlaps: Vec<u32> = p
+                    .overlaps
+                    .into_iter()
+                    .map(|opt_cigar| match opt_cigar {
+                        Some(cigar) => cigar_to_overlap(cigar),
+                        None => 0,
+                    })
+                    .collect();
                 Path {
                     name: p.path_name,
                     steps,
-                    overlaps: p.overlaps,
+                    overlaps,
                 }
             })
             .collect();
@@ -75,7 +128,7 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
 }
 
 impl GraphSerializer for GFACodec {
-    fn serialize(&self, graph: &CoreGraph, writer: &mut dyn std::io::Write) -> PanResult<()> {
+    fn serialize(&self, graph: &CoreGraph, writer: &mut dyn Write) -> PanResult<()> {
         // write header
         // TODO maybe include newer version
         writer.write_all(b"H\tVN:Z:1.0\n")?;
@@ -90,7 +143,7 @@ impl GraphSerializer for GFACodec {
         for edge in &graph.edges {
             let from_id = String::from_utf8_lossy(&edge.from_node);
             let to_id = String::from_utf8_lossy(&edge.to_node);
-            let overlap = String::from_utf8_lossy(&edge.overlap);
+            let overlap = edge.overlap.to_string() + "M";
             writer.write_all(
                 format!(
                     "L\t{}\t{}\t{}\t{}\t{}\n",
@@ -107,8 +160,8 @@ impl GraphSerializer for GFACodec {
                 .map(|step| {
                     let id = String::from_utf8_lossy(&step.node_id);
                     let orient = match step.orientation {
-                        crate::core::graph::Orientation::Forward => "+",
-                        crate::core::graph::Orientation::Reverse => "-",
+                        Orientation::Forward => "+",
+                        Orientation::Reverse => "-",
                     };
                     format!("{}{}", id, orient)
                 })
@@ -117,15 +170,7 @@ impl GraphSerializer for GFACodec {
             let overlaps = path
                 .overlaps
                 .iter()
-                .map(|opt| match opt {
-                    Some(cigar) => cigar
-                        .0
-                        .iter()
-                        .map(|pair| pair.to_string())
-                        .collect::<Vec<_>>()
-                        .join(","),
-                    None => "*".to_string(),
-                })
+                .map(|opt| opt.to_string() + "M")
                 .collect::<Vec<_>>()
                 .join(",");
             let name = String::from_utf8_lossy(&path.name);

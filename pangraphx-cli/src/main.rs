@@ -25,7 +25,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Convert(args) => handle_conversion(&args),
-        Commands::DeBruijn(args) => handle_de_bruijn(&args),
+        Commands::DBG(args) => handle_de_bruijn(&args),
         Commands::Info(args) => {
             // TODO
             debug!("Arguments for info: {:?}", args);

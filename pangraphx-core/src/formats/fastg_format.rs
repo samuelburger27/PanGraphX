@@ -82,7 +82,7 @@ impl<R: Read + Seek> GraphParser<R> for FastgCodec {
                         from_orient: orientation,
                         to_node: edge_id,
                         to_orient: edge_orientation,
-                        overlap: Vec::new(), // FASTG does not specify overlaps
+                        overlap: 0, // FASTG does not specify overlaps
                     });
                 }
             } else {

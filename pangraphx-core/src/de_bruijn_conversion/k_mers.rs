@@ -28,6 +28,15 @@ fn rc_base(x: u8) -> u8 {
     }
 }
 
+/// Roll k-mer by adding next base and removing first base
+/// Assumes 1 ≤ k ≤ 63
+#[inline(always)]
+pub fn roll_kmer(code: u128, k: usize, next_base: u8) -> u128 {
+    let mask: u128 = (1u128 << (2 * (k - 1))) - 1;
+    let next_code = encode_base(next_base) as u128;
+    ((code & mask) << 2) | next_code
+}
+
 /// max k-mer can be increased if needed ???
 /// 2-bit encoded k-mer stored in u128 (supports k ≤ 63)
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -76,7 +85,7 @@ impl Kmer {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(self.k);
         let mut x = self.code;
-        for i in (0..self.k).rev() {
+        for _ in (0..self.k).rev() {
             let b = (x & 3) as u8;
             let base = match b {
                 0 => b'A',
@@ -106,6 +115,21 @@ pub struct OrientedKmer {
 }
 
 impl OrientedKmer {
+    pub fn from_code(code: u128, k: usize) -> Self {
+        let raw = Kmer { code, k };
+        let canonical = raw.canonical();
+        if canonical.code == raw.code {
+            return Self {
+                kmer: canonical,
+                direction: Orientation::Forward,
+            };
+        }
+        return Self {
+            kmer: canonical,
+            direction: Orientation::Reverse,
+        };
+    }
+
     #[inline]
     pub fn from_bases(bases: &[u8]) -> Self {
         let raw = Kmer::from_bases(bases);
@@ -131,7 +155,6 @@ impl LookUpGraph<'_> {
             let extracted = self.extract_kmers_from_path(path, k);
             kmers.insert(path, extracted);
         }
-
         kmers
     }
 
@@ -139,23 +162,18 @@ impl LookUpGraph<'_> {
     #[inline]
     fn extract_kmers_from_path(&self, path: &Path, k: usize) -> Vec<OrientedKmer> {
         let mut result = Vec::new();
-        let mut window = Vec::with_capacity(k);
-
+        
         // Iterate over node sequences as slices
         for seq in self.path_node_original_sequence(path) {
-            for &base in seq {
+            let mut code: u128 = 0;
+            for (i, &base) in seq.into_iter().enumerate() {
                 // Fill window until size k
-                if window.len() < k {
-                    window.push(base);
-                    if window.len() == k {
-                        let kmer = OrientedKmer::from_bases(&window);
-                        result.push(kmer);
-                    }
-                } else {
-                    // Slide: drop first, push new
-                    window.remove(0); // O(k) → can be optimized
-                    window.push(base);
-                    let kmer = OrientedKmer::from_bases(&window);
+                if i < k {
+                    code = (code << 2) | encode_base(base) as u128;
+                } 
+                else {
+                    code = roll_kmer(code, k, base);
+                    let kmer = OrientedKmer::from_code(code, k);
                     result.push(kmer);
                 }
             }
