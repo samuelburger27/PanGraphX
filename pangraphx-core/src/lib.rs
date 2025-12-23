@@ -3,9 +3,11 @@ pub mod de_bruijn_conversion;
 pub mod error;
 pub mod formats;
 pub mod traits;
+#[cfg(test)]
+pub mod test_helpers;
 
 pub use core::{graph::CoreGraph, lookup_graph::LookUpGraph};
-pub use de_bruijn_conversion::{de_bruijn_graph::DeBruijn, k_mers::Kmer};
+pub use de_bruijn_conversion::{de_bruijn_graph::DeBruijn, k_mers::Kmer, colored_dbg::ColoredDBG};
 pub use error::PanResult;
 use std::fmt::Display;
 

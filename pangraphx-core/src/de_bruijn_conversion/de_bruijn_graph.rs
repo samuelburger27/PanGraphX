@@ -13,7 +13,7 @@ pub struct DbgEdge {
 
 pub struct DeBruijn {
     pub kmers: HashSet<Kmer>,
-    pub edges: Vec<DbgEdge>,
+    pub edges: HashSet<DbgEdge>,
     pub k_size: u32,
 }
 
@@ -21,7 +21,7 @@ impl DeBruijn {
     pub fn from_directed_graph(graph: &CoreGraph, k: usize) -> Self {
         let lookup_graph = LookUpGraph::new(graph);
         let extracted_o_kmers = lookup_graph.extract_oriented_kmers(k);
-        let mut edges = Vec::new();
+        let mut edges = HashSet::new();
         let mut all_kmers = HashSet::new();
         for (_, kmers) in extracted_o_kmers {
             // Construct de Bruijn edges from kmers
@@ -30,7 +30,7 @@ impl DeBruijn {
                 let to = window[1];
                 all_kmers.insert(from.kmer);
                 all_kmers.insert(to.kmer);
-                edges.push(DbgEdge { from, to });
+                edges.insert(DbgEdge { from, to });
             }
         }
         DeBruijn {
@@ -85,8 +85,3 @@ impl From<DeBruijn> for CoreGraph {
     }
 }
 
-pub struct ColorfulDeBruijn {
-    pub kmers: HashSet<Kmer>,
-    pub edges: Vec<DbgEdge>,
-    pub kmer_colors: HashMap<Kmer, HashSet<String>>,
-}

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::vec;
 
 use crate::core::graph::{Node, Orientation, Path};
 use crate::core::lookup_graph::LookUpGraph;
@@ -83,9 +84,9 @@ impl Kmer {
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(self.k);
+        let mut bytes = vec![0; self.k];
         let mut x = self.code;
-        for _ in (0..self.k).rev() {
+        for i in (0..self.k).rev() {
             let b = (x & 3) as u8;
             let base = match b {
                 0 => b'A',
@@ -94,7 +95,7 @@ impl Kmer {
                 3 => b'T',
                 _ => b'N',
             };
-            bytes.push(base);
+            bytes[i] = base;
             x >>= 2;
         }
         bytes
@@ -162,16 +163,19 @@ impl LookUpGraph<'_> {
     #[inline]
     fn extract_kmers_from_path(&self, path: &Path, k: usize) -> Vec<OrientedKmer> {
         let mut result = Vec::new();
-        
+
         // Iterate over node sequences as slices
-        for seq in self.path_node_original_sequence(path) {
+        for seq in self.path_node_forward_sequence(path) {
             let mut code: u128 = 0;
             for (i, &base) in seq.into_iter().enumerate() {
                 // Fill window until size k
                 if i < k {
                     code = (code << 2) | encode_base(base) as u128;
-                } 
-                else {
+                    if i == k - 1 {
+                        let kmer = OrientedKmer::from_code(code, k);
+                        result.push(kmer);
+                    }
+                } else {
                     code = roll_kmer(code, k, base);
                     let kmer = OrientedKmer::from_code(code, k);
                     result.push(kmer);
@@ -179,5 +183,192 @@ impl LookUpGraph<'_> {
             }
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{CoreGraph, core::graph::Step};
+
+    use super::*;
+
+    // --- Basic Encoding Tests ---
+
+    #[test]
+    fn test_encode_base() {
+        assert_eq!(encode_base(b'A'), 0);
+        assert_eq!(encode_base(b'C'), 1);
+        assert_eq!(encode_base(b'G'), 2);
+        assert_eq!(encode_base(b'T'), 3);
+        assert_eq!(encode_base(b'N'), 0); // N treated as A
+        assert_eq!(encode_base(b'a'), 0); // Case insensitivity
+    }
+
+    #[test]
+    fn test_rc_base() {
+        // A(0) <-> T(3)
+        assert_eq!(rc_base(0), 3);
+        assert_eq!(rc_base(3), 0);
+        // C(1) <-> G(2)
+        assert_eq!(rc_base(1), 2);
+        assert_eq!(rc_base(2), 1);
+    }
+
+    // --- Kmer Struct Tests ---
+
+    #[test]
+    fn test_kmer_round_trip() {
+        let seq = b"ACGTACGT";
+        let k = 8;
+        let kmer = Kmer::from_bases(seq);
+        let output = kmer.to_bytes();
+        assert_eq!(output, seq, "Round trip encoding/decoding failed");
+    }
+
+    #[test]
+    fn test_kmer_rev_comp() {
+        // Sequence: TTCG (T=3, T=3, C=1, G=2)
+        // RC:       CGAA (C=1, G=2, A=0, A=0)
+        let seq = b"TTCG";
+        let kmer = Kmer::from_bases(seq);
+        let rc = kmer.rev_comp();
+
+        assert_eq!(rc.to_bytes(), b"CGAA");
+    }
+
+    #[test]
+    fn test_canonicalization() {
+        // Case 1: Forward is smaller
+        // AAAA (00000000) vs TTTT (11111111)
+        let kmer_fwd = Kmer::from_bases(b"AAAA");
+        assert_eq!(kmer_fwd.canonical().to_bytes(), b"AAAA");
+
+        // Case 2: Reverse is smaller
+        // TTTT vs AAAA
+        let kmer_rev = Kmer::from_bases(b"TTTT");
+        assert_eq!(kmer_rev.canonical().to_bytes(), b"AAAA");
+
+        // Case 3: Mixed
+        // TGCA (T=3, G=2, C=1, A=0) -> RC = TGCA
+        // This is a palindrome
+        let palindrome = Kmer::from_bases(b"TGCA");
+        assert_eq!(palindrome.canonical().to_bytes(), b"TGCA");
+    }
+
+    // --- OrientedKmer Tests ---
+
+    #[test]
+    fn test_orientation_detection() {
+        // "AAAA" is canonical (smaller than TTTT), so it should be Forward
+        let ok_fwd = OrientedKmer::from_bases(b"AAAA");
+        assert_eq!(ok_fwd.direction, Orientation::Forward);
+        assert_eq!(ok_fwd.kmer.to_bytes(), b"AAAA");
+
+        // "TTTT" is NOT canonical (larger than AAAA), so it should be Reverse
+        // The stored kmer should be the canonical one (AAAA)
+        let ok_rev = OrientedKmer::from_bases(b"TTTT");
+        assert_eq!(ok_rev.direction, Orientation::Reverse);
+        assert_eq!(ok_rev.kmer.to_bytes(), b"AAAA");
+    }
+
+    // --- Rolling Hash Tests ---
+
+    #[test]
+    fn test_roll_kmer_logic() {
+        let k = 4;
+        // Start: ACGT
+        let start_seq = b"ACGT";
+        let start_kmer = Kmer::from_bases(start_seq);
+
+        // Roll in 'A' -> Should become CGTA
+        let next_code = roll_kmer(start_kmer.code, k, b'A');
+        let next_kmer = Kmer { code: next_code, k };
+
+        assert_eq!(next_kmer.to_bytes(), b"CGTA");
+    }
+
+    // --- Extraction Logic Test ---
+    #[test]
+    fn test_extract_kmers_from_path() {
+        let seq = b"ACGTA";
+        let k = 4;
+        let nodes = vec![Node {
+            id: b"1".to_vec(),
+            sequence: seq.to_vec(),
+        }];
+        let graph = CoreGraph {
+            nodes,
+            edges: vec![],
+            paths: vec![Path {
+                name: b"path1".to_vec(),
+                steps: vec![Step {
+                    node_id: b"1".to_vec(),
+                    orientation: Orientation::Forward,
+                }],
+                overlaps: vec![],
+            }],
+        };
+        let lookup = LookUpGraph::new(&graph);
+        let result = lookup.extract_kmers_from_path(&graph.paths[0], k);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].kmer.to_bytes(), b"ACGT");
+        assert_eq!(result[1].kmer.to_bytes(), b"CGTA");
+
+        // test exact size k-mer
+        let k = 5;
+        let result_exact = lookup.extract_kmers_from_path(&graph.paths[0], k);
+        assert_eq!(result_exact.len(), 1);
+        assert_eq!(result_exact[0].kmer.to_bytes(), b"ACGTA");
+    }
+
+    #[test]
+    fn test_extract_kmers_from_all_paths() {
+        let seq1 = b"ACGTA";
+        let seq2 = b"TTGCA";
+        let k = 4;
+        let nodes = vec![
+            Node {
+                id: b"1".to_vec(),
+                sequence: seq1.to_vec(),
+            },
+            Node {
+                id: b"2".to_vec(),
+                sequence: seq2.to_vec(),
+            },
+        ];
+        let graph = CoreGraph {
+            nodes,
+            edges: vec![],
+            paths: vec![
+                Path {
+                    name: b"path1".to_vec(),
+                    steps: vec![Step {
+                        node_id: b"1".to_vec(),
+                        orientation: Orientation::Forward,
+                    }],
+                    overlaps: vec![],
+                },
+                Path {
+                    name: b"path2".to_vec(),
+                    steps: vec![Step {
+                        node_id: b"2".to_vec(),
+                        orientation: Orientation::Forward,
+                    }],
+                    overlaps: vec![],
+                },
+            ],
+        };
+        let lookup = LookUpGraph::new(&graph);
+        let result = lookup.extract_oriented_kmers(k);
+
+        assert_eq!(result.len(), 2);
+        let path1_kmers = result.get(&graph.paths[0]).unwrap();
+        assert_eq!(path1_kmers.len(), 2);
+        assert_eq!(path1_kmers[0].kmer, Kmer::from_bases(b"ACGT").canonical());
+        assert_eq!(path1_kmers[1].kmer, Kmer::from_bases(b"CGTA").canonical());
+        let path2_kmers = result.get(&graph.paths[1]).unwrap();
+        assert_eq!(path2_kmers.len(), 2);
+        assert_eq!(path2_kmers[0].kmer, Kmer::from_bases(b"TTGC").canonical());
+        assert_eq!(path2_kmers[1].kmer, Kmer::from_bases(b"TGCA").canonical());
     }
 }

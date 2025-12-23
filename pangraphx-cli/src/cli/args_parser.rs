@@ -66,6 +66,10 @@ pub struct DeBruijnArgs {
     #[arg(short = 'k', long, default_value_t = 31)]
     pub kmer_size: usize,
 
+    /// Colored DBG
+    #[arg(short = 'c', long, default_value_t = false)]
+    pub colored: bool,
+
     /// Input file path (format inferred from suffix)
     #[arg(short = 'i', long)]
     pub input: String,

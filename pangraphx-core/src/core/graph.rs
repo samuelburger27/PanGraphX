@@ -1,7 +1,5 @@
 use std::fmt::Display;
 
-use gfa::cigar::CIGAR;
-
 /// A unique identifier for a node/segment in the graph.
 pub type NodeId = Vec<u8>;
 pub type PathName = Vec<u8>;
@@ -21,7 +19,6 @@ impl Display for Orientation {
         }
     }
 }
-
 
 impl From<bool> for Orientation {
     fn from(is_reverse: bool) -> Self {
@@ -73,4 +70,10 @@ pub struct CoreGraph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
     pub paths: Vec<Path>,
+}
+
+impl CoreGraph {
+    pub fn create_simple_graph() {
+        todo!()
+    }
 }

@@ -19,7 +19,8 @@ pub fn reverse_complement(sequence: &[u8]) -> Vec<u8> {
 
 impl LookUpGraph<'_> {
     /// Return an iterator over the node sequences for the given path.
-    /// The sequences are returned in the correct orientation.
+    /// The sequences are returned in the correct orientation
+    /// (if orientation is Reverse, the reverse complement is returned).
     pub fn path_node_sequences<'a>(
         &'a self,
         path: &'a Path,
@@ -37,8 +38,8 @@ impl LookUpGraph<'_> {
             }
         })
     }
-    /// Return the original sequence of the node for the given step in a path.
-    pub(crate) fn path_node_original_sequence<'a>(
+    /// Return the forward sequence of the node for the given step in a path.
+    pub(crate) fn path_node_forward_sequence<'a>(
         &'a self,
         path: &'a Path,
     ) -> impl Iterator<Item = &'a [u8]> + 'a {

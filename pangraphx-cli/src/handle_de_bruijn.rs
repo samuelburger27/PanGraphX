@@ -4,7 +4,7 @@ use super::convert::infer_graph_format;
 use crate::cli::args_parser::DeBruijnArgs;
 use anyhow::{Ok, Result};
 use log::debug;
-use pangraphx_core::{CoreGraph, DeBruijn};
+use pangraphx_core::{ColoredDBG, CoreGraph, DeBruijn};
 
 pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
     // Function implementation goes here
@@ -24,8 +24,15 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
     debug!("Input format: {:?}", input_format);
     debug!("Output format: {:?}", output_format);
     let mut graph = CoreGraph::load_from_file(&args.input, input_format)?;
-    let db_graph = DeBruijn::from_directed_graph(&graph, args.kmer_size);
-    graph = db_graph.into();
+    let graph;
+    if args.colored {
+        let col_dbg = ColoredDBG::from_directed_graph(&graph, args.kmer_size);
+        graph = col_dbg.into();
+    }
+    else {
+        let db_graph = DeBruijn::from_directed_graph(&graph, args.kmer_size);
+        graph = db_graph.into();
+    }
     graph.save_to_file(&args.output, output_format)?;
     Ok(())
 }
