@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 import random
 import argparse
 
@@ -6,7 +7,7 @@ def random_seq(length):
     return ''.join(random.choices("ACGT", k=length))
 
 
-def generate_gfa(filename, segment_count=1000, avg_len=500, link_prob=0.2):
+def generate_gfa(filename, segment_count=1000, avg_len=500, link_prob=0.4, num_paths=2):
     with open(filename, "w") as f:
         f.write("H\tVN:Z:1.0\n")  # GFA header
         # Segments
@@ -22,12 +23,14 @@ def generate_gfa(filename, segment_count=1000, avg_len=500, link_prob=0.2):
                 ori2 = random.choice(["+", "-"])
                 f.write(f"L\tS{i}\t{ori1}\tS{j}\t{ori2}\t0M\n")
 
-        # Optional paths (assemblies)
-        f.write("P\tpath1\t")
-        path = []
-        for i in range(1, segment_count + 1):
-            path.append(f"S{i}+")
-        f.write(",".join(path) + "\t*\n")
+        # Paths
+        for p in range(num_paths):
+            f.write(f"P\tpath{p+1}\t")
+            path = []
+            for i in range(1, segment_count + 1):
+                if random.random() < 0.4:  # 40% chance to include the segment in the path
+                    path.append(f"S{i}+")
+            f.write(",".join(path) + "\t*\n")
 
 
 if __name__ == "__main__":
@@ -42,6 +45,12 @@ if __name__ == "__main__":
     parser.add_argument("--link-prob", type=float, default=0.8,
                         help="Probability of link creation between segments")
 
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for reproducibility")
+    parser.add_argument("--num-paths", type=int, default=2,
+                        help="Number of paths to include in the GFA")
     args = parser.parse_args()
-    generate_gfa(args.file, args.segments, args.avg_len, args.link_prob)
+    random.seed(args.seed)
+    generate_gfa(args.file, args.segments, args.avg_len,
+                 args.link_prob, args.num_paths)
     print(f"Generated {args.file} with {args.segments} segments.")

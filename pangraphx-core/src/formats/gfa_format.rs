@@ -66,12 +66,7 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
                 sequence: seq.sequence,
             })
             .collect();
-        println!("All saved overlaps: ");
-        for link in &gfa.links {
-            // vec[u8] to ascii string
-            println!("{}", String::from_utf8_lossy(&link.overlap));
-        }
-        println!("All path overlaps: ");
+
         for path in &gfa.paths {
             for cigar in &path.overlaps {
                 if let Some(cigar) = cigar {
@@ -167,12 +162,15 @@ impl GraphSerializer for GFACodec {
                 })
                 .collect::<Vec<_>>()
                 .join(",");
-            let overlaps = path
+            let mut overlaps = path
                 .overlaps
                 .iter()
                 .map(|opt| opt.to_string() + "M")
                 .collect::<Vec<_>>()
                 .join(",");
+            if overlaps.is_empty() {
+                overlaps = "*".to_string();
+            }
             let name = String::from_utf8_lossy(&path.name);
             writer.write_all(format!("P\t{}\t{}\t{}\n", name, segments, overlaps).as_bytes())?;
         }

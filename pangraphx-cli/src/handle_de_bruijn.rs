@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use super::convert::infer_graph_format;
 use crate::cli::args_parser::DeBruijnArgs;
 use anyhow::{Ok, Result};
@@ -23,16 +21,16 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
 
     debug!("Input format: {:?}", input_format);
     debug!("Output format: {:?}", output_format);
-    let mut graph = CoreGraph::load_from_file(&args.input, input_format)?;
-    let graph;
+    let graph = CoreGraph::load_from_file(&args.input, input_format)?;
+    let final_graph: CoreGraph;
     if args.colored {
         let col_dbg = ColoredDBG::from_directed_graph(&graph, args.kmer_size);
-        graph = col_dbg.into();
+        final_graph = col_dbg.into();
     }
     else {
         let db_graph = DeBruijn::from_directed_graph(&graph, args.kmer_size);
-        graph = db_graph.into();
+        final_graph = db_graph.into();
     }
-    graph.save_to_file(&args.output, output_format)?;
+    final_graph.save_to_file(&args.output, output_format)?;
     Ok(())
 }

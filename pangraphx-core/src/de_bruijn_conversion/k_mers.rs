@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::vec;
 
-use crate::core::graph::{Node, Orientation, Path};
+use crate::core::graph::{Orientation, Path};
 use crate::core::lookup_graph::LookUpGraph;
 
 /// Encode 2-bit DNA: A=0, C=1, G=2, T=3, N=0
@@ -188,7 +188,7 @@ impl LookUpGraph<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CoreGraph, core::graph::Step};
+    use crate::{CoreGraph, core::graph::Node, core::graph::Step};
 
     use super::*;
 
