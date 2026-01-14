@@ -17,7 +17,7 @@ pub struct ColoredDBG {
 impl ColoredDBG {
     pub fn from_directed_graph(graph: &CoreGraph, k: usize) -> Self {
         let lookup_graph = LookUpGraph::new(graph);
-        let extracted_o_kmers = lookup_graph.extract_oriented_kmers(k);
+        let extracted_o_kmers = lookup_graph.extract_kmers_paths(k);
         let mut edges = HashSet::new();
         let mut all_kmers = HashSet::new();
         let mut paths = Vec::new();

@@ -70,6 +70,10 @@ pub struct DeBruijnArgs {
     #[arg(short = 'c', long, default_value_t = false)]
     pub colored: bool,
 
+    // Use all topological walks to create edges ( otherwise use only haplotype paths)
+    #[arg(short = 'f', long = "full-topology", default_value_t = false)]
+    pub full_topology: bool,
+
     /// Input file path (format inferred from suffix)
     #[arg(short = 'i', long)]
     pub input: String,

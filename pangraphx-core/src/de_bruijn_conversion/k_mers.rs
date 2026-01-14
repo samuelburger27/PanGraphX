@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::vec;
 
-use crate::core::graph::{Orientation, Path};
+use crate::core::graph::{Edge, Node, NodeId, Orientation, Path};
 use crate::core::lookup_graph::LookUpGraph;
+use crate::de_bruijn_conversion::de_bruijn_graph::DbgEdge;
 
 /// Encode 2-bit DNA: A=0, C=1, G=2, T=3, N=0
 #[inline(always)]
@@ -29,11 +30,16 @@ fn rc_base(x: u8) -> u8 {
     }
 }
 
+#[inline(always)]
+fn suffix_mask(k: usize) -> u128 {
+    (1u128 << (2 * (k - 1))) - 1
+}
+
 /// Roll k-mer by adding next base and removing first base
 /// Assumes 1 ≤ k ≤ 63
 #[inline(always)]
 pub fn roll_kmer(code: u128, k: usize, next_base: u8) -> u128 {
-    let mask: u128 = (1u128 << (2 * (k - 1))) - 1;
+    let mask: u128 = suffix_mask(k - 1);
     let next_code = encode_base(next_base) as u128;
     ((code & mask) << 2) | next_code
 }
@@ -148,9 +154,18 @@ impl OrientedKmer {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+struct VisitState<'a> {
+    pub node: &'a Node,
+    pub suffix_code: u128,
+    pub code_size: usize,
+}
+
 impl LookUpGraph<'_> {
+    //pub fn
+
     /// Extract oriented k-mers from path sequences.
-    pub fn extract_oriented_kmers(&self, k: usize) -> HashMap<&Path, Vec<OrientedKmer>> {
+    pub fn extract_kmers_paths(&self, k: usize) -> HashMap<&Path, Vec<OrientedKmer>> {
         let mut kmers = HashMap::new();
         for path in &self.graph.paths {
             let extracted = self.extract_kmers_from_path(path, k);
@@ -183,6 +198,118 @@ impl LookUpGraph<'_> {
             }
         }
         result
+    }
+
+    /// Depth-first traversal of a variation graph that extracts all k-mers
+    /// implied by the full graph topology.
+    ///
+    /// To guarantee termination on cyclic graphs while preserving
+    /// full topological coverage, traversal is bounded by *state*
+    /// rather than nodes alone. A state is defined as:
+    ///
+    ///   (node, suffix_code, code_size)
+    ///
+    /// where `suffix_code` represents the last (k−1) bases of the
+    /// current rolling window.
+    fn enumerate_kmers_from_topology_dfs<'a>(
+        &'a self,
+        adjacency_list: &HashMap<&'a NodeId, Vec<&Edge>>,
+        kmer_buffer: &mut HashSet<Kmer>,
+        edge_buffer: &mut HashSet<DbgEdge>,
+        visited_states: &mut HashSet<VisitState<'a>>,
+        node: &'a Node,
+        mut code: u128,
+        mut code_size: usize,
+        mut last_kmer: Option<OrientedKmer>,
+        k: usize,
+    ) {
+        // Traverse the sequence of the current node base by base,
+        // updating the rolling k-mer window.
+        for &base in node.sequence.iter() {
+            // Fill the window until it reaches size k
+            if code_size < k {
+                code = (code << 2) | encode_base(base) as u128;
+                code_size += 1;
+
+                if code_size == k {
+                    let to_kmer = OrientedKmer::from_code(code, k);
+                    kmer_buffer.insert(to_kmer.kmer);
+                    // Cross-node edge (previous node → this node)
+                    if let Some(last) = last_kmer {
+                        edge_buffer.insert(DbgEdge {
+                            from: last,
+                            to: to_kmer,
+                        });
+                    }
+                    last_kmer = Some(to_kmer);
+                }
+            } else {
+                // Slide the window by one base
+                code = roll_kmer(code, k, base);
+                let to_kmer = OrientedKmer::from_code(code, k);
+                kmer_buffer.insert(to_kmer.kmer);
+                edge_buffer.insert(DbgEdge {
+                    from: last_kmer.unwrap(),
+                    to: to_kmer,
+                });
+                last_kmer = Some(to_kmer);
+            }
+        }
+
+        // Compute the (k−1)-suffix context used for state pruning.
+        let mut suffix_code = code;
+        if code_size == k {
+            suffix_code = code & suffix_mask(k);
+        }
+
+        // Stop traversal if this state was already explored
+        if !visited_states.insert(VisitState {
+            node,
+            suffix_code,
+            code_size,
+        }) {
+            return;
+        }
+
+        // Continue traversal across outgoing edges, carrying the
+        if let Some(neighbors) = adjacency_list.get(&node.id) {
+            for edge in neighbors {
+                let next_node_id = &edge.to_node;
+                let next_node = self.get_node_by_id(next_node_id).unwrap();
+                self.enumerate_kmers_from_topology_dfs(
+                    adjacency_list,
+                    kmer_buffer,
+                    edge_buffer,
+                    visited_states,
+                    next_node,
+                    code,
+                    code_size,
+                    last_kmer,
+                    k,
+                );
+            }
+        }
+    }
+
+    pub fn extract_kmers_from_full_topology(&self, k: usize) -> (HashSet<Kmer>, HashSet<DbgEdge>) {
+        let mut kmers = HashSet::new();
+        let mut edges = HashSet::new();
+        let adjacency_list = self.get_adjacency_list();
+        let mut visited_states: HashSet<VisitState> = HashSet::new();
+        for node in &self.graph.nodes {
+            self.enumerate_kmers_from_topology_dfs(
+                &adjacency_list,
+                &mut kmers,
+                &mut edges,
+                &mut visited_states,
+                node,
+                0,
+                0,
+                None,
+                k,
+            );
+        }
+        (kmers, edges)
     }
 }
 
@@ -359,7 +486,7 @@ mod tests {
             ],
         };
         let lookup = LookUpGraph::new(&graph);
-        let result = lookup.extract_oriented_kmers(k);
+        let result = lookup.extract_kmers_paths(k);
 
         assert_eq!(result.len(), 2);
         let path1_kmers = result.get(&graph.paths[0]).unwrap();

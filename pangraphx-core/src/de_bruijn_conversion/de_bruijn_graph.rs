@@ -20,7 +20,7 @@ pub struct DeBruijn {
 impl DeBruijn {
     pub fn from_directed_graph(graph: &CoreGraph, k: usize) -> Self {
         let lookup_graph = LookUpGraph::new(graph);
-        let extracted_o_kmers = lookup_graph.extract_oriented_kmers(k);
+        let extracted_o_kmers = lookup_graph.extract_kmers_paths(k);
         let mut edges = HashSet::new();
         let mut all_kmers = HashSet::new();
         for (_, kmers) in extracted_o_kmers {
@@ -38,6 +38,15 @@ impl DeBruijn {
             edges,
             k_size: k as u32,
         }
+    }
+
+    pub fn from_directed_graph_full_topography(graph: &CoreGraph, k: usize) -> Self {
+        let lookup_graph = LookUpGraph::new(graph);
+        let extracted_o_kmers = lookup_graph.extract_kmers_from_full_topology(k);
+        //let mut edges = HashSet::new();
+        let mut all_kmers = HashSet::new();
+        
+        todo!("");
     }
 }
 
@@ -58,7 +67,7 @@ impl From<DeBruijn> for CoreGraph {
                 )
             })
             .collect();
-        
+
         //Create edges from dbg edges
         let edges: Vec<crate::core::graph::Edge> = db_graph
             .edges
@@ -84,4 +93,3 @@ impl From<DeBruijn> for CoreGraph {
         }
     }
 }
-
