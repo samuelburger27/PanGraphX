@@ -25,6 +25,7 @@ impl From<GbwtOrientation> for Orientation {
     }
 }
 
+
 impl<R: Read + Seek> GraphParser<R> for GBZCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraph> {
         // 1. Load the GBZ file using the Serialize trait method
