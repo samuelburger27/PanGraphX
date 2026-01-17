@@ -3,7 +3,7 @@ use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::io::{Read, Seek};
 
-// Import necessary types from the gbwt crate based on provided API
+// Import necessary types from the gbwt crate
 use gbwt::{GBZ, Orientation as GbwtOrientation, REF_SAMPLE};
 use simple_sds_sbwt::serialize::Serialize;
 

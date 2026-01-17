@@ -1,7 +1,6 @@
 use super::graph::{Orientation, Path};
 use super::lookup_graph::LookUpGraph;
 use std::borrow::Cow;
-
 /// Returns the reverse complement of a DNA sequence
 pub fn reverse_complement(sequence: &[u8]) -> Vec<u8> {
     sequence

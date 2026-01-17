@@ -2,7 +2,7 @@ use super::convert::infer_graph_format;
 use crate::cli::args_parser::DeBruijnArgs;
 use anyhow::{Ok, Result};
 use log::debug;
-use pangraphx_core::{ColoredDBG, CoreGraph, DeBruijn, core::graph};
+use pangraphx_core::{ColoredDBG, CoreGraph, DeBruijn};
 
 pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
     let input_format = infer_graph_format(&args.input, &args.from).ok_or_else(|| {
@@ -21,28 +21,32 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
     debug!("Input format: {:?}", input_format);
     debug!("Output format: {:?}", output_format);
     let graph = CoreGraph::load_from_file(&args.input, input_format)?;
-    let final_graph: CoreGraph;
-    if args.colored {
-        let col_dbg = ColoredDBG::from_directed_graph(&graph, args.kmer_size);
-        final_graph = col_dbg.into();
-    } else {
-        let db_graph = DeBruijn::from_directed_graph(&graph, args.kmer_size);
-        final_graph = db_graph.into();
-    }
+    let final_graph =
+        create_converted_dbg_graph(&graph, args.kmer_size, args.full_topology, args.colored);
     final_graph.save_to_file(&args.output, output_format)?;
     Ok(())
 }
 
 ///
-fn create_dbg_graph(
+fn create_converted_dbg_graph(
     graph: &CoreGraph,
     kmer_size: usize,
     full_topology: bool,
     colored: bool,
 ) -> CoreGraph {
-    if full_topology {
-        DeBruijn::from_directed_graph_full_topography(graph, kmer_size)
+    // Colored only makes sense with specified Paths
+    if colored {
+        if full_topology {
+            println!(
+                "Warning: Colored de Bruijn graph with full topology is not supported. Ignoring full topology flag."
+            );
+        }
+        ColoredDBG::from_directed_graph(graph, kmer_size).into()
     } else {
-        DeBruijn::from_directed_graph(graph, kmer_size)
+        if full_topology {
+            DeBruijn::from_directed_graph_full_topography(graph, kmer_size).into()
+        } else {
+            DeBruijn::from_directed_graph(graph, kmer_size).into()
+        }
     }
 }

@@ -42,11 +42,12 @@ impl DeBruijn {
 
     pub fn from_directed_graph_full_topography(graph: &CoreGraph, k: usize) -> Self {
         let lookup_graph = LookUpGraph::new(graph);
-        let extracted_o_kmers = lookup_graph.extract_kmers_from_full_topology(k);
-        //let mut edges = HashSet::new();
-        let mut all_kmers = HashSet::new();
-        
-        todo!("");
+        let (kmers, edges) = lookup_graph.extract_kmers_from_full_topology(k);
+        DeBruijn {
+            kmers,
+            edges,
+            k_size: k as u32,
+        }
     }
 }
 

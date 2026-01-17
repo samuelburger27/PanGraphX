@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::fmt::Display;
 use std::vec;
 
@@ -6,7 +7,15 @@ use crate::core::graph::{Edge, Node, NodeId, Orientation, Path};
 use crate::core::lookup_graph::LookUpGraph;
 use crate::de_bruijn_conversion::de_bruijn_graph::DbgEdge;
 
-/// Encode 2-bit DNA: A=0, C=1, G=2, T=3, N=0
+/// Encodes a single DNA byte into a 2-bit representation.
+///
+/// # Mapping
+/// * 'A' / 'a' / 'N' -> 0 (binary 00)
+/// * 'C' / 'c'       -> 1 (binary 01)
+/// * 'G' / 'g'       -> 2 (binary 10)
+/// * 'T' / 't'       -> 3 (binary 11)
+///
+/// **Note:** 'N' (unknown base) is treated as 'A' to maintain strict 2-bit encoding.
 #[inline(always)]
 fn encode_base(b: u8) -> u8 {
     match b {
@@ -18,7 +27,13 @@ fn encode_base(b: u8) -> u8 {
     }
 }
 
-/// Reverse-complement single base (2-bit)
+/// Computes the Reverse Complement of a 2-bit encoded base.
+///
+///
+///
+/// # Logic
+/// * 0 (A) <-> 3 (T)
+/// * 1 (C) <-> 2 (G)
 #[inline(always)]
 fn rc_base(x: u8) -> u8 {
     match x {
@@ -31,12 +46,21 @@ fn rc_base(x: u8) -> u8 {
 }
 
 #[inline(always)]
-fn suffix_mask(k: usize) -> u128 {
-    (1u128 << (2 * (k - 1))) - 1
+fn suffix_mask(n_bases: usize) -> u128 {
+    (1u128 << (2 * n_bases)) - 1
 }
 
-/// Roll k-mer by adding next base and removing first base
-/// Assumes 1 ≤ k ≤ 63
+/// Performs a "rolling" update of a k-mer code.
+///
+/// This operation simulates a sliding window moving one base to the right.
+/// 1. Masks the current code to remove the most significant base (the oldest).
+/// 2. Left-shifts the result by 2 bits.
+/// 3. ORs the new base into the least significant position.
+///
+/// # Arguments
+/// * `code`: The current 2-bit encoded k-mer.
+/// * `k`: The length of the k-mer (must be 1 <= k <= 63).
+/// * `next_base`: The ASCII byte of the incoming nucleotide.
 #[inline(always)]
 pub fn roll_kmer(code: u128, k: usize, next_base: u8) -> u128 {
     let mask: u128 = suffix_mask(k - 1);
@@ -44,16 +68,27 @@ pub fn roll_kmer(code: u128, k: usize, next_base: u8) -> u128 {
     ((code & mask) << 2) | next_code
 }
 
-/// max k-mer can be increased if needed ???
-/// 2-bit encoded k-mer stored in u128 (supports k ≤ 63)
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+/// A compact representation of a DNA k-mer.
+///
+/// The sequence is stored in a `u128` using 2-bit encoding.
+/// This allows for efficient storage and hashing of k-mers up to length k=63.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Kmer {
-    pub code: u128, // 2*k bits
+    /// The 2-bit encoded sequence. Uses `2 * k` bits.
+    pub code: u128,
+    /// The length of the k-mer.
     pub k: usize,
 }
 
+impl Debug for Kmer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let bytes = self.to_bytes();
+        write!(f, "Kmer({})", String::from_utf8_lossy(&bytes))
+    }
+}
+
 impl Kmer {
-    /// Create from raw slice of bytes
+    /// Creates a Kmer from a slice of bytes (e.g., `b"ACGT"`).
     #[inline]
     pub fn from_bases(bases: &[u8]) -> Self {
         let mut code: u128 = 0;
@@ -66,7 +101,9 @@ impl Kmer {
         }
     }
 
-    /// Compute reverse complement
+    /// Computes the reverse complement of the k-mer.
+    ///
+    /// This reverses the order of bases and complements each base (A <-> T, C <-> G).
     #[inline]
     pub fn rev_comp(&self) -> Self {
         let mut x = self.code;
@@ -82,13 +119,17 @@ impl Kmer {
         }
     }
 
-    /// Canonical form = lexicographically smaller among forward and RC
+    /// Returns the canonical representation of the k-mer.
+    ///
+    /// The canonical form is defined as the lexicographically smaller sequence
+    /// between the forward k-mer and its reverse complement.
     #[inline]
     pub fn canonical(&self) -> Self {
         let rc = self.rev_comp();
         if self.code <= rc.code { *self } else { rc }
     }
 
+    /// Decodes the `u128` back into a human-readable byte vector.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = vec![0; self.k];
         let mut x = self.code;
@@ -115,13 +156,30 @@ impl Display for Kmer {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+/// A K-mer annotated with its orientation relative to the canonical form.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OrientedKmer {
     pub kmer: Kmer,
     pub direction: Orientation,
 }
 
+impl Debug for OrientedKmer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let bytes = self.to_bytes();
+        write!(
+            f,
+            "OrientedKmer{{Sequence {}, Orientation {}}}",
+            String::from_utf8_lossy(&bytes),
+            self.direction
+        )
+    }
+}
+
 impl OrientedKmer {
+    /// Constructs an `OrientedKmer` from a raw integer code.
+    ///
+    /// Determines if the provided code corresponds to the Forward or Reverse
+    /// canonical direction.
     pub fn from_code(code: u128, k: usize) -> Self {
         let raw = Kmer { code, k };
         let canonical = raw.canonical();
@@ -137,6 +195,7 @@ impl OrientedKmer {
         };
     }
 
+    /// Constructs an `OrientedKmer` from a byte slice.
     #[inline]
     pub fn from_bases(bases: &[u8]) -> Self {
         let raw = Kmer::from_bases(bases);
@@ -152,19 +211,34 @@ impl OrientedKmer {
             direction: Orientation::Reverse,
         };
     }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        if self.direction == Orientation::Forward {
+            self.kmer.to_bytes()
+        } else {
+            self.kmer.rev_comp().to_bytes()
+        }
+    }
 }
 
+/// Tracks the traversal state within the variation graph to prevent infinite loops.
+///
+/// In a De Bruijn Graph context, visiting a node isn't enough to determine uniqueness;
+/// we must know the *context* (incoming history) with which we entered the node.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 struct VisitState<'a> {
+    /// The graph node being visited.
     pub node: &'a Node,
+    /// The encoded suffix (length k-1) preceding the current position.
     pub suffix_code: u128,
+    /// The current size of the rolling window (may be < k at start of traversal).
     pub code_size: usize,
 }
 
 impl LookUpGraph<'_> {
-    //pub fn
-
-    /// Extract oriented k-mers from path sequences.
+    /// Extracts oriented k-mers from all predefined paths in the graph.
+    ///
+    /// Returns a map associating each `Path` with its sequence of k-mers.
     pub fn extract_kmers_paths(&self, k: usize) -> HashMap<&Path, Vec<OrientedKmer>> {
         let mut kmers = HashMap::new();
         for path in &self.graph.paths {
@@ -174,7 +248,9 @@ impl LookUpGraph<'_> {
         kmers
     }
 
-    /// Extract k-mers from a single path
+    /// Extracts k-mers from a single specific path.
+    ///
+    /// This method linearizes the path nodes and runs a sliding window over the sequence.
     #[inline]
     fn extract_kmers_from_path(&self, path: &Path, k: usize) -> Vec<OrientedKmer> {
         let mut result = Vec::new();
@@ -200,17 +276,26 @@ impl LookUpGraph<'_> {
         result
     }
 
-    /// Depth-first traversal of a variation graph that extracts all k-mers
-    /// implied by the full graph topology.
+    /// Depth-first traversal of a variation graph to extract all topological k-mers.
     ///
-    /// To guarantee termination on cyclic graphs while preserving
-    /// full topological coverage, traversal is bounded by *state*
-    /// rather than nodes alone. A state is defined as:
     ///
-    ///   (node, suffix_code, code_size)
     ///
-    /// where `suffix_code` represents the last (k−1) bases of the
-    /// current rolling window.
+    /// # Algorithm
+    /// 1. **Traversal:** Moving through the variation graph node by node.
+    /// 2. **Sliding Window:** Maintaining a rolling hash of the last `k` bases encountered.
+    /// 3. **State Tracking:** To handle cycles (loops in the graph), we track `VisitState`.
+    ///    We only stop recursion if we encounter a specific Node *with the exact same incoming (k-1) context*.
+    ///
+    /// # Arguments
+    /// * `adjacency_list`: Map of NodeId to outgoing Edges.
+    /// * `kmer_buffer`: Collection to store unique canonical K-mers found.
+    /// * `edge_buffer`: Collection to store unique De Bruijn edges (`Kmer_A -> Kmer_B`).
+    /// * `visited_states`: Set of previously seen (Node + Context) states.
+    /// * `node`: The current graph node being traversed.
+    /// * `code`: The current rolling hash accumulator.
+    /// * `code_size`: How many bases are currently in the accumulator.
+    /// * `last_kmer`: The previous k-mer emitted (used to create edges).
+    /// * `k`: The target k-mer size.
     fn enumerate_kmers_from_topology_dfs<'a>(
         &'a self,
         adjacency_list: &HashMap<&'a NodeId, Vec<&Edge>>,
@@ -234,7 +319,7 @@ impl LookUpGraph<'_> {
                 if code_size == k {
                     let to_kmer = OrientedKmer::from_code(code, k);
                     kmer_buffer.insert(to_kmer.kmer);
-                    // Cross-node edge (previous node → this node)
+                    // Cross-node edge (previous node -> this node)
                     if let Some(last) = last_kmer {
                         edge_buffer.insert(DbgEdge {
                             from: last,
@@ -256,13 +341,15 @@ impl LookUpGraph<'_> {
             }
         }
 
-        // Compute the (k−1)-suffix context used for state pruning.
+        // Compute the (k-1)-suffix context used for state pruning.
+        // This represents the "overlap" required for valid De Bruijn transitions.
         let mut suffix_code = code;
         if code_size == k {
-            suffix_code = code & suffix_mask(k);
+            suffix_code = code & suffix_mask(k - 1);
         }
 
-        // Stop traversal if this state was already explored
+        // Stop traversal if this specific node has already been entered
+        // with this specific suffix context.
         if !visited_states.insert(VisitState {
             node,
             suffix_code,
@@ -271,7 +358,7 @@ impl LookUpGraph<'_> {
             return;
         }
 
-        // Continue traversal across outgoing edges, carrying the
+        // Continue traversal across outgoing edges
         if let Some(neighbors) = adjacency_list.get(&node.id) {
             for edge in neighbors {
                 let next_node_id = &edge.to_node;
@@ -291,11 +378,20 @@ impl LookUpGraph<'_> {
         }
     }
 
+    /// Extracts all k-mers and edges implied by the full graph topology.
+    ///
+    /// This converts the Sequence Graph (Variation Graph) into a De Bruijn Graph
+    /// representation by traversing all valid paths through the nodes.
+    ///
+    /// Returns a tuple: `(Set of Nodes (Kmers), Set of Edges (DbgEdges))`
     pub fn extract_kmers_from_full_topology(&self, k: usize) -> (HashSet<Kmer>, HashSet<DbgEdge>) {
         let mut kmers = HashSet::new();
         let mut edges = HashSet::new();
         let adjacency_list = self.get_adjacency_list();
         let mut visited_states: HashSet<VisitState> = HashSet::new();
+
+        // Start DFS from every node to ensure disconnected components and
+        // all possible start points are covered.
         for node in &self.graph.nodes {
             self.enumerate_kmers_from_topology_dfs(
                 &adjacency_list,
@@ -346,7 +442,6 @@ mod tests {
     #[test]
     fn test_kmer_round_trip() {
         let seq = b"ACGTACGT";
-        let k = 8;
         let kmer = Kmer::from_bases(seq);
         let output = kmer.to_bytes();
         assert_eq!(output, seq, "Round trip encoding/decoding failed");
@@ -497,5 +592,76 @@ mod tests {
         assert_eq!(path2_kmers.len(), 2);
         assert_eq!(path2_kmers[0].kmer, Kmer::from_bases(b"TTGC").canonical());
         assert_eq!(path2_kmers[1].kmer, Kmer::from_bases(b"TGCA").canonical());
+    }
+
+    #[test]
+    fn test_linear_topology_simple() {
+        // Graph: Node1[AAAA] -> Node2[TTTT]
+        // k=3
+        // Sequence: AAAATTTT
+        // Expected Kmers: AAA, AAA, AAT, ATT, TTT, TTT...
+        // Unique Kmers: AAA, AAT, ATT, TTT
+        let nodes = vec![
+            Node {
+                id: b"1".to_vec(),
+                sequence: b"AAAA".to_vec(),
+            },
+            Node {
+                id: b"2".to_vec(),
+                sequence: b"TTTT".to_vec(),
+            },
+        ];
+
+        let edges = vec![Edge {
+            from_node: b"1".to_vec(),
+            from_orient: Orientation::Forward,
+            to_node: b"2".to_vec(),
+            to_orient: Orientation::Forward,
+            overlap: 0,
+        }];
+
+        let graph = CoreGraph {
+            nodes,
+            edges,
+            paths: vec![],
+        };
+
+        let lookup = LookUpGraph::new(&graph);
+        let (kmers, dbg_edges) = lookup.extract_kmers_from_full_topology(3);
+        let expected_kmers: HashSet<Kmer> = vec![
+            Kmer::from_bases(b"AAA").canonical(),
+            Kmer::from_bases(b"AAT").canonical(),
+            Kmer::from_bases(b"ATT").canonical(),
+            Kmer::from_bases(b"TTT").canonical(),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(kmers, expected_kmers);
+
+        let expected_edges: HashSet<DbgEdge> = vec![
+            DbgEdge {
+                from: OrientedKmer::from_bases(b"AAA"),
+                to: OrientedKmer::from_bases(b"AAA"),
+            },
+            DbgEdge {
+                from: OrientedKmer::from_bases(b"AAA"),
+                to: OrientedKmer::from_bases(b"AAT"),
+            },
+            DbgEdge {
+                from: OrientedKmer::from_bases(b"AAT"),
+                to: OrientedKmer::from_bases(b"ATT"),
+            },
+            DbgEdge {
+                from: OrientedKmer::from_bases(b"ATT"),
+                to: OrientedKmer::from_bases(b"TTT"),
+            },
+            DbgEdge {
+                from: OrientedKmer::from_bases(b"TTT"),
+                to: OrientedKmer::from_bases(b"TTT"),
+            },
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(dbg_edges, expected_edges);
     }
 }

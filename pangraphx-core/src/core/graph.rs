@@ -72,8 +72,3 @@ pub struct CoreGraph {
     pub paths: Vec<Path>,
 }
 
-impl CoreGraph {
-    pub fn create_simple_graph() {
-        todo!()
-    }
-}
