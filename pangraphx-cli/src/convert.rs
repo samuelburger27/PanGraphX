@@ -1,7 +1,7 @@
 use crate::cli::args_parser::{ConvertArgs};
 use anyhow::{Ok, Result};
 use log::{debug, warn};
-use pangraphx_core::{CoreGraph, GraphFormat};
+use pangraphx_core::{CoreGraphDTO, GraphFormat};
 use std::{path::Path};
 
 pub fn handle_conversion(args: &ConvertArgs) -> Result<()> {
@@ -21,7 +21,7 @@ pub fn handle_conversion(args: &ConvertArgs) -> Result<()> {
     })?;
     debug!("Input format: {:?}", input_format);
     debug!("Output format: {:?}", output_format);
-    let graph = CoreGraph::load_from_file(&args.input, input_format)?;
+    let graph = CoreGraphDTO::load_from_file(&args.input, input_format)?;
     graph.save_to_file(&args.output, output_format)?;
     Ok(())
 }

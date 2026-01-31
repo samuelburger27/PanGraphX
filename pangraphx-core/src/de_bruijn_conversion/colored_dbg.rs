@@ -1,7 +1,7 @@
 use super::de_bruijn_graph::{DbgEdge, DeBruijn};
 use crate::Kmer;
-use crate::core::graph::{CoreGraph, Node, Path, Step};
-use crate::core::lookup_graph::LookUpGraph;
+use crate::core::graph::{CoreGraphDTO, Node, Path, Step};
+use crate::core::lookup_graph::CoreGraph;
 use crate::de_bruijn_conversion::k_mers::OrientedKmer;
 use std::collections::{HashMap, HashSet};
 
@@ -15,8 +15,8 @@ pub struct ColoredDBG {
 }
 
 impl ColoredDBG {
-    pub fn from_directed_graph(graph: &CoreGraph, k: usize) -> Self {
-        let lookup_graph = LookUpGraph::new(graph);
+    pub fn from_directed_graph(graph: &CoreGraphDTO, k: usize) -> Self {
+        let lookup_graph = CoreGraph::new(graph);
         let extracted_o_kmers = lookup_graph.extract_kmers_paths(k);
         let mut edges = HashSet::new();
         let mut all_kmers = HashSet::new();
@@ -53,7 +53,7 @@ impl ColoredDBG {
 }
 
 /// Conversion from ColoredDBG to CoreGraph
-impl From<ColoredDBG> for CoreGraph {
+impl From<ColoredDBG> for CoreGraphDTO {
     fn from(colored_dbg: ColoredDBG) -> Self {
         //Create nodes from kmers
         let node_map: HashMap<Kmer, Node> = colored_dbg
@@ -65,7 +65,7 @@ impl From<ColoredDBG> for CoreGraph {
                 (
                     kmer,
                     Node {
-                        id: i.to_string().into_bytes(),
+                        id: i,
                         sequence: kmer.to_bytes(),
                     },
                 )
@@ -118,10 +118,11 @@ impl From<ColoredDBG> for CoreGraph {
 
         let nodes = node_map.values().cloned().collect();
 
-        CoreGraph {
+        CoreGraphDTO {
             nodes,
             edges,
             paths,
+            node_name_map: None,
         }
     }
 }

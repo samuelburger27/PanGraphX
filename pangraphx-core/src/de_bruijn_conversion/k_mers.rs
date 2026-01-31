@@ -4,7 +4,7 @@ use std::fmt::Display;
 use std::vec;
 
 use crate::core::graph::{Edge, Node, NodeId, Orientation, Path};
-use crate::core::lookup_graph::LookUpGraph;
+use crate::core::lookup_graph::CoreGraph;
 use crate::de_bruijn_conversion::de_bruijn_graph::DbgEdge;
 
 /// Encodes a single DNA byte into a 2-bit representation.
@@ -235,7 +235,7 @@ struct VisitState<'a> {
     pub code_size: usize,
 }
 
-impl LookUpGraph<'_> {
+impl CoreGraph<'_> {
     /// Extracts oriented k-mers from all predefined paths in the graph.
     ///
     /// Returns a map associating each `Path` with its sequence of k-mers.
@@ -411,7 +411,7 @@ impl LookUpGraph<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CoreGraph, core::graph::Node, core::graph::Step};
+    use crate::{CoreGraphDTO, core::graph::Node, core::graph::Step};
 
     use super::*;
 
@@ -515,22 +515,23 @@ mod tests {
         let seq = b"ACGTA";
         let k = 4;
         let nodes = vec![Node {
-            id: b"1".to_vec(),
+            id: 1,
             sequence: seq.to_vec(),
         }];
-        let graph = CoreGraph {
+        let graph = CoreGraphDTO {
             nodes,
             edges: vec![],
             paths: vec![Path {
                 name: b"path1".to_vec(),
                 steps: vec![Step {
-                    node_id: b"1".to_vec(),
+                    node_id: 1,
                     orientation: Orientation::Forward,
                 }],
                 overlaps: vec![],
             }],
+            node_name_map: None,
         };
-        let lookup = LookUpGraph::new(&graph);
+        let lookup = CoreGraph::new(&graph);
         let result = lookup.extract_kmers_from_path(&graph.paths[0], k);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].kmer.to_bytes(), b"ACGT");
@@ -550,22 +551,22 @@ mod tests {
         let k = 4;
         let nodes = vec![
             Node {
-                id: b"1".to_vec(),
+                id: 1,
                 sequence: seq1.to_vec(),
             },
             Node {
-                id: b"2".to_vec(),
+                id: 2,
                 sequence: seq2.to_vec(),
             },
         ];
-        let graph = CoreGraph {
+        let graph = CoreGraphDTO {
             nodes,
             edges: vec![],
             paths: vec![
                 Path {
                     name: b"path1".to_vec(),
                     steps: vec![Step {
-                        node_id: b"1".to_vec(),
+                        node_id: 1,
                         orientation: Orientation::Forward,
                     }],
                     overlaps: vec![],
@@ -573,14 +574,15 @@ mod tests {
                 Path {
                     name: b"path2".to_vec(),
                     steps: vec![Step {
-                        node_id: b"2".to_vec(),
+                        node_id: 2,
                         orientation: Orientation::Forward,
                     }],
                     overlaps: vec![],
                 },
             ],
+            node_name_map: None,
         };
-        let lookup = LookUpGraph::new(&graph);
+        let lookup = CoreGraph::new(&graph);
         let result = lookup.extract_kmers_paths(k);
 
         assert_eq!(result.len(), 2);
@@ -603,30 +605,31 @@ mod tests {
         // Unique Kmers: AAA, AAT, ATT, TTT
         let nodes = vec![
             Node {
-                id: b"1".to_vec(),
+                id: 1,
                 sequence: b"AAAA".to_vec(),
             },
             Node {
-                id: b"2".to_vec(),
+                id: 2,
                 sequence: b"TTTT".to_vec(),
             },
         ];
 
         let edges = vec![Edge {
-            from_node: b"1".to_vec(),
+            from_node: 1,
             from_orient: Orientation::Forward,
-            to_node: b"2".to_vec(),
+            to_node: 2,
             to_orient: Orientation::Forward,
             overlap: 0,
         }];
 
-        let graph = CoreGraph {
+        let graph = CoreGraphDTO {
             nodes,
             edges,
             paths: vec![],
+            node_name_map: None,
         };
 
-        let lookup = LookUpGraph::new(&graph);
+        let lookup = CoreGraph::new(&graph);
         let (kmers, dbg_edges) = lookup.extract_kmers_from_full_topology(3);
         let expected_kmers: HashSet<Kmer> = vec![
             Kmer::from_bases(b"AAA").canonical(),

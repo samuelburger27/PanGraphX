@@ -12,7 +12,7 @@ fn test_gbz_format() {
     for entry in test_files {
         let path = entry.unwrap().path();
         let path_string = path.to_str().unwrap();
-        let graph = CoreGraph::load_from_file(path_string, format);
+        let graph = CoreGraphDTO::load_from_file(path_string, format);
         assert!(graph.is_ok(), "Failed to parse GFA file: {}", path_string);
         let graph = graph.unwrap();
         let temp_file = NamedTempFile::new().unwrap();
@@ -22,7 +22,7 @@ fn test_gbz_format() {
         assert!(temp_file.path().exists());
 
         let reloaded_graph =
-            CoreGraph::load_from_file(temp_file.path().to_str().unwrap(), format).unwrap();
+            CoreGraphDTO::load_from_file(temp_file.path().to_str().unwrap(), format).unwrap();
         assert_eq!(
             graph, reloaded_graph,
             "Graphs do not match after save/load cycle for file: {}",

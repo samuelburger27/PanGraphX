@@ -2,7 +2,7 @@ use super::convert::infer_graph_format;
 use crate::cli::args_parser::DeBruijnArgs;
 use anyhow::{Ok, Result};
 use log::debug;
-use pangraphx_core::{ColoredDBG, CoreGraph, DeBruijn};
+use pangraphx_core::{ColoredDBG, CoreGraphDTO, DeBruijn};
 
 pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
     let input_format = infer_graph_format(&args.input, &args.from).ok_or_else(|| {
@@ -20,7 +20,7 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
 
     debug!("Input format: {:?}", input_format);
     debug!("Output format: {:?}", output_format);
-    let graph = CoreGraph::load_from_file(&args.input, input_format)?;
+    let graph = CoreGraphDTO::load_from_file(&args.input, input_format)?;
     let final_graph =
         create_converted_dbg_graph(&graph, args.kmer_size, args.full_topology, args.colored);
     final_graph.save_to_file(&args.output, output_format)?;
@@ -29,11 +29,11 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
 
 ///
 fn create_converted_dbg_graph(
-    graph: &CoreGraph,
+    graph: &CoreGraphDTO,
     kmer_size: usize,
     full_topology: bool,
     colored: bool,
-) -> CoreGraph {
+) -> CoreGraphDTO {
     // Colored only makes sense with specified Paths
     if colored {
         if full_topology {

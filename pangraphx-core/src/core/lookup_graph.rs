@@ -1,14 +1,15 @@
-use super::graph::{CoreGraph, NodeId, PathName};
+use super::graph::{CoreGraphDTO, NodeId, PathName};
 use crate::core::graph::{Edge, Node};
 use std::collections::HashMap;
 
-pub struct LookUpGraph<'a> {
-    pub(crate) graph: &'a CoreGraph,
+/// A CoreGraph type providing efficient lookup and graph manipulation capabilities.
+pub struct CoreGraph<'a> {
+    pub(crate) graph: &'a CoreGraphDTO,
     pub node_index: HashMap<&'a NodeId, usize>,
     pub path_index: HashMap<&'a PathName, usize>,
 }
 
-impl LookUpGraph<'_> {
+impl CoreGraph<'_> {
     pub fn get_adjacency_list(&self) -> HashMap<&NodeId, Vec<&Edge>> {
         let mut adjacency_list: HashMap<&NodeId, Vec<&Edge>> = HashMap::new();
         for edge in &self.graph.edges {
@@ -27,7 +28,7 @@ impl LookUpGraph<'_> {
             .and_then(|&index| self.graph.nodes.get(index))
     }
 
-    pub fn new(graph: &'_ CoreGraph) -> LookUpGraph<'_> {
+    pub fn new(graph: &'_ CoreGraphDTO) -> CoreGraph<'_> {
         let mut node_index = HashMap::new();
         for (i, node) in graph.nodes.iter().enumerate() {
             node_index.insert(&node.id, i);
@@ -38,7 +39,7 @@ impl LookUpGraph<'_> {
             path_index.insert(&path.name, i);
         }
 
-        LookUpGraph {
+        CoreGraph {
             graph,
             node_index,
             path_index,

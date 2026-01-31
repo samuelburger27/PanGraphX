@@ -1,5 +1,5 @@
 use super::graph::{Orientation, Path};
-use super::lookup_graph::LookUpGraph;
+use super::lookup_graph::CoreGraph;
 use std::borrow::Cow;
 /// Returns the reverse complement of a DNA sequence
 pub fn reverse_complement(sequence: &[u8]) -> Vec<u8> {
@@ -16,7 +16,7 @@ pub fn reverse_complement(sequence: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-impl LookUpGraph<'_> {
+impl CoreGraph<'_> {
     /// Return an iterator over the node sequences for the given path.
     /// The sequences are returned in the correct orientation
     /// (if orientation is Reverse, the reverse complement is returned).

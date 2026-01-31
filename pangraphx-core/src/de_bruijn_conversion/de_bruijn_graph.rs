@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::core::graph::Node;
-use crate::core::lookup_graph::LookUpGraph;
+use crate::core::lookup_graph::CoreGraph;
 use crate::de_bruijn_conversion::k_mers::OrientedKmer;
-use crate::{CoreGraph, Kmer};
+use crate::{CoreGraphDTO, Kmer};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct DbgEdge {
@@ -18,8 +18,8 @@ pub struct DeBruijn {
 }
 
 impl DeBruijn {
-    pub fn from_directed_graph(graph: &CoreGraph, k: usize) -> Self {
-        let lookup_graph = LookUpGraph::new(graph);
+    pub fn from_directed_graph(graph: &CoreGraphDTO, k: usize) -> Self {
+        let lookup_graph = CoreGraph::new(graph);
         let extracted_o_kmers = lookup_graph.extract_kmers_paths(k);
         let mut edges = HashSet::new();
         let mut all_kmers = HashSet::new();
@@ -40,8 +40,8 @@ impl DeBruijn {
         }
     }
 
-    pub fn from_directed_graph_full_topography(graph: &CoreGraph, k: usize) -> Self {
-        let lookup_graph = LookUpGraph::new(graph);
+    pub fn from_directed_graph_full_topography(graph: &CoreGraphDTO, k: usize) -> Self {
+        let lookup_graph = CoreGraph::new(graph);
         let (kmers, edges) = lookup_graph.extract_kmers_from_full_topology(k);
         DeBruijn {
             kmers,
@@ -51,7 +51,7 @@ impl DeBruijn {
     }
 }
 
-impl From<DeBruijn> for CoreGraph {
+impl From<DeBruijn> for CoreGraphDTO {
     fn from(db_graph: DeBruijn) -> Self {
         //Create nodes from kmers
         let node_map: HashMap<Kmer, Node> = db_graph
@@ -62,7 +62,7 @@ impl From<DeBruijn> for CoreGraph {
                 (
                     kmer,
                     Node {
-                        id: i.to_string().into_bytes(),
+                        id: i,
                         sequence: kmer.to_bytes(),
                     },
                 )
@@ -87,10 +87,11 @@ impl From<DeBruijn> for CoreGraph {
             .collect();
         let nodes = node_map.values().cloned().collect();
 
-        CoreGraph {
+        CoreGraphDTO {
             nodes,
             edges,
             paths: Vec::new(), // Paths are not represented in de Bruijn graph
+            node_name_map: None,
         }
     }
 }
