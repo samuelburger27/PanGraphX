@@ -7,21 +7,10 @@ pub struct CoreGraph<'a> {
     pub(crate) graph: &'a CoreGraphDTO,
     pub node_index: HashMap<&'a NodeId, usize>,
     pub path_index: HashMap<&'a PathName, usize>,
+    pub adjacency_list: HashMap<&'a NodeId, Vec<&'a Edge>>,
 }
 
 impl CoreGraph<'_> {
-    pub fn get_adjacency_list(&self) -> HashMap<&NodeId, Vec<&Edge>> {
-        let mut adjacency_list: HashMap<&NodeId, Vec<&Edge>> = HashMap::new();
-        for edge in &self.graph.edges {
-            let from_node = &edge.from_node;
-            adjacency_list
-                .entry(from_node)
-                .or_insert_with(Vec::new)
-                .push(edge);
-        }
-        adjacency_list
-    }
-
     pub fn get_node_by_id(&self, node_id: &NodeId) -> Option<&Node> {
         self.node_index
             .get(node_id)
@@ -43,6 +32,19 @@ impl CoreGraph<'_> {
             graph,
             node_index,
             path_index,
+            adjacency_list: Self::build_adjacency_list(graph),
         }
+    }
+
+    fn build_adjacency_list(graph: &'_ CoreGraphDTO) -> HashMap<&'_ NodeId, Vec<&'_ Edge>> {
+        let mut adjacency_list: HashMap<&NodeId, Vec<&Edge>> = HashMap::new();
+        for edge in &graph.edges {
+            let from_node = &edge.from_node;
+            adjacency_list
+                .entry(from_node)
+                .or_insert_with(Vec::new)
+                .push(edge);
+        }
+        adjacency_list
     }
 }

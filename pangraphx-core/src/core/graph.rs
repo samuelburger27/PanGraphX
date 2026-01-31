@@ -35,7 +35,7 @@ impl From<bool> for Orientation {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Node {
     pub id: NodeId,
-    // TODO: use a more efficient representation for sequences
+    // DNA sequence of the node
     pub sequence: Vec<u8>,
 }
 

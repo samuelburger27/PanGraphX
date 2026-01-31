@@ -14,16 +14,23 @@ use crate::de_bruijn_conversion::de_bruijn_graph::DbgEdge;
 /// * 'C' / 'c'       -> 1 (binary 01)
 /// * 'G' / 'g'       -> 2 (binary 10)
 /// * 'T' / 't'       -> 3 (binary 11)
-///
-/// **Note:** 'N' (unknown base) is treated as 'A' to maintain strict 2-bit encoding.
 #[inline(always)]
 fn encode_base(b: u8) -> u8 {
     match b {
         b'A' | b'a' => 0,
         b'C' | b'c' => 1,
         b'G' | b'g' => 2,
-        b'T' | b't' => 3,
-        _ => 0, // N acts as A
+        _ => 3,
+    }
+}
+
+/// Checks if a byte represents a valid nucleotide (A, C, G, T).
+/// 
+#[inline(always)]
+fn is_valid_nucleotide(b: u8) -> bool {
+    match b {
+        b'A' | b'a' | b'C' | b'c' | b'G' | b'g' | b'T' | b't' => true,
+        _ => false, // N, R, Y, etc. are invalid
     }
 }
 
@@ -258,15 +265,26 @@ impl CoreGraph<'_> {
         // Iterate over node sequences as slices
         for seq in self.path_node_forward_sequence(path) {
             let mut code: u128 = 0;
-            for (i, &base) in seq.into_iter().enumerate() {
+            let mut len = 0;
+
+            for &base in seq {
+                if !is_valid_nucleotide(base) {
+                    // Reset on invalid base
+                    code = 0;
+                    len = 0;
+                    continue;
+                }
                 // Fill window until size k
-                if i < k {
+                if len < k {
                     code = (code << 2) | encode_base(base) as u128;
-                    if i == k - 1 {
+                    len += 1;
+
+                    if len == k {
                         let kmer = OrientedKmer::from_code(code, k);
                         result.push(kmer);
                     }
                 } else {
+                    // Slide window by one base
                     code = roll_kmer(code, k, base);
                     let kmer = OrientedKmer::from_code(code, k);
                     result.push(kmer);
@@ -298,7 +316,6 @@ impl CoreGraph<'_> {
     /// * `k`: The target k-mer size.
     fn enumerate_kmers_from_topology_dfs<'a>(
         &'a self,
-        adjacency_list: &HashMap<&'a NodeId, Vec<&Edge>>,
         kmer_buffer: &mut HashSet<Kmer>,
         edge_buffer: &mut HashSet<DbgEdge>,
         visited_states: &mut HashSet<VisitState<'a>>,
@@ -311,6 +328,14 @@ impl CoreGraph<'_> {
         // Traverse the sequence of the current node base by base,
         // updating the rolling k-mer window.
         for &base in node.sequence.iter() {
+            if !is_valid_nucleotide(base) {
+                // Reset on invalid base
+                code = 0;
+                code_size = 0;
+                last_kmer = None;
+                continue;
+            }
+            
             // Fill the window until it reaches size k
             if code_size < k {
                 code = (code << 2) | encode_base(base) as u128;
@@ -359,12 +384,11 @@ impl CoreGraph<'_> {
         }
 
         // Continue traversal across outgoing edges
-        if let Some(neighbors) = adjacency_list.get(&node.id) {
+        if let Some(neighbors) = self.adjacency_list.get(&node.id) {
             for edge in neighbors {
                 let next_node_id = &edge.to_node;
                 let next_node = self.get_node_by_id(next_node_id).unwrap();
                 self.enumerate_kmers_from_topology_dfs(
-                    adjacency_list,
                     kmer_buffer,
                     edge_buffer,
                     visited_states,
@@ -387,14 +411,12 @@ impl CoreGraph<'_> {
     pub fn extract_kmers_from_full_topology(&self, k: usize) -> (HashSet<Kmer>, HashSet<DbgEdge>) {
         let mut kmers = HashSet::new();
         let mut edges = HashSet::new();
-        let adjacency_list = self.get_adjacency_list();
         let mut visited_states: HashSet<VisitState> = HashSet::new();
 
         // Start DFS from every node to ensure disconnected components and
         // all possible start points are covered.
         for node in &self.graph.nodes {
             self.enumerate_kmers_from_topology_dfs(
-                &adjacency_list,
                 &mut kmers,
                 &mut edges,
                 &mut visited_states,
