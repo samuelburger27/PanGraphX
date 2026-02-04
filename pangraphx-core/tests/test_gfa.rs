@@ -11,6 +11,7 @@ fn test_gfa_format() {
     for entry in test_files {
         let path = entry.unwrap().path();
         let path_string = path.to_str().unwrap();
+        println!("Testing GFA file: {}... ", path_string);
         let graph = CoreGraphDTO::load_from_file(path_string, format);
         assert!(graph.is_ok(), "Failed to parse GFA file: {}", path_string);
         let graph = graph.unwrap();
