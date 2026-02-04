@@ -34,9 +34,10 @@ impl From<bool> for Orientation {
 /// A node (or segment) in the graph, containing a DNA sequence.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Node {
-    pub id: NodeId,
     // DNA sequence of the node
     pub sequence: Vec<u8>,
+    // Unique identifier for the node (also used as index into node vector)
+    pub id: NodeId,
 }
 
 /// An edge (or link) connecting two nodes with specific orientations.

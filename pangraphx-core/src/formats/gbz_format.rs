@@ -17,7 +17,7 @@ fn id_to_bytes(id: usize) -> NodeId {
     // id.to_string().into_bytes()
 }
 
-// Helper to map GBWT specific orientation to internal CoreGraph orientation
+// Helper to map GBWT orientation to internal CoreGraph orientation
 impl From<GbwtOrientation> for Orientation {
     fn from(o: GbwtOrientation) -> Self {
         match o {
@@ -26,6 +26,7 @@ impl From<GbwtOrientation> for Orientation {
         }
     }
 }
+// TODO should rewrite
 
 impl<R: Read + Seek> GraphParser<R> for GBZCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
@@ -61,7 +62,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                         .sequence(node_id)
                         .ok_or_else(|| {
                             PanGraphXError::Parse(format!(
-                                "Node {} doesn't have a sequnece, GBZ file is not valid",
+                                "Node {} doesn't have a sequence, GBZ file is not valid",
                                 node_id
                             ))
                         })?

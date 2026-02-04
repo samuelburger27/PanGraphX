@@ -60,7 +60,6 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
         let gfa = parser.parse_lines(lines_iter)?;
         let mut mapping = HashMap::new();
         let mut nodes = Vec::new();
-        // TODO handle options fields properly
         for (i, node) in gfa.segments.iter().enumerate() {
             mapping.insert(i, node.name.clone());
             nodes.push(Node {
@@ -178,7 +177,7 @@ impl GraphSerializer for GFACodec {
                 .map(|opt| opt.to_string() + "M")
                 .collect::<Vec<_>>()
                 .join(",");
-            if overlaps.is_empty() {
+            if overlaps.is_empty() || overlaps.chars().all(|c| c == '0' || c == 'M' || c == ',') {
                 overlaps = "*".to_string();
             }
             let name = String::from_utf8_lossy(&path.name);
