@@ -20,12 +20,13 @@ fn encode_base(b: u8) -> u8 {
         b'A' | b'a' => 0,
         b'C' | b'c' => 1,
         b'G' | b'g' => 2,
+        b'T' | b't' => 3,
         _ => 3,
     }
 }
 
 /// Checks if a byte represents a valid nucleotide (A, C, G, T).
-/// 
+///
 #[inline(always)]
 fn is_valid_nucleotide(b: u8) -> bool {
     match b {
@@ -36,9 +37,7 @@ fn is_valid_nucleotide(b: u8) -> bool {
 
 /// Computes the Reverse Complement of a 2-bit encoded base.
 ///
-///
-///
-/// # Logic
+/// # Mapping
 /// * 0 (A) <-> 3 (T)
 /// * 1 (C) <-> 2 (G)
 #[inline(always)]
@@ -296,8 +295,6 @@ impl CoreGraph<'_> {
 
     /// Depth-first traversal of a variation graph to extract all topological k-mers.
     ///
-    ///
-    ///
     /// # Algorithm
     /// 1. **Traversal:** Moving through the variation graph node by node.
     /// 2. **Sliding Window:** Maintaining a rolling hash of the last `k` bases encountered.
@@ -314,37 +311,68 @@ impl CoreGraph<'_> {
     /// * `code_size`: How many bases are currently in the accumulator.
     /// * `last_kmer`: The previous k-mer emitted (used to create edges).
     /// * `k`: The target k-mer size.
-    fn enumerate_kmers_from_topology_dfs<'a>(
+    fn enumerate_kmers_from_topology<'a>(
         &'a self,
         kmer_buffer: &mut HashSet<Kmer>,
         edge_buffer: &mut HashSet<DbgEdge>,
         visited_states: &mut HashSet<VisitState<'a>>,
-        node: &'a Node,
-        mut code: u128,
-        mut code_size: usize,
-        mut last_kmer: Option<OrientedKmer>,
+        start_node: &'a Node,
         k: usize,
     ) {
-        // Traverse the sequence of the current node base by base,
-        // updating the rolling k-mer window.
-        for &base in node.sequence.iter() {
-            if !is_valid_nucleotide(base) {
-                // Reset on invalid base
-                code = 0;
-                code_size = 0;
-                last_kmer = None;
-                continue;
-            }
-            
-            // Fill the window until it reaches size k
-            if code_size < k {
-                code = (code << 2) | encode_base(base) as u128;
-                code_size += 1;
+        let mut stack = Vec::new();
 
-                if code_size == k {
+        // Push the initial node onto the stack
+        stack.push(StackItem {
+            node: start_node,
+            code: 0,
+            code_size: 0,
+            last_kmer: None,
+        });
+
+        while let Some(item) = stack.pop() {
+            let StackItem {
+                node,
+                mut code,
+                mut code_size,
+                mut last_kmer,
+            } = item;
+
+            // --- 1. Process Node Sequence ---
+            // Iterate through the sequence of the current node to update the rolling window.
+            for &base in node.sequence.iter() {
+                if !is_valid_nucleotide(base) {
+                    // Reset
+                    code = 0;
+                    code_size = 0;
+                    last_kmer = None;
+                    continue;
+                }
+
+                if code_size < k {
+                    // FILLING BUFFER
+                    code = (code << 2) | encode_base(base) as u128;
+                    code_size += 1;
+
+                    if code_size == k {
+                        // Buffer just became full -> Emit first k-mer
+                        let to_kmer = OrientedKmer::from_code(code, k);
+                        kmer_buffer.insert(to_kmer.kmer);
+
+                        // If we had a valid previous k-mer (from incoming edge), connect them
+                        if let Some(last) = last_kmer {
+                            edge_buffer.insert(DbgEdge {
+                                from: last,
+                                to: to_kmer,
+                            });
+                        }
+                        last_kmer = Some(to_kmer);
+                    }
+                } else {
+                    code = roll_kmer(code, k, base);
+
                     let to_kmer = OrientedKmer::from_code(code, k);
                     kmer_buffer.insert(to_kmer.kmer);
-                    // Cross-node edge (previous node -> this node)
+
                     if let Some(last) = last_kmer {
                         edge_buffer.insert(DbgEdge {
                             from: last,
@@ -353,51 +381,39 @@ impl CoreGraph<'_> {
                     }
                     last_kmer = Some(to_kmer);
                 }
-            } else {
-                // Slide the window by one base
-                code = roll_kmer(code, k, base);
-                let to_kmer = OrientedKmer::from_code(code, k);
-                kmer_buffer.insert(to_kmer.kmer);
-                edge_buffer.insert(DbgEdge {
-                    from: last_kmer.unwrap(),
-                    to: to_kmer,
-                });
-                last_kmer = Some(to_kmer);
             }
-        }
 
-        // Compute the (k-1)-suffix context used for state pruning.
-        // This represents the "overlap" required for valid De Bruijn transitions.
-        let mut suffix_code = code;
-        if code_size == k {
-            suffix_code = code & suffix_mask(k - 1);
-        }
+            // --- 2. State Checking (Cycle Detection) ---
+            let mut suffix_code = code;
 
-        // Stop traversal if this specific node has already been entered
-        // with this specific suffix context.
-        if !visited_states.insert(VisitState {
-            node,
-            suffix_code,
-            code_size,
-        }) {
-            return;
-        }
+            // Only mask if we actually have a full k-mer context
+            if code_size == k {
+                suffix_code = code & suffix_mask(k - 1);
+            }
+            // we stop to prevent infinite loops in cycles.
+            if !visited_states.insert(VisitState {
+                node,
+                suffix_code,
+                code_size,
+            }) {
+                continue;
+            }
 
-        // Continue traversal across outgoing edges
-        if let Some(neighbors) = self.adjacency_list.get(&node.id) {
-            for edge in neighbors {
-                let next_node_id = &edge.to_node;
-                let next_node = self.get_node_by_id(next_node_id).unwrap();
-                self.enumerate_kmers_from_topology_dfs(
-                    kmer_buffer,
-                    edge_buffer,
-                    visited_states,
-                    next_node,
-                    code,
-                    code_size,
-                    last_kmer,
-                    k,
-                );
+            // --- 3. Push Neighbors ---
+            // Propagate the current rolling hash state to all outgoing neighbors.
+            if let Some(neighbors) = self.adjacency_list.get(&node.id) {
+                for edge in neighbors {
+                    let next_node_id = &edge.to_node;
+                    // Safely retrieve the next node
+                    if let Some(next_node) = self.get_node_by_id(next_node_id) {
+                        stack.push(StackItem {
+                            node: next_node,
+                            code,
+                            code_size,
+                            last_kmer,
+                        });
+                    }
+                }
             }
         }
     }
@@ -412,18 +428,14 @@ impl CoreGraph<'_> {
         let mut kmers = HashSet::new();
         let mut edges = HashSet::new();
         let mut visited_states: HashSet<VisitState> = HashSet::new();
-
         // Start DFS from every node to ensure disconnected components and
         // all possible start points are covered.
         for node in &self.graph.nodes {
-            self.enumerate_kmers_from_topology_dfs(
+            self.enumerate_kmers_from_topology(
                 &mut kmers,
                 &mut edges,
                 &mut visited_states,
                 node,
-                0,
-                0,
-                None,
                 k,
             );
         }
@@ -431,23 +443,19 @@ impl CoreGraph<'_> {
     }
 }
 
+// A helper struct to manage the stack frame on the heap
+struct StackItem<'a> {
+    node: &'a Node,
+    code: u128,
+    code_size: usize,
+    last_kmer: Option<OrientedKmer>,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{CoreGraphDTO, core::graph::Node, core::graph::Step};
 
     use super::*;
-
-    // --- Basic Encoding Tests ---
-
-    #[test]
-    fn test_encode_base() {
-        assert_eq!(encode_base(b'A'), 0);
-        assert_eq!(encode_base(b'C'), 1);
-        assert_eq!(encode_base(b'G'), 2);
-        assert_eq!(encode_base(b'T'), 3);
-        assert_eq!(encode_base(b'N'), 0); // N treated as A
-        assert_eq!(encode_base(b'a'), 0); // Case insensitivity
-    }
 
     #[test]
     fn test_rc_base() {
@@ -688,5 +696,316 @@ mod tests {
         .into_iter()
         .collect();
         assert_eq!(dbg_edges, expected_edges);
+    }
+
+    #[test]
+    fn test_branching_topology() {
+        // Graph: Node1[AAA] -> Node2[TTT]
+        //                   -> Node3[GGG]
+        // k=2
+        // From Node1: AA
+        // Then splits: AT, TT (via Node2) or AG, GG (via Node3)
+        let nodes = vec![
+            Node {
+                id: 1,
+                sequence: b"AAA".to_vec(),
+            },
+            Node {
+                id: 2,
+                sequence: b"TTT".to_vec(),
+            },
+            Node {
+                id: 3,
+                sequence: b"GGG".to_vec(),
+            },
+        ];
+
+        let edges = vec![
+            Edge {
+                from_node: 1,
+                from_orient: Orientation::Forward,
+                to_node: 2,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            },
+            Edge {
+                from_node: 1,
+                from_orient: Orientation::Forward,
+                to_node: 3,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            },
+        ];
+
+        let graph = CoreGraphDTO {
+            nodes,
+            edges,
+            paths: vec![],
+            node_name_map: None,
+        };
+
+        let lookup = CoreGraph::new(&graph);
+        let (kmers, _dbg_edges) = lookup.extract_kmers_from_full_topology(2);
+
+        let expected_kmers: HashSet<Kmer> = vec![
+            Kmer::from_bases(b"AA").canonical(),
+            Kmer::from_bases(b"AT").canonical(),
+            Kmer::from_bases(b"TT").canonical(),
+            Kmer::from_bases(b"AG").canonical(),
+            Kmer::from_bases(b"GG").canonical(),
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(kmers, expected_kmers);
+    }
+
+    #[test]
+    fn test_merging_topology() {
+        // Graph: Node1[AAA] -> Node3[TTT]
+        //        Node2[GGG] -> Node3[TTT]
+        // k=2
+        // Both paths merge at Node3
+        let nodes = vec![
+            Node {
+                id: 1,
+                sequence: b"AAA".to_vec(),
+            },
+            Node {
+                id: 2,
+                sequence: b"GGG".to_vec(),
+            },
+            Node {
+                id: 3,
+                sequence: b"TTT".to_vec(),
+            },
+        ];
+
+        let edges = vec![
+            Edge {
+                from_node: 1,
+                from_orient: Orientation::Forward,
+                to_node: 3,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            },
+            Edge {
+                from_node: 2,
+                from_orient: Orientation::Forward,
+                to_node: 3,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            },
+        ];
+
+        let graph = CoreGraphDTO {
+            nodes,
+            edges,
+            paths: vec![],
+            node_name_map: None,
+        };
+
+        let lookup = CoreGraph::new(&graph);
+        let (kmers, _dbg_edges) = lookup.extract_kmers_from_full_topology(2);
+
+        let expected_kmers: HashSet<Kmer> = vec![
+            Kmer::from_bases(b"AA").canonical(),
+            Kmer::from_bases(b"AT").canonical(),
+            Kmer::from_bases(b"TT").canonical(),
+            Kmer::from_bases(b"GG").canonical(),
+            Kmer::from_bases(b"GT").canonical(),
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(kmers, expected_kmers);
+    }
+
+    #[test]
+    fn test_cycle_topology() {
+        // Graph: Node1[ACGT] -> Node2[ACGT] -> Node1[ACGT] (cycle)
+        // k=2
+        // Should extract kmers without infinite looping
+        let nodes = vec![
+            Node {
+                id: 1,
+                sequence: b"ACGT".to_vec(),
+            },
+            Node {
+                id: 2,
+                sequence: b"ACGT".to_vec(),
+            },
+        ];
+
+        let edges = vec![
+            Edge {
+                from_node: 1,
+                from_orient: Orientation::Forward,
+                to_node: 2,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            },
+            Edge {
+                from_node: 2,
+                from_orient: Orientation::Forward,
+                to_node: 1,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            },
+        ];
+
+        let graph = CoreGraphDTO {
+            nodes,
+            edges,
+            paths: vec![],
+            node_name_map: None,
+        };
+
+        let lookup = CoreGraph::new(&graph);
+        let (kmers, _dbg_edges) = lookup.extract_kmers_from_full_topology(2);
+
+        // Should contain all 2-mers from ACGTACGTACGT... pattern
+        let expected_kmers: HashSet<Kmer> = vec![
+            Kmer::from_bases(b"AC").canonical(),
+            Kmer::from_bases(b"CG").canonical(),
+            Kmer::from_bases(b"GT").canonical(),
+            Kmer::from_bases(b"TA").canonical(),
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(kmers, expected_kmers);
+    }
+
+    #[test]
+    fn test_diamond_topology() {
+        // Graph: Node1[AA] -> Node2[TT]
+        //                  -> Node3[GG]
+        //        Node2[TT] -> Node4[CC]
+        //        Node3[GG] -> Node4[CC]
+        // k=2
+        // Diamond pattern: A->B, A->C, B->D, C->D
+        let nodes = vec![
+            Node {
+                id: 1,
+                sequence: b"AA".to_vec(),
+            },
+            Node {
+                id: 2,
+                sequence: b"TT".to_vec(),
+            },
+            Node {
+                id: 3,
+                sequence: b"GG".to_vec(),
+            },
+            Node {
+                id: 4,
+                sequence: b"CC".to_vec(),
+            },
+        ];
+
+        let edges = vec![
+            Edge {
+                from_node: 1,
+                from_orient: Orientation::Forward,
+                to_node: 2,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            },
+            Edge {
+                from_node: 1,
+                from_orient: Orientation::Forward,
+                to_node: 3,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            },
+            Edge {
+                from_node: 2,
+                from_orient: Orientation::Forward,
+                to_node: 4,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            },
+            Edge {
+                from_node: 3,
+                from_orient: Orientation::Forward,
+                to_node: 4,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            },
+        ];
+
+        let graph = CoreGraphDTO {
+            nodes,
+            edges,
+            paths: vec![],
+            node_name_map: None,
+        };
+
+        let lookup = CoreGraph::new(&graph);
+        let (kmers, _dbg_edges) = lookup.extract_kmers_from_full_topology(2);
+
+        let expected_kmers: HashSet<Kmer> = vec![
+            Kmer::from_bases(b"AA").canonical(),
+            Kmer::from_bases(b"AT").canonical(),
+            Kmer::from_bases(b"TT").canonical(),
+            Kmer::from_bases(b"TC").canonical(),
+            Kmer::from_bases(b"CC").canonical(),
+            Kmer::from_bases(b"AG").canonical(),
+            Kmer::from_bases(b"GG").canonical(),
+            Kmer::from_bases(b"GC").canonical(),
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(kmers, expected_kmers);
+    }
+
+    #[test]
+    fn test_invalid_bases_in_topology() {
+        // Graph: Node1[AANA] -> Node2[TTNT]
+        // k=2
+        // Should handle N as invalid and reset
+        let nodes = vec![
+            Node {
+                id: 1,
+                sequence: b"AANA".to_vec(),
+            },
+            Node {
+                id: 2,
+                sequence: b"TTNT".to_vec(),
+            },
+        ];
+
+        let edges = vec![Edge {
+            from_node: 1,
+            from_orient: Orientation::Forward,
+            to_node: 2,
+            to_orient: Orientation::Forward,
+            overlap: 0,
+        }];
+
+        let graph = CoreGraphDTO {
+            nodes,
+            edges,
+            paths: vec![],
+            node_name_map: None,
+        };
+
+        let lookup = CoreGraph::new(&graph);
+        let (kmers, _dbg_edges) = lookup.extract_kmers_from_full_topology(2);
+
+        // After N, buffer resets. We should get: AA, then N resets, then AT
+        // In Node2: TT, then N resets, then NT becomes a new window starting
+        let expected_kmers: HashSet<Kmer> = vec![
+            Kmer::from_bases(b"AA").canonical(),
+            Kmer::from_bases(b"AT").canonical(),
+            Kmer::from_bases(b"TT").canonical(),
+            Kmer::from_bases(b"NT").canonical(), // After reset, starts with N which encodes as A
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(kmers, expected_kmers);
     }
 }
