@@ -4,6 +4,8 @@ use std::fmt::Display;
 /// A unique identifier for a node/segment in the graph.
 pub type NodeId = usize;
 pub type PathName = Vec<u8>;
+pub type NodeName = Vec<u8>;
+pub type Sequence = Vec<u8>;
 
 /// Represents the orientation of a node traversal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -35,7 +37,7 @@ impl From<bool> for Orientation {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Node {
     // DNA sequence of the node
-    pub sequence: Vec<u8>,
+    pub sequence: Sequence,
     // Unique identifier for the node (also used as index into node vector)
     pub id: NodeId,
 }
@@ -76,7 +78,7 @@ pub struct CoreGraphDTO {
     pub edges: Vec<Edge>,
     pub paths: Vec<Path>,
     /// mapping from NodeId to original node names (if available).
-    pub node_name_map: Option<HashMap<NodeId, Vec<u8>>>,
+    pub node_name_map: Option<HashMap<NodeId, NodeName>>,
 }
 
 impl CoreGraphDTO {

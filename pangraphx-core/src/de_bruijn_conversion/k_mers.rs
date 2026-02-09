@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::vec;
 
-use crate::core::graph::{Edge, Node, NodeId, Orientation, Path};
+use crate::core::graph::{Node, Orientation, Path};
 use crate::core::lookup_graph::CoreGraph;
 use crate::de_bruijn_conversion::de_bruijn_graph::DbgEdge;
 
@@ -453,7 +453,10 @@ struct StackItem<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CoreGraphDTO, core::graph::Node, core::graph::Step};
+    use crate::{
+        CoreGraphDTO,
+        core::graph::{Edge, Node, Step},
+    };
 
     use super::*;
 
