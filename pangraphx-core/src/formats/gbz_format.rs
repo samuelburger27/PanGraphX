@@ -1,4 +1,4 @@
-use crate::core::graph::{CoreGraphDTO, Edge, Node, NodeId, Orientation, Path, Step};
+use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, NodeId, Orientation, Path, Step};
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::collections::HashMap;
@@ -9,13 +9,6 @@ use gbwt::{GBZ, Orientation as GbwtOrientation, REF_SAMPLE};
 use simple_sds_sbwt::serialize::Serialize;
 
 pub struct GBZCodec;
-
-// Helper to convert numerical GBWT IDs to CoreGraph Vec<u8> IDs
-#[inline]
-fn id_to_bytes(id: usize) -> NodeId {
-    id
-    // id.to_string().into_bytes()
-}
 
 // Helper to map GBWT orientation to internal CoreGraph orientation
 impl From<GbwtOrientation> for Orientation {
@@ -57,7 +50,6 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
             }
             None => {
                 for node_id in gbz.node_iter() {
-                    let id_str = id_to_bytes(node_id);
                     let sequence = gbz
                         .sequence(node_id)
                         .ok_or_else(|| {
@@ -68,7 +60,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                         })?
                         .to_vec();
                     nodes.push(Node {
-                        id: id_str,
+                        id: node_id,
                         sequence,
                     });
                 }

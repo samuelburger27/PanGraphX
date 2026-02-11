@@ -22,14 +22,14 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
     debug!("Output format: {:?}", output_format);
     let graph = CoreGraphDTO::load_from_file(&args.input, input_format)?;
     let final_graph =
-        create_converted_dbg_graph(&graph, args.kmer_size, args.full_topology, args.colored);
+        create_converted_dbg_graph(graph, args.kmer_size, args.full_topology, args.colored);
     final_graph.save_to_file(&args.output, output_format)?;
     Ok(())
 }
 
 ///
 fn create_converted_dbg_graph(
-    graph: &CoreGraphDTO,
+    graph: CoreGraphDTO,
     kmer_size: usize,
     full_topology: bool,
     colored: bool,

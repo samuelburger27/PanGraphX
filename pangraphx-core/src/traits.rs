@@ -1,4 +1,4 @@
-use crate::core::graph::CoreGraphDTO;
+use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::PanResult;
 use std::io::{Read, Seek, Write};
 

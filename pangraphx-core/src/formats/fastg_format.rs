@@ -1,4 +1,4 @@
-use crate::core::graph::{CoreGraphDTO, Edge, Node, NodeId, NodeName, Orientation, Sequence};
+use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, NodeId, NodeName, Orientation, Sequence};
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
 use bio::alphabets::dna::n_alphabet as dna_alphabet;

@@ -1,4 +1,4 @@
-use crate::core::graph::{CoreGraphDTO, Edge, Node, NodeId, Orientation, Path, Step};
+use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, NodeId, Orientation, Path, Step};
 use crate::error::PanResult;
 use crate::traits::{GraphParser, GraphSerializer};
 use gfa::cigar::CIGAR;

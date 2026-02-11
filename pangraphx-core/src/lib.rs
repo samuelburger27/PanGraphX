@@ -6,7 +6,7 @@ pub mod formats;
 pub mod test_helpers;
 pub mod traits;
 
-pub use core::{graph::CoreGraphDTO, lookup_graph::CoreGraph};
+pub use core::{graph_dto::CoreGraphDTO, graph::CoreGraph};
 pub use de_bruijn_conversion::{colored_dbg::ColoredDBG, de_bruijn_graph::DeBruijn, k_mers::Kmer};
 pub use error::PanResult;
 use std::fmt::Display;

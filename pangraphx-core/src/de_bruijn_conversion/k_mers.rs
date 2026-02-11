@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::vec;
 
-use crate::core::graph::{Node, Orientation, Path};
-use crate::core::lookup_graph::CoreGraph;
+use crate::core::graph::CoreGraph;
+use crate::core::graph_dto::{Node, Orientation, Path};
 use crate::de_bruijn_conversion::de_bruijn_graph::DbgEdge;
 
 /// Encodes a single DNA byte into a 2-bit representation.
@@ -241,13 +241,13 @@ struct VisitState<'a> {
     pub code_size: usize,
 }
 
-impl CoreGraph<'_> {
+impl CoreGraph {
     /// Extracts oriented k-mers from all predefined paths in the graph.
     ///
     /// Returns a map associating each `Path` with its sequence of k-mers.
     pub fn extract_kmers_paths(&self, k: usize) -> HashMap<&Path, Vec<OrientedKmer>> {
         let mut kmers = HashMap::new();
-        for path in &self.graph.paths {
+        for path in self.path_map.values() {
             let extracted = self.extract_kmers_from_path(path, k);
             kmers.insert(path, extracted);
         }
@@ -319,7 +319,7 @@ impl CoreGraph<'_> {
         start_node: &'a Node,
         k: usize,
     ) {
-        let mut stack = Vec::new();
+        let mut stack = Vec::with_capacity(128);
 
         // Push the initial node onto the stack
         stack.push(StackItem {
@@ -403,16 +403,14 @@ impl CoreGraph<'_> {
             // Propagate the current rolling hash state to all outgoing neighbors.
             if let Some(neighbors) = self.adjacency_list.get(&node.id) {
                 for edge in neighbors {
-                    let next_node_id = &edge.to_node;
-                    // Safely retrieve the next node
-                    if let Some(next_node) = self.get_node_by_id(next_node_id) {
-                        stack.push(StackItem {
-                            node: next_node,
-                            code,
-                            code_size,
-                            last_kmer,
-                        });
-                    }
+                    let next_node_id = self.edges[*edge].to_node;
+                    let next_node = &self.nodes[next_node_id];
+                    stack.push(StackItem {
+                        node: next_node,
+                        code,
+                        code_size,
+                        last_kmer,
+                    });
                 }
             }
         }
@@ -430,7 +428,7 @@ impl CoreGraph<'_> {
         let mut visited_states: HashSet<VisitState> = HashSet::new();
         // Start DFS from every node to ensure disconnected components and
         // all possible start points are covered.
-        for node in &self.graph.nodes {
+        for node in &self.nodes {
             self.enumerate_kmers_from_topology(
                 &mut kmers,
                 &mut edges,
@@ -455,7 +453,7 @@ struct StackItem<'a> {
 mod tests {
     use crate::{
         CoreGraphDTO,
-        core::graph::{Edge, Node, Step},
+        core::graph_dto::{Edge, Node, Step},
     };
 
     use super::*;
@@ -548,31 +546,32 @@ mod tests {
         let seq = b"ACGTA";
         let k = 4;
         let nodes = vec![Node {
-            id: 1,
+            id: 0,
             sequence: seq.to_vec(),
         }];
+        let path_name = b"path1".to_vec();
         let graph = CoreGraphDTO {
             nodes,
             edges: vec![],
             paths: vec![Path {
-                name: b"path1".to_vec(),
+                name: path_name.clone(),
                 steps: vec![Step {
-                    node_id: 1,
+                    node_id: 0,
                     orientation: Orientation::Forward,
                 }],
                 overlaps: vec![],
             }],
             node_name_map: None,
         };
-        let lookup = CoreGraph::new(&graph);
-        let result = lookup.extract_kmers_from_path(&graph.paths[0], k);
+        let lookup = CoreGraph::new(graph);
+        let result = lookup.extract_kmers_from_path(&lookup.path_map[&path_name], k);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].kmer.to_bytes(), b"ACGT");
         assert_eq!(result[1].kmer.to_bytes(), b"CGTA");
 
         // test exact size k-mer
         let k = 5;
-        let result_exact = lookup.extract_kmers_from_path(&graph.paths[0], k);
+        let result_exact = lookup.extract_kmers_from_path(&lookup.path_map[&path_name], k);
         assert_eq!(result_exact.len(), 1);
         assert_eq!(result_exact[0].kmer.to_bytes(), b"ACGTA");
     }
@@ -584,11 +583,11 @@ mod tests {
         let k = 4;
         let nodes = vec![
             Node {
-                id: 1,
+                id: 0,
                 sequence: seq1.to_vec(),
             },
             Node {
-                id: 2,
+                id: 1,
                 sequence: seq2.to_vec(),
             },
         ];
@@ -599,7 +598,7 @@ mod tests {
                 Path {
                     name: b"path1".to_vec(),
                     steps: vec![Step {
-                        node_id: 1,
+                        node_id: 0,
                         orientation: Orientation::Forward,
                     }],
                     overlaps: vec![],
@@ -607,7 +606,7 @@ mod tests {
                 Path {
                     name: b"path2".to_vec(),
                     steps: vec![Step {
-                        node_id: 2,
+                        node_id: 1,
                         orientation: Orientation::Forward,
                     }],
                     overlaps: vec![],
@@ -615,15 +614,15 @@ mod tests {
             ],
             node_name_map: None,
         };
-        let lookup = CoreGraph::new(&graph);
+        let lookup = CoreGraph::new(graph);
         let result = lookup.extract_kmers_paths(k);
 
         assert_eq!(result.len(), 2);
-        let path1_kmers = result.get(&graph.paths[0]).unwrap();
+        let path1_kmers = result.get(&lookup.path_map[&b"path1".to_vec()]).unwrap();
         assert_eq!(path1_kmers.len(), 2);
         assert_eq!(path1_kmers[0].kmer, Kmer::from_bases(b"ACGT").canonical());
         assert_eq!(path1_kmers[1].kmer, Kmer::from_bases(b"CGTA").canonical());
-        let path2_kmers = result.get(&graph.paths[1]).unwrap();
+        let path2_kmers = result.get(&lookup.path_map[&b"path2".to_vec()]).unwrap();
         assert_eq!(path2_kmers.len(), 2);
         assert_eq!(path2_kmers[0].kmer, Kmer::from_bases(b"TTGC").canonical());
         assert_eq!(path2_kmers[1].kmer, Kmer::from_bases(b"TGCA").canonical());
@@ -638,19 +637,19 @@ mod tests {
         // Unique Kmers: AAA, AAT, ATT, TTT
         let nodes = vec![
             Node {
-                id: 1,
+                id: 0,
                 sequence: b"AAAA".to_vec(),
             },
             Node {
-                id: 2,
+                id: 1,
                 sequence: b"TTTT".to_vec(),
             },
         ];
 
         let edges = vec![Edge {
-            from_node: 1,
+            from_node: 0,
             from_orient: Orientation::Forward,
-            to_node: 2,
+            to_node: 1,
             to_orient: Orientation::Forward,
             overlap: 0,
         }];
@@ -662,7 +661,7 @@ mod tests {
             node_name_map: None,
         };
 
-        let lookup = CoreGraph::new(&graph);
+        let lookup = CoreGraph::new(graph);
         let (kmers, dbg_edges) = lookup.extract_kmers_from_full_topology(3);
         let expected_kmers: HashSet<Kmer> = vec![
             Kmer::from_bases(b"AAA").canonical(),
@@ -710,31 +709,31 @@ mod tests {
         // Then splits: AT, TT (via Node2) or AG, GG (via Node3)
         let nodes = vec![
             Node {
-                id: 1,
+                id: 0,
                 sequence: b"AAA".to_vec(),
             },
             Node {
-                id: 2,
+                id: 1,
                 sequence: b"TTT".to_vec(),
             },
             Node {
-                id: 3,
+                id: 2,
                 sequence: b"GGG".to_vec(),
             },
         ];
 
         let edges = vec![
             Edge {
-                from_node: 1,
+                from_node: 0,
                 from_orient: Orientation::Forward,
-                to_node: 2,
+                to_node: 1,
                 to_orient: Orientation::Forward,
                 overlap: 0,
             },
             Edge {
-                from_node: 1,
+                from_node: 0,
                 from_orient: Orientation::Forward,
-                to_node: 3,
+                to_node: 2,
                 to_orient: Orientation::Forward,
                 overlap: 0,
             },
@@ -747,7 +746,7 @@ mod tests {
             node_name_map: None,
         };
 
-        let lookup = CoreGraph::new(&graph);
+        let lookup = CoreGraph::new(graph);
         let (kmers, _dbg_edges) = lookup.extract_kmers_from_full_topology(2);
 
         let expected_kmers: HashSet<Kmer> = vec![
@@ -771,31 +770,31 @@ mod tests {
         // Both paths merge at Node3
         let nodes = vec![
             Node {
-                id: 1,
+                id: 0,
                 sequence: b"AAA".to_vec(),
             },
             Node {
-                id: 2,
+                id: 1,
                 sequence: b"GGG".to_vec(),
             },
             Node {
-                id: 3,
+                id: 2,
                 sequence: b"TTT".to_vec(),
             },
         ];
 
         let edges = vec![
             Edge {
-                from_node: 1,
+                from_node: 0,
                 from_orient: Orientation::Forward,
-                to_node: 3,
+                to_node: 2,
                 to_orient: Orientation::Forward,
                 overlap: 0,
             },
             Edge {
-                from_node: 2,
+                from_node: 1,
                 from_orient: Orientation::Forward,
-                to_node: 3,
+                to_node: 2,
                 to_orient: Orientation::Forward,
                 overlap: 0,
             },
@@ -808,7 +807,7 @@ mod tests {
             node_name_map: None,
         };
 
-        let lookup = CoreGraph::new(&graph);
+        let lookup = CoreGraph::new(graph);
         let (kmers, _dbg_edges) = lookup.extract_kmers_from_full_topology(2);
 
         let expected_kmers: HashSet<Kmer> = vec![
@@ -831,27 +830,27 @@ mod tests {
         // Should extract kmers without infinite looping
         let nodes = vec![
             Node {
-                id: 1,
+                id: 0,
                 sequence: b"ACGT".to_vec(),
             },
             Node {
-                id: 2,
+                id: 1,
                 sequence: b"ACGT".to_vec(),
             },
         ];
 
         let edges = vec![
             Edge {
-                from_node: 1,
+                from_node: 0,
                 from_orient: Orientation::Forward,
-                to_node: 2,
+                to_node: 1,
                 to_orient: Orientation::Forward,
                 overlap: 0,
             },
             Edge {
-                from_node: 2,
+                from_node: 1,
                 from_orient: Orientation::Forward,
-                to_node: 1,
+                to_node: 0,
                 to_orient: Orientation::Forward,
                 overlap: 0,
             },
@@ -864,7 +863,7 @@ mod tests {
             node_name_map: None,
         };
 
-        let lookup = CoreGraph::new(&graph);
+        let lookup = CoreGraph::new(graph);
         let (kmers, _dbg_edges) = lookup.extract_kmers_from_full_topology(2);
 
         // Should contain all 2-mers from ACGTACGTACGT... pattern
@@ -890,26 +889,33 @@ mod tests {
         // Diamond pattern: A->B, A->C, B->D, C->D
         let nodes = vec![
             Node {
-                id: 1,
+                id: 0,
                 sequence: b"AA".to_vec(),
             },
             Node {
-                id: 2,
+                id: 1,
                 sequence: b"TT".to_vec(),
             },
             Node {
-                id: 3,
+                id: 2,
                 sequence: b"GG".to_vec(),
             },
             Node {
-                id: 4,
+                id: 3,
                 sequence: b"CC".to_vec(),
             },
         ];
 
         let edges = vec![
             Edge {
-                from_node: 1,
+                from_node: 0,
+                from_orient: Orientation::Forward,
+                to_node: 1,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            },
+            Edge {
+                from_node: 0,
                 from_orient: Orientation::Forward,
                 to_node: 2,
                 to_orient: Orientation::Forward,
@@ -925,14 +931,7 @@ mod tests {
             Edge {
                 from_node: 2,
                 from_orient: Orientation::Forward,
-                to_node: 4,
-                to_orient: Orientation::Forward,
-                overlap: 0,
-            },
-            Edge {
-                from_node: 3,
-                from_orient: Orientation::Forward,
-                to_node: 4,
+                to_node: 3,
                 to_orient: Orientation::Forward,
                 overlap: 0,
             },
@@ -945,7 +944,7 @@ mod tests {
             node_name_map: None,
         };
 
-        let lookup = CoreGraph::new(&graph);
+        let lookup = CoreGraph::new(graph);
         let (kmers, _dbg_edges) = lookup.extract_kmers_from_full_topology(2);
 
         let expected_kmers: HashSet<Kmer> = vec![
@@ -971,19 +970,19 @@ mod tests {
         // Should handle N as invalid and reset
         let nodes = vec![
             Node {
-                id: 1,
+                id: 0,
                 sequence: b"AANA".to_vec(),
             },
             Node {
-                id: 2,
+                id: 1,
                 sequence: b"TTNT".to_vec(),
             },
         ];
 
         let edges = vec![Edge {
-            from_node: 1,
+            from_node: 0,
             from_orient: Orientation::Forward,
-            to_node: 2,
+            to_node: 1,
             to_orient: Orientation::Forward,
             overlap: 0,
         }];
@@ -995,7 +994,7 @@ mod tests {
             node_name_map: None,
         };
 
-        let lookup = CoreGraph::new(&graph);
+        let lookup = CoreGraph::new(graph);
         let (kmers, _dbg_edges) = lookup.extract_kmers_from_full_topology(2);
 
         // After N, buffer resets. We should get: AA, then N resets, then AT
