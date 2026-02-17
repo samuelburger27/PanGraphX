@@ -1,4 +1,4 @@
-use crate::CoreGraph;
+use crate::CoreGraphDTO;
 use crate::GraphFormat;
 use crate::PanResult;
 use std::fs::File;
@@ -8,14 +8,14 @@ pub trait GraphReader : BufRead + Seek {}
 
 impl<T: BufRead + Seek> GraphReader for T {}
 
-impl CoreGraph {
-    pub fn load_from_file(path: &str, format: GraphFormat) -> PanResult<CoreGraph> {
+impl CoreGraphDTO {
+    pub fn load_from_file(path: &str, format: GraphFormat) -> PanResult<CoreGraphDTO> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
         Self::load(&mut reader, format)
     }
 
-    pub fn load<R: GraphReader>(reader: &mut R, format: GraphFormat) -> PanResult<CoreGraph> {
+    pub fn load<R: GraphReader>(reader: &mut R, format: GraphFormat) -> PanResult<CoreGraphDTO> {
         format.get_parser::<R>().parse(reader)
     }
 

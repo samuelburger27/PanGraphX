@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
+use std::vec;
 
-use crate::core::graph::Node;
-use crate::core::lookup_graph::LookUpGraph;
+use crate::core::graph_dto::Node;
+use crate::core::graph::CoreGraph;
 use crate::de_bruijn_conversion::k_mers::OrientedKmer;
-use crate::{CoreGraph, Kmer};
+use crate::{CoreGraphDTO, Kmer};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct DbgEdge {
@@ -18,8 +19,8 @@ pub struct DeBruijn {
 }
 
 impl DeBruijn {
-    pub fn from_directed_graph(graph: &CoreGraph, k: usize) -> Self {
-        let lookup_graph = LookUpGraph::new(graph);
+    pub fn from_directed_graph(graph: CoreGraphDTO, k: usize) -> Self {
+        let lookup_graph = CoreGraph::new(graph);
         let extracted_o_kmers = lookup_graph.extract_kmers_paths(k);
         let mut edges = HashSet::new();
         let mut all_kmers = HashSet::new();
@@ -40,8 +41,8 @@ impl DeBruijn {
         }
     }
 
-    pub fn from_directed_graph_full_topography(graph: &CoreGraph, k: usize) -> Self {
-        let lookup_graph = LookUpGraph::new(graph);
+    pub fn from_directed_graph_full_topography(graph: CoreGraphDTO, k: usize) -> Self {
+        let lookup_graph = CoreGraph::new(graph);
         let (kmers, edges) = lookup_graph.extract_kmers_from_full_topology(k);
         DeBruijn {
             kmers,
@@ -51,7 +52,7 @@ impl DeBruijn {
     }
 }
 
-impl From<DeBruijn> for CoreGraph {
+impl From<DeBruijn> for CoreGraphDTO {
     fn from(db_graph: DeBruijn) -> Self {
         //Create nodes from kmers
         let node_map: HashMap<Kmer, Node> = db_graph
@@ -62,7 +63,7 @@ impl From<DeBruijn> for CoreGraph {
                 (
                     kmer,
                     Node {
-                        id: i.to_string().into_bytes(),
+                        id: i,
                         sequence: kmer.to_bytes(),
                     },
                 )
@@ -70,13 +71,13 @@ impl From<DeBruijn> for CoreGraph {
             .collect();
 
         //Create edges from dbg edges
-        let edges: Vec<crate::core::graph::Edge> = db_graph
+        let edges: Vec<crate::core::graph_dto::Edge> = db_graph
             .edges
             .into_iter()
             .map(|dbg_edge| {
                 let from_node = node_map.get(&dbg_edge.from.kmer).unwrap();
                 let to_node = node_map.get(&dbg_edge.to.kmer).unwrap();
-                crate::core::graph::Edge {
+                crate::core::graph_dto::Edge {
                     from_node: from_node.id.clone(),
                     from_orient: dbg_edge.from.direction,
                     to_node: to_node.id.clone(),
@@ -85,12 +86,20 @@ impl From<DeBruijn> for CoreGraph {
                 }
             })
             .collect();
-        let nodes = node_map.values().cloned().collect();
 
-        CoreGraph {
+        // Collect nodes into a vector, make sure to maintain invariant that 
+        // node IDs are consistent with their position in the vector
+        let mut nodes = vec![Node::default(); node_map.len()];
+        
+        for node in node_map.values() {
+            nodes[node.id as usize] = node.clone(); 
+        }
+
+        CoreGraphDTO {
             nodes,
             edges,
             paths: Vec::new(), // Paths are not represented in de Bruijn graph
+            node_name_map: None,
         }
     }
 }

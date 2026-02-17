@@ -1,6 +1,7 @@
-use crate::core::graph::{CoreGraph, Edge, Node, NodeId, Orientation, Path, Step};
+use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, Orientation, Path, Step};
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
+use std::collections::HashMap;
 use std::io::{Read, Seek};
 
 // Import necessary types from the gbwt crate
@@ -9,13 +10,7 @@ use simple_sds_sbwt::serialize::Serialize;
 
 pub struct GBZCodec;
 
-// Helper to convert numerical GBWT IDs to CoreGraph Vec<u8> IDs
-#[inline]
-fn id_to_bytes(id: usize) -> NodeId {
-    id.to_string().into_bytes()
-}
-
-// Helper to map GBWT specific orientation to internal CoreGraph orientation
+// Helper to map GBWT orientation to internal CoreGraph orientation
 impl From<GbwtOrientation> for Orientation {
     fn from(o: GbwtOrientation) -> Self {
         match o {
@@ -24,9 +19,10 @@ impl From<GbwtOrientation> for Orientation {
         }
     }
 }
+// TODO should rewrite
 
 impl<R: Read + Seek> GraphParser<R> for GBZCodec {
-    fn parse(&self, reader: &mut R) -> PanResult<CoreGraph> {
+    fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
         // 1. Load the GBZ file using the Serialize trait method
         let gbz = GBZ::load(reader)?;
 
@@ -36,6 +32,8 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
             ));
         };
 
+        let mut node_id_map = HashMap::new();
+
         let mut nodes = Vec::new();
         // 1. Load Nodes
         match gbz.segment_iter() {
@@ -44,25 +42,25 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                     let id_str = segment.name.to_vec();
                     let sequence = segment.sequence.to_vec();
                     nodes.push(Node {
-                        id: id_str,
+                        id: segment.id,
                         sequence,
                     });
+                    node_id_map.insert(segment.id, id_str);
                 }
             }
             None => {
                 for node_id in gbz.node_iter() {
-                    let id_str = id_to_bytes(node_id);
                     let sequence = gbz
                         .sequence(node_id)
                         .ok_or_else(|| {
                             PanGraphXError::Parse(format!(
-                                "Node {} doesn't have a sequnece, GBZ file is not valid",
+                                "Node {} doesn't have a sequence, GBZ file is not valid",
                                 node_id
                             ))
                         })?
                         .to_vec();
                     nodes.push(Node {
-                        id: id_str,
+                        id: node_id,
                         sequence,
                     });
                 }
@@ -83,9 +81,9 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                         // has a greater id.
                         if successor.id >= segment.id {
                             edges.push(Edge {
-                                from_node: segment.name.to_vec(),
+                                from_node: segment.id,
                                 from_orient: Orientation::Forward,
-                                to_node: successor.name.to_vec(),
+                                to_node: successor.id,
                                 to_orient: orientation.into(),
                                 overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
@@ -102,9 +100,9 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                                 && orientation == GbwtOrientation::Forward)
                         {
                             edges.push(Edge {
-                                from_node: segment.name.to_vec(),
+                                from_node: segment.id,
                                 from_orient: Orientation::Reverse,
-                                to_node: successor.name.to_vec(),
+                                to_node: successor.id,
                                 to_orient: orientation.into(),
                                 overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
@@ -119,9 +117,9 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                     {
                         if successor >= node_id {
                             edges.push(Edge {
-                                from_node: id_to_bytes(node_id),
+                                from_node: node_id,
                                 from_orient: Orientation::Forward,
-                                to_node: id_to_bytes(successor),
+                                to_node: successor,
                                 to_orient: orientation.into(),
                                 overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
@@ -134,9 +132,9 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                             || (successor == node_id && orientation == GbwtOrientation::Forward)
                         {
                             edges.push(Edge {
-                                from_node: id_to_bytes(node_id),
+                                from_node: node_id,
                                 from_orient: Orientation::Reverse,
-                                to_node: id_to_bytes(successor),
+                                to_node: successor,
                                 to_orient: orientation.into(),
                                 overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
@@ -160,7 +158,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                 let steps: Vec<Step> = match gbz.segment_path(path_id, GbwtOrientation::Forward) {
                     Some(iter) => iter
                         .map(|(segment, orientation)| Step {
-                            node_id: segment.name.to_vec(),
+                            node_id: segment.id,
                             orientation: orientation.into(),
                         })
                         .collect(),
@@ -171,7 +169,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                             PanGraphXError::Parse("GBZ file missing path steps".to_string())
                         })?
                         .map(|(node_id, orientation)| Step {
-                            node_id: id_to_bytes(node_id),
+                            node_id,
                             orientation: orientation.into(),
                         })
                         .collect(),
@@ -185,16 +183,17 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
             }
         }
 
-        Ok(CoreGraph {
+        Ok(CoreGraphDTO {
             nodes,
             edges,
             paths,
+            node_name_map: Some(node_id_map),
         })
     }
 }
 
 impl GraphSerializer for GBZCodec {
-    fn serialize(&self, _graph: &CoreGraph, _writer: &mut dyn std::io::Write) -> PanResult<()> {
+    fn serialize(&self, _graph: &CoreGraphDTO, _writer: &mut dyn std::io::Write) -> PanResult<()> {
         todo!("GBZ format serializer not implemented yet")
     }
 }
