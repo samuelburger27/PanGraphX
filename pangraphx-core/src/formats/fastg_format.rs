@@ -4,6 +4,7 @@ use crate::traits::{GraphParser, GraphSerializer};
 use bio::alphabets::dna::n_alphabet as dna_alphabet;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Seek, Write};
+use log::warn;
 
 pub struct FastgCodec;
 
@@ -15,8 +16,8 @@ fn is_header_line(line: &[u8]) -> bool {
 
 impl<R: Read + Seek> GraphParser<R> for FastgCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
-        println!("Warning: FASTG file doesn't contain path information.");
-        println!("Only nodes and edges will be parsed.");
+        warn!("FASTG file doesn't contain path information.");
+        warn!("Only nodes and edges will be parsed.");
         let buf_reader = BufReader::new(reader);
 
         // Map from node names to their assigned sequential IDs
@@ -115,7 +116,7 @@ fn record_node(
         if let Some(id) = name_id_map.get(last_node_name) {
             if let Some(existing_seq) = &sequences[*id] {
                 // Verify that if a node appears multiple times, it has the same sequence
-                if *existing_seq != *node_sequence {
+                if existing_seq != &node_sequence {
                     return Err(PanGraphXError::Parse(format!(
                         "Node {} has multiple sequences in FASTG file, seq_a: {}, seq_b: {}",
                         String::from_utf8_lossy(last_node_name),

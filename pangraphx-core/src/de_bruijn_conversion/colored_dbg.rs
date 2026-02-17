@@ -1,7 +1,7 @@
 use super::de_bruijn_graph::{DbgEdge, DeBruijn};
 use crate::Kmer;
-use crate::core::graph_dto::{CoreGraphDTO, Node, Path, Step};
 use crate::core::graph::CoreGraph;
+use crate::core::graph_dto::{CoreGraphDTO, Node, Path, Step};
 use crate::de_bruijn_conversion::k_mers::OrientedKmer;
 use std::collections::{HashMap, HashSet};
 
@@ -116,7 +116,13 @@ impl From<ColoredDBG> for CoreGraphDTO {
             })
             .collect();
 
-        let nodes = node_map.values().cloned().collect();
+        // Collect nodes into a vector, make sure to maintain invariant that
+        // node IDs are consistent with their position in the vector
+        let mut nodes = vec![Node::default(); node_map.len()];
+
+        for node in node_map.values() {
+            nodes[node.id as usize] = node.clone();
+        }
 
         CoreGraphDTO {
             nodes,

@@ -14,12 +14,7 @@ pub struct CoreGraph {
 
 impl CoreGraph {
     pub fn new(graph: CoreGraphDTO) -> CoreGraph {
-        let mut node_index = HashMap::new();
-        for (i, node) in graph.nodes.iter().enumerate() {
-            node_index.insert(&node.id, i);
-        }
-
-        let ajacency_list = Self::build_adjacency_list(&graph);
+        let adjacency_list = Self::build_adjacency_list(&graph);
 
         let path_map = graph
             .paths
@@ -32,7 +27,7 @@ impl CoreGraph {
             edges: graph.edges,
             path_map: path_map,
             node_name_map: graph.node_name_map,
-            adjacency_list: ajacency_list,
+            adjacency_list: adjacency_list,
         }
     }
 

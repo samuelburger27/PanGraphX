@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::vec;
 
 use crate::core::graph_dto::Node;
 use crate::core::graph::CoreGraph;
@@ -85,7 +86,14 @@ impl From<DeBruijn> for CoreGraphDTO {
                 }
             })
             .collect();
-        let nodes = node_map.values().cloned().collect();
+
+        // Collect nodes into a vector, make sure to maintain invariant that 
+        // node IDs are consistent with their position in the vector
+        let mut nodes = vec![Node::default(); node_map.len()];
+        
+        for node in node_map.values() {
+            nodes[node.id as usize] = node.clone(); 
+        }
 
         CoreGraphDTO {
             nodes,

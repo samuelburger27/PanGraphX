@@ -998,12 +998,11 @@ mod tests {
         let (kmers, _dbg_edges) = lookup.extract_kmers_from_full_topology(2);
 
         // After N, buffer resets. We should get: AA, then N resets, then AT
-        // In Node2: TT, then N resets, then NT becomes a new window starting
+        // In Node2: TT, then N resets, then only T remains which is not a full k-mer
         let expected_kmers: HashSet<Kmer> = vec![
             Kmer::from_bases(b"AA").canonical(),
             Kmer::from_bases(b"AT").canonical(),
             Kmer::from_bases(b"TT").canonical(),
-            Kmer::from_bases(b"NT").canonical(), // After reset, starts with N which encodes as A
         ]
         .into_iter()
         .collect();

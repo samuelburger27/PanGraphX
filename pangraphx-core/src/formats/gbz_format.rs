@@ -1,4 +1,4 @@
-use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, NodeId, Orientation, Path, Step};
+use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, Orientation, Path, Step};
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::collections::HashMap;

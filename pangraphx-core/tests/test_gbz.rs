@@ -2,6 +2,7 @@ use pangraphx_core::*;
 use std::fs;
 use tempfile::NamedTempFile;
 
+#[ignore = "GBZ format test is not implemented yet."]
 #[test]
 fn test_gbz_format() {
     println!("GBZ format test is not implemented yet.");

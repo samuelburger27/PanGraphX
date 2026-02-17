@@ -1,5 +1,5 @@
 use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, NodeId, Orientation, Path, Step};
-use crate::error::PanResult;
+use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
 use gfa::cigar::CIGAR;
 use gfa::gfa::orientation::Orientation as GFAOrientation;
@@ -78,17 +78,23 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
                 }
             }
         }
-        let edges: Vec<Edge> = gfa
+        let edges = gfa
             .links
             .into_iter()
-            .map(|link| Edge {
-                from_node: *reverse_mapping.get(&link.from_segment[..]).unwrap(),
-                from_orient: link.from_orient.into(),
-                to_node: *reverse_mapping.get(&link.to_segment[..]).unwrap(),
-                to_orient: link.to_orient.into(),
-                overlap: parse_overlap(&link.overlap),
+            .map(|link| {
+                PanResult::Ok(Edge {
+                    from_node: *reverse_mapping.get(&link.from_segment[..]).ok_or_else(|| {
+                        PanGraphXError::Parse("Failed to map from_segment to node ID".into())
+                    })?,
+                    from_orient: link.from_orient.into(),
+                    to_node: *reverse_mapping.get(&link.to_segment[..]).ok_or_else(|| {
+                        PanGraphXError::Parse("Failed to map to_segment to node ID".into())
+                    })?,
+                    to_orient: link.to_orient.into(),
+                    overlap: parse_overlap(&link.overlap),
+                })
             })
-            .collect();
+            .collect::<PanResult<Vec<Edge>>>()?;
 
         let paths: Vec<Path> = gfa
             .paths
@@ -98,13 +104,15 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
                     .iter()
                     .map(|(id, orient)| {
                         let a: &[u8] = id.iter().as_slice();
-                        let o = *reverse_mapping.get(a).unwrap();
-                        Step {
+                        let o = *reverse_mapping.get(a).ok_or_else(|| {
+                            PanGraphXError::Parse("Failed to map segment ID to node ID".into())
+                        })?;
+                        PanResult::Ok(Step {
                             node_id: o,
                             orientation: orient.into(),
-                        }
+                        })
                     })
-                    .collect();
+                    .collect::<PanResult<Vec<Step>>>()?;
 
                 let overlaps: Vec<u32> = p
                     .overlaps
@@ -114,13 +122,13 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
                         None => 0,
                     })
                     .collect();
-                Path {
+                PanResult::Ok(Path {
                     name: p.path_name,
                     steps,
                     overlaps,
-                }
+                })
             })
-            .collect();
+            .collect::<PanResult<Vec<Path>>>()?;
 
         Ok(CoreGraphDTO {
             nodes,

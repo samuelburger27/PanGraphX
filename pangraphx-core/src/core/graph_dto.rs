@@ -34,7 +34,7 @@ impl From<bool> for Orientation {
 }
 
 /// A node (or segment) in the graph, containing a DNA sequence.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Node {
     // DNA sequence of the node
     pub sequence: Sequence,
