@@ -10,6 +10,9 @@ pub enum PanGraphXError {
 
     #[error("Format not supported")]
     UnsupportedFormat,
+
+    #[error("Other Error: {0}")]
+    Other(String),
 }
 
 pub type PanResult<T> = std::result::Result<T, PanGraphXError>;
