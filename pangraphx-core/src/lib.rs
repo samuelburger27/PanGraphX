@@ -11,7 +11,7 @@ pub use de_bruijn_conversion::{colored_dbg::ColoredDBG, de_bruijn_graph::DeBruij
 pub use error::PanResult;
 use std::fmt::Display;
 
-use crate::formats::{FastgCodec, GBZCodec, GFACodec, VGCodec};
+use crate::formats::{FastgCodec, GBZCodec, GFACodec, VGCodec, ODGICodec};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::io::{Read, Seek};
 
@@ -22,6 +22,7 @@ pub enum GraphFormat {
     GFA,
     VG,
     FASTG,
+    ODGI,
 }
 
 impl Display for GraphFormat {
@@ -31,13 +32,14 @@ impl Display for GraphFormat {
             GraphFormat::GFA => write!(f, "GFA"),
             GraphFormat::VG => write!(f, "VG"),
             GraphFormat::FASTG => write!(f, "FASTG"),
+            GraphFormat::ODGI => write!(f, "ODGI"),
         }
     }
 }
 
 impl GraphFormat {
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::GBZ, Self::GFA, Self::VG, Self::FASTG]
+        [Self::GBZ, Self::GFA, Self::VG, Self::FASTG, Self::ODGI]
             .iter()
             .copied()
     }
@@ -48,6 +50,7 @@ impl GraphFormat {
             GraphFormat::GFA => "gfa",
             GraphFormat::VG => "vg",
             GraphFormat::FASTG => "fastg",
+            GraphFormat::ODGI => "odgi",
         }
     }
 
@@ -57,6 +60,7 @@ impl GraphFormat {
             "vg" => Some(GraphFormat::VG),
             "gbz" => Some(GraphFormat::GBZ),
             "fastg" => Some(GraphFormat::FASTG),
+            "odgi" => Some(GraphFormat::ODGI),
             _ => None,
         }
     }
@@ -67,6 +71,7 @@ impl GraphFormat {
             GraphFormat::VG => Box::new(VGCodec),
             GraphFormat::GBZ => Box::new(GBZCodec),
             GraphFormat::FASTG => Box::new(FastgCodec),
+            GraphFormat::ODGI => Box::new(ODGICodec),
         }
     }
 
@@ -76,6 +81,7 @@ impl GraphFormat {
             GraphFormat::VG => Box::new(VGCodec),
             GraphFormat::GBZ => Box::new(GBZCodec),
             GraphFormat::FASTG => Box::new(FastgCodec),
+            GraphFormat::ODGI => Box::new(ODGICodec),
         }
     }
 }

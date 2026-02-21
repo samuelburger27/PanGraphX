@@ -1,14 +1,18 @@
-use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, NodeId, Orientation, Path, Step};
-use crate::formats::gfa_format::GFACodec;
+use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, Orientation, Path, Step};
 use crate::error::{PanGraphXError, PanResult};
+use crate::formats::gfa_format::GFACodec;
 use crate::traits::{GraphParser, GraphSerializer};
-use odgi_ffi::{Edge as OdgiEdge, Error, Graph as OdgiGraph, gfa_to_odgi};
-use std::io::{BufRead, BufReader, Read, Seek, Write, copy};
+use odgi_ffi::{Edge as OdgiEdge, Graph as OdgiGraph, gfa_to_odgi};
+use std::io::{Read, Seek, Write, copy};
 use tempfile::NamedTempFile;
 
+/// Codec for reading and writing ODGI graphs.
+///
+/// The current FFI layer accepts filesystem paths rather than generic readers/writers,
+/// so parsing and serialization use temporary files as an interoperability bridge.
 pub struct ODGICodec;
 
-/// Converts an ODGI edge to our internal Edge representation
+/// Converts an ODGI edge to the internal `Edge` representation.
 impl From<(usize, OdgiEdge)> for Edge {
     fn from((from_id, edge): (usize, OdgiEdge)) -> Self {
         Edge {
@@ -16,24 +20,26 @@ impl From<(usize, OdgiEdge)> for Edge {
             from_orient: Orientation::from(edge.from_orientation),
             to_node: edge.to_node as usize,
             to_orient: Orientation::from(edge.to_orientation),
-            // TODO check
-            overlap: 0, // ODGI edges do not have explicit overlap information, so we set it to 0 for now
+            overlap: 0, // ODGI edges do not have explicit overlap information
         }
     }
 }
 
 impl<R: Read + Seek> GraphParser<R> for ODGICodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
-        // This is problematic, as odgi_ffi expects a file path, but we want to read from a stream
-        // Workaround is to read the entire stream into a temporary file, but this is not ideal
+        // `odgi_ffi` currently parses from a file path, so the input stream is staged
+        // into a temporary file before loading.
 
         let mut temp_file = NamedTempFile::new()?;
         copy(reader, &mut temp_file)?;
         let temp_path = temp_file.path().to_str().ok_or_else(|| {
-            PanGraphXError::Other("Failed to convert temp file path to string".to_string())
+            PanGraphXError::Parse("Failed to convert temp file path to string".to_string())
         })?;
+
         let odgi_graph = OdgiGraph::load(temp_path)
             .map_err(|e| PanGraphXError::Parse(format!("Failed to parse ODGI graph: {:?}", e)))?;
+
+        temp_file.close()?;
 
         let node_len = odgi_graph.node_count() as usize;
 
@@ -55,7 +61,8 @@ impl<R: Read + Seek> GraphParser<R> for ODGICodec {
         }
         let path_names = odgi_graph.get_path_names();
         let mut paths = Vec::with_capacity(path_names.len());
-        // TODO test this not sure if i understand the API correctly
+
+        // Build each path by projecting every position to its corresponding node/orientation.
         for path_name in path_names {
             let path_len = odgi_graph.get_path_length(&path_name).ok_or_else(|| {
                 PanGraphXError::Parse(format!("Failed to get path length for path: {}", path_name))
@@ -76,7 +83,7 @@ impl<R: Read + Seek> GraphParser<R> for ODGICodec {
             paths.push(Path {
                 name: path_name.into_bytes(),
                 steps,
-                overlaps: Vec::new(), // ODGI does not have explicit overlap information, so we set it to an empty vector for now
+                overlaps: Vec::new(), // ODGI does not expose explicit overlap values.
             });
         }
 
@@ -84,15 +91,15 @@ impl<R: Read + Seek> GraphParser<R> for ODGICodec {
             nodes,
             edges,
             paths,
-            node_name_map: None, // ODGI does not have explicit node names, so we set this to None for now
+            node_name_map: None, // ODGI does not expose a dedicated node name map.
         })
     }
 }
 
 impl GraphSerializer for ODGICodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
-        // Once again this is ugly, we need to write to a temporary gfa file and then convert it to odgi format using the gfa_to_odgi function from the odgi_ffi crate, 
-        // which expects file paths, and then write the resulting odgi file to the output writer
+        // `gfa_to_odgi` converts between files, so serialize to temporary GFA first,
+        // convert to temporary ODGI, then stream the result to the destination writer.
         let mut temp_file = NamedTempFile::new()?;
         let temp_path = temp_file.path().to_string_lossy().to_string();
         let gfa_codec = GFACodec;
