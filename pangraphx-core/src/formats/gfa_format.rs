@@ -1,4 +1,5 @@
-use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, NodeId, Orientation, Path, Step};
+use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
+use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
 use gfa::cigar::CIGAR;
@@ -59,13 +60,10 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
         let parser: GFAParser<Vec<u8>, ()> = GFAParserBuilder::all().build();
         let gfa = parser.parse_lines(lines_iter)?;
         let mut mapping = HashMap::new();
-        let mut nodes = Vec::new();
+        let mut nodes = Nodes::new();
         for (i, node) in gfa.segments.iter().enumerate() {
             mapping.insert(i, node.name.clone());
-            nodes.push(Node {
-                id: i as NodeId,
-                sequence: node.sequence.clone(),
-            });
+            nodes.push(node.sequence.clone());
         }
         let mut reverse_mapping: HashMap<&[u8], usize> = HashMap::new();
         for (k, v) in &mapping {

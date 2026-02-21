@@ -1,4 +1,5 @@
-use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, Orientation, Path, Step};
+use crate::core::core_types::{Edge, Node, Nodes, Orientation, Path, Step};
+use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::formats::gfa_format::GFACodec;
 use crate::traits::{GraphParser, GraphSerializer};
@@ -86,6 +87,8 @@ impl<R: Read + Seek> GraphParser<R> for ODGICodec {
                 overlaps: Vec::new(), // ODGI does not expose explicit overlap values.
             });
         }
+
+        let nodes = Nodes::from_node_vec(nodes)?;
 
         Ok(CoreGraphDTO {
             nodes,

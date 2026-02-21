@@ -1,8 +1,9 @@
 use super::de_bruijn_graph::{DbgEdge, DeBruijn};
-use crate::Kmer;
+use crate::core::core_types::{Edge, Node, Nodes, Path, Step};
 use crate::core::graph::CoreGraph;
-use crate::core::graph_dto::{CoreGraphDTO, Node, Path, Step};
+use crate::core::graph_dto::CoreGraphDTO;
 use crate::de_bruijn_conversion::k_mers::OrientedKmer;
+use crate::{Kmer, Sequence};
 use std::collections::{HashMap, HashSet};
 
 pub struct ColorPath {
@@ -73,14 +74,14 @@ impl From<ColoredDBG> for CoreGraphDTO {
             .collect();
 
         //Create edges from dbg edges
-        let edges: Vec<crate::core::graph_dto::Edge> = colored_dbg
+        let edges: Vec<Edge> = colored_dbg
             .dbg
             .edges
             .into_iter()
             .map(|dbg_edge| {
                 let from_node = node_map.get(&dbg_edge.from.kmer).unwrap();
                 let to_node = node_map.get(&dbg_edge.to.kmer).unwrap();
-                crate::core::graph_dto::Edge {
+                Edge {
                     from_node: from_node.id.clone(),
                     from_orient: dbg_edge.from.direction,
                     to_node: to_node.id.clone(),
@@ -116,13 +117,12 @@ impl From<ColoredDBG> for CoreGraphDTO {
             })
             .collect();
 
-        // Collect nodes into a vector, make sure to maintain invariant that
-        // node IDs are consistent with their position in the vector
-        let mut nodes = vec![Node::default(); node_map.len()];
+        let sequences = node_map
+            .values()
+            .map(|node| node.sequence.clone())
+            .collect::<Vec<Sequence>>();
 
-        for node in node_map.values() {
-            nodes[node.id as usize] = node.clone();
-        }
+        let nodes = Nodes::from_seq(sequences);
 
         CoreGraphDTO {
             nodes,

@@ -1,4 +1,5 @@
-use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, NodeId, NodeName, Orientation, Sequence};
+use crate::core::core_types::{Edge, NodeId, NodeName, Nodes, Orientation, Sequence};
+use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
 use bio::alphabets::dna::n_alphabet as dna_alphabet;
@@ -67,19 +68,21 @@ impl<R: Read + Seek> GraphParser<R> for FastgCodec {
         // Finalize the last node's sequence at EOF
         record_node(node_sequence, &name_id_map, &mut sequences, &last_node_name)?;
 
-        // Build the final node list with validated sequences
-        let mut nodes: Vec<Node> = Vec::new();
-        nodes.reserve(name_id_map.len());
+        // Build the final nodes with validated sequences
+        let sequences =  sequences
+             .into_iter().enumerate()
+             .map(|(id, seq_opt)| {
+                 let seq = seq_opt.ok_or_else(|| {
+                     PanGraphXError::Parse(format!(
+                         "Node {} does not have a sequence, FASTG file is not valid",
+                         id
+                     ))
+                 })?;
+                 Ok(seq)
+             })
+             .collect::<PanResult<Vec<Sequence>>>()?;
 
-        for (id, seq) in sequences.into_iter().enumerate() {
-            let Some(s) = seq else {
-                return Err(PanGraphXError::Parse(format!(
-                    "Node {} does not have a sequence, FASTG file is not valid",
-                    id
-                )));
-            };
-            nodes.push(Node { id, sequence: s });
-        }
+        let nodes = Nodes::from_seq(sequences);
 
         Ok(CoreGraphDTO {
             nodes,

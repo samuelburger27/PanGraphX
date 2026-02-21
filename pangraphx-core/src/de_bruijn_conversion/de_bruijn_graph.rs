@@ -1,10 +1,8 @@
-use std::collections::{HashMap, HashSet};
-use std::vec;
-
-use crate::core::graph_dto::Node;
+use crate::core::core_types::{Edge, Node, Nodes};
 use crate::core::graph::CoreGraph;
 use crate::de_bruijn_conversion::k_mers::OrientedKmer;
-use crate::{CoreGraphDTO, Kmer};
+use crate::{CoreGraphDTO, Kmer, Sequence};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct DbgEdge {
@@ -71,13 +69,13 @@ impl From<DeBruijn> for CoreGraphDTO {
             .collect();
 
         //Create edges from dbg edges
-        let edges: Vec<crate::core::graph_dto::Edge> = db_graph
+        let edges: Vec<Edge> = db_graph
             .edges
             .into_iter()
             .map(|dbg_edge| {
                 let from_node = node_map.get(&dbg_edge.from.kmer).unwrap();
                 let to_node = node_map.get(&dbg_edge.to.kmer).unwrap();
-                crate::core::graph_dto::Edge {
+                Edge {
                     from_node: from_node.id.clone(),
                     from_orient: dbg_edge.from.direction,
                     to_node: to_node.id.clone(),
@@ -87,13 +85,12 @@ impl From<DeBruijn> for CoreGraphDTO {
             })
             .collect();
 
-        // Collect nodes into a vector, make sure to maintain invariant that 
-        // node IDs are consistent with their position in the vector
-        let mut nodes = vec![Node::default(); node_map.len()];
-        
-        for node in node_map.values() {
-            nodes[node.id as usize] = node.clone(); 
-        }
+        let sequences = node_map
+            .values()
+            .map(|node| node.sequence.clone())
+            .collect::<Vec<Sequence>>();
+
+        let nodes = Nodes::from_seq(sequences);
 
         CoreGraphDTO {
             nodes,

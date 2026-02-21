@@ -1,4 +1,5 @@
-use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, Orientation, Path, Step};
+use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
+use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::collections::HashMap;
@@ -34,18 +35,15 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
 
         let mut node_id_map = HashMap::new();
 
-        let mut nodes = Vec::new();
+        let mut nodes = Nodes::new();
         // 1. Load Nodes
         match gbz.segment_iter() {
             Some(iter) => {
                 for segment in iter {
                     let id_str = segment.name.to_vec();
+                    node_id_map.insert(nodes.len(), id_str);
                     let sequence = segment.sequence.to_vec();
-                    nodes.push(Node {
-                        id: segment.id,
-                        sequence,
-                    });
-                    node_id_map.insert(segment.id, id_str);
+                    nodes.push(sequence);
                 }
             }
             None => {
@@ -59,11 +57,8 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                             ))
                         })?
                         .to_vec();
-                    nodes.push(Node {
-                        id: node_id,
-                        sequence,
-                    });
-                }
+                    nodes.push(sequence);
+                    node_id_map.insert(nodes.len() - 1, node_id.to_string().into_bytes());}
             }
         }
 
