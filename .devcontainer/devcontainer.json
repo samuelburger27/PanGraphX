@@ -1,0 +1,25 @@
+{
+  "name": "Rust Dev Environment",
+  "image": "mcr.microsoft.com/devcontainers/rust:1",
+
+  "features": {
+    
+  },
+
+  "postCreateCommand": "rustup component add rustfmt clippy && sudo apt update && sudo apt-get install build-essential cmake libjemalloc-dev pkg-config python3-dev",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "github.copilot",
+        "ms-vscode.cpptools"
+      ],
+      "settings": {
+        "editor.formatOnSave": true
+      }
+    }
+  },
+
+  "remoteUser": "vscode"
+}

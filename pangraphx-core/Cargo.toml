@@ -11,8 +11,9 @@ bio = "3.0.0"
 gbwt = "0.3.1"
 gfa = "0.10.1"
 log = "0.4.28"
+odgi-ffi = "1.1.3"
 simple-sds-sbwt = "0.3.2"
 thiserror = "2.0.17"
+tempfile = "3"
 
 [dev-dependencies]
-tempfile = "3"

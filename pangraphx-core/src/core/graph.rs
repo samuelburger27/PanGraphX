@@ -43,3 +43,14 @@ impl CoreGraph {
         adjacency_list
     }
 }
+
+impl From<CoreGraph> for CoreGraphDTO {
+    fn from(graph: CoreGraph) -> Self {
+        CoreGraphDTO {
+            nodes: graph.nodes,
+            edges: graph.edges,
+            paths: graph.path_map.into_values().collect(),
+            node_name_map: graph.node_name_map,
+        }
+    }
+}
