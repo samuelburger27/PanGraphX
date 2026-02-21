@@ -2,9 +2,9 @@ use crate::core::graph_dto::{CoreGraphDTO, Edge, Node, NodeId, NodeName, Orienta
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
 use bio::alphabets::dna::n_alphabet as dna_alphabet;
+use log::warn;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Seek, Write};
-use log::warn;
 
 pub struct FastgCodec;
 
@@ -12,7 +12,6 @@ pub struct FastgCodec;
 fn is_header_line(line: &[u8]) -> bool {
     line.first() == Some(&b'>')
 }
-
 
 impl<R: Read + Seek> GraphParser<R> for FastgCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
@@ -46,14 +45,10 @@ impl<R: Read + Seek> GraphParser<R> for FastgCodec {
             // Header format: >NodeName[']:EdgeList;
             if is_header_line(&line) {
                 // Finalize the previous node's sequence before processing the new header
-                record_node(
-                    node_sequence,
-                    &name_id_map,
-                    &mut sequences,
-                    &last_node_name,
-                )?;
+                record_node(node_sequence, &name_id_map, &mut sequences, &last_node_name)?;
 
-                last_node_name = parse_header_line(&line, &mut name_id_map, &mut edge_buff, &mut sequences)?;
+                last_node_name =
+                    parse_header_line(&line, &mut name_id_map, &mut edge_buff, &mut sequences)?;
 
                 node_sequence = Vec::new(); // Reset sequence buffer for the new node
             } else {
@@ -70,12 +65,7 @@ impl<R: Read + Seek> GraphParser<R> for FastgCodec {
         }
 
         // Finalize the last node's sequence at EOF
-        record_node(
-            node_sequence,
-            &name_id_map,
-            &mut sequences,
-            &last_node_name,
-        )?;
+        record_node(node_sequence, &name_id_map, &mut sequences, &last_node_name)?;
 
         // Build the final node list with validated sequences
         let mut nodes: Vec<Node> = Vec::new();
@@ -131,7 +121,6 @@ fn record_node(
     Ok(())
 }
 
-
 /// Retrieves the node ID for a given node name, creating a new entry in the name_id_map
 /// and sequences vector if the node name has not been seen before.  
 #[inline]
@@ -153,7 +142,7 @@ fn get_node_id(
 
 /// Parses a FASTG header line to extract the node name, edges, and orientations.
 /// Updates the name_id_map with any new nodes encountered in the header and
-/// populates the edge_buff with edges defined in the header. 
+/// populates the edge_buff with edges defined in the header.
 /// Returns the node name for the current header.
 fn parse_header_line(
     line: &[u8],
@@ -161,7 +150,6 @@ fn parse_header_line(
     edge_buff: &mut Vec<Edge>,
     sequences: &mut Vec<Option<Sequence>>,
 ) -> PanResult<NodeName> {
-
     if line.last() != Some(&b';') {
         return Err(PanGraphXError::Parse(
             "Header isn't in valid format, header should end with ';' character".to_string(),
@@ -222,8 +210,8 @@ fn parse_header_line(
 
 impl GraphSerializer for FastgCodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
-        println!("Warning: Fastg files don't support Paths.");
-        println!("Only nodes and edges will be serialized.");
+        warn!("Fastg files don't support Paths.");
+        warn!("Only nodes and edges will be serialized.");
         let mut node_edge_map: HashMap<&NodeId, Vec<&Edge>> = HashMap::new();
         for edge in &graph.edges {
             node_edge_map.entry(&edge.from_node).or_default().push(edge);

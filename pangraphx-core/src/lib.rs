@@ -6,12 +6,13 @@ pub mod formats;
 pub mod test_helpers;
 pub mod traits;
 
-pub use core::{graph_dto::CoreGraphDTO, graph::CoreGraph};
+pub use core::{graph::CoreGraph, graph_dto::CoreGraphDTO};
 pub use de_bruijn_conversion::{colored_dbg::ColoredDBG, de_bruijn_graph::DeBruijn, k_mers::Kmer};
 pub use error::PanResult;
 use std::fmt::Display;
 
-use crate::formats::{FastgCodec, GBZCodec, GFACodec, VGCodec, ODGICodec};
+use crate::error::PanGraphXError;
+use crate::formats::{FastgCodec, GBZCodec, GFACodec, ODGICodec, VGCodec};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::io::{Read, Seek};
 
@@ -54,14 +55,14 @@ impl GraphFormat {
         }
     }
 
-    pub fn from_extension(extension: &str) -> Option<Self> {
+    pub fn from_extension(extension: &str) -> PanResult<Self> {
         match extension.to_lowercase().as_str() {
-            "gfa" => Some(GraphFormat::GFA),
-            "vg" => Some(GraphFormat::VG),
-            "gbz" => Some(GraphFormat::GBZ),
-            "fastg" => Some(GraphFormat::FASTG),
-            "odgi" => Some(GraphFormat::ODGI),
-            _ => None,
+            "gfa" => Ok(GraphFormat::GFA),
+            "vg" => Ok(GraphFormat::VG),
+            "gbz" => Ok(GraphFormat::GBZ),
+            "fastg" => Ok(GraphFormat::FASTG),
+            "odgi" => Ok(GraphFormat::ODGI),
+            _ => Err(PanGraphXError::UnsupportedFormat),
         }
     }
 

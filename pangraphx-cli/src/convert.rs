@@ -29,7 +29,7 @@ pub fn handle_conversion(args: &ConvertArgs) -> Result<()> {
 /// Infer graph format from specified format or file extension if no format specified
 pub fn infer_graph_format(path: &str, specified_format: &Option<String>) -> Option<GraphFormat> {
     if let Some(ext) = specified_format {
-        GraphFormat::from_extension(ext)
+        GraphFormat::from_extension(ext).ok()
     } else {
         let extension = Path::new(path)
             .extension()
@@ -39,6 +39,6 @@ pub fn infer_graph_format(path: &str, specified_format: &Option<String>) -> Opti
             warn!("File {} has no extension", path);
             return None;
         }
-        GraphFormat::from_extension(&extension)
+        GraphFormat::from_extension(&extension).ok()
     }
 }

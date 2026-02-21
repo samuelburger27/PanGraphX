@@ -104,11 +104,13 @@ impl GraphSerializer for ODGICodec {
         let temp_path = temp_file.path().to_string_lossy().to_string();
         let gfa_codec = GFACodec;
         gfa_codec.serialize(graph, &mut temp_file)?;
+        temp_file.flush()?;
 
         let mut output_file = NamedTempFile::new()?;
+        let output_path = output_file.path().to_string_lossy().to_string();
 
-        gfa_to_odgi(&temp_path, output_file.path().to_str().unwrap()).map_err(|e| {
-            PanGraphXError::Parse(format!("Failed to convert GFA to ODGI format: {:?}", e))
+        gfa_to_odgi(&temp_path, &output_path).map_err(|e| {
+            PanGraphXError::Serialize(format!("Failed to convert GFA to ODGI format: {:?}", e))
         })?;
         copy(&mut output_file, writer)?;
         Ok(())

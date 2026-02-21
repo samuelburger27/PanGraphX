@@ -8,6 +8,9 @@ pub enum PanGraphXError {
     #[error("Parse Error: {0}")]
     Parse(String),
 
+    #[error("Serialization Error: {0}")]
+    Serialize(String),
+
     #[error("Format not supported")]
     UnsupportedFormat,
 
