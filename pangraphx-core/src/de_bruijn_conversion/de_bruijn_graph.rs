@@ -85,12 +85,15 @@ impl From<DeBruijn> for CoreGraphDTO {
             })
             .collect();
 
-        let sequences = node_map
-            .values()
-            .map(|node| node.sequence.clone())
-            .collect::<Vec<Sequence>>();
+        
+        // Create nodes in the order of their IDs
+        let mut seq = vec![Vec::new(); node_map.len()];
+        
+        for node in node_map.values() {
+            seq[node.id as usize] = node.sequence.clone();
+        }
 
-        let nodes = Nodes::from_seq(sequences);
+        let nodes = Nodes::from_seq(seq);
 
         CoreGraphDTO {
             nodes,

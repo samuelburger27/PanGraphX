@@ -114,11 +114,12 @@ impl CoreGraph {
         }
 
         let edge_idx = self.edges.len();
-        self.edges.push(edge.clone());
+        let edge_from_node = edge.from_node;
+        self.edges.push(edge);
 
         // Update adjacency list
         self.adjacency_list
-            .entry(edge.from_node)
+            .entry(edge_from_node)
             .or_insert_with(Vec::new)
             .push(edge_idx);
 
@@ -203,11 +204,6 @@ impl CoreGraph {
         // Remove the node
         self.nodes.remove(node_id);
 
-        // Update node IDs for all nodes after the removed one
-        for i in node_id..self.nodes.len() {
-            self.nodes[i].id = i;
-        }
-
         // Remove edges connected to this node and update edge node IDs
         self.edges
             .retain(|edge| edge.from_node != node_id && edge.to_node != node_id);
@@ -230,6 +226,7 @@ impl CoreGraph {
         });
 
         // Update paths: remove steps with deleted node and update node IDs
+        // TODO update overlaps if needed
         let mut paths_to_remove = Vec::new();
         for (name, path) in &mut self.path_map {
             path.steps.retain(|step| step.node_id != node_id);
