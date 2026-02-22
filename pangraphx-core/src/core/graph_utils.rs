@@ -1,5 +1,5 @@
 use super::graph::CoreGraph;
-use super::graph_dto::{Orientation, Path};
+use super::core_types::{Orientation, Path};
 use bio::alphabets::dna::revcomp as reverse_complement;
 use std::borrow::Cow;
 

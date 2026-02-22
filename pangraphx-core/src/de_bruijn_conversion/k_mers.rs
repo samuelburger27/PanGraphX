@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::vec;
 
+use crate::core::core_types::{Node, Orientation, Path};
 use crate::core::graph::CoreGraph;
-use crate::core::graph_dto::{Node, Orientation, Path};
 use crate::de_bruijn_conversion::de_bruijn_graph::DbgEdge;
 
 /// Encodes a single DNA byte into a 2-bit representation.
@@ -453,7 +453,7 @@ struct StackItem<'a> {
 mod tests {
     use crate::{
         CoreGraphDTO,
-        core::graph_dto::{Edge, Node, Step},
+        core::core_types::{Edge, Nodes, Step},
     };
 
     use super::*;
@@ -545,10 +545,8 @@ mod tests {
     fn test_extract_kmers_from_path() {
         let seq = b"ACGTA";
         let k = 4;
-        let nodes = vec![Node {
-            id: 0,
-            sequence: seq.to_vec(),
-        }];
+        let nodes = Nodes::from_seq(vec![seq.to_vec()]);
+
         let path_name = b"path1".to_vec();
         let graph = CoreGraphDTO {
             nodes,
@@ -581,16 +579,8 @@ mod tests {
         let seq1 = b"ACGTA";
         let seq2 = b"TTGCA";
         let k = 4;
-        let nodes = vec![
-            Node {
-                id: 0,
-                sequence: seq1.to_vec(),
-            },
-            Node {
-                id: 1,
-                sequence: seq2.to_vec(),
-            },
-        ];
+        let nodes = Nodes::from_seq(vec![seq1.to_vec(), seq2.to_vec()]);
+
         let graph = CoreGraphDTO {
             nodes,
             edges: vec![],
@@ -635,16 +625,7 @@ mod tests {
         // Sequence: AAAATTTT
         // Expected Kmers: AAA, AAA, AAT, ATT, TTT, TTT...
         // Unique Kmers: AAA, AAT, ATT, TTT
-        let nodes = vec![
-            Node {
-                id: 0,
-                sequence: b"AAAA".to_vec(),
-            },
-            Node {
-                id: 1,
-                sequence: b"TTTT".to_vec(),
-            },
-        ];
+        let nodes = Nodes::from_seq(vec![b"AAAA".to_vec(), b"TTTT".to_vec()]);
 
         let edges = vec![Edge {
             from_node: 0,
@@ -707,20 +688,7 @@ mod tests {
         // k=2
         // From Node1: AA
         // Then splits: AT, TT (via Node2) or AG, GG (via Node3)
-        let nodes = vec![
-            Node {
-                id: 0,
-                sequence: b"AAA".to_vec(),
-            },
-            Node {
-                id: 1,
-                sequence: b"TTT".to_vec(),
-            },
-            Node {
-                id: 2,
-                sequence: b"GGG".to_vec(),
-            },
-        ];
+        let nodes = Nodes::from_seq(vec![b"AAA".to_vec(), b"TTT".to_vec(), b"GGG".to_vec()]);
 
         let edges = vec![
             Edge {
@@ -768,20 +736,7 @@ mod tests {
         //        Node2[GGG] -> Node3[TTT]
         // k=2
         // Both paths merge at Node3
-        let nodes = vec![
-            Node {
-                id: 0,
-                sequence: b"AAA".to_vec(),
-            },
-            Node {
-                id: 1,
-                sequence: b"GGG".to_vec(),
-            },
-            Node {
-                id: 2,
-                sequence: b"TTT".to_vec(),
-            },
-        ];
+        let nodes = Nodes::from_seq(vec![b"AAA".to_vec(), b"GGG".to_vec(), b"TTT".to_vec()]);
 
         let edges = vec![
             Edge {
@@ -828,16 +783,7 @@ mod tests {
         // Graph: Node1[ACGT] -> Node2[ACGT] -> Node1[ACGT] (cycle)
         // k=2
         // Should extract kmers without infinite looping
-        let nodes = vec![
-            Node {
-                id: 0,
-                sequence: b"ACGT".to_vec(),
-            },
-            Node {
-                id: 1,
-                sequence: b"ACGT".to_vec(),
-            },
-        ];
+        let nodes = Nodes::from_seq(vec![b"ACGT".to_vec(), b"ACGT".to_vec()]);
 
         let edges = vec![
             Edge {
@@ -887,25 +833,12 @@ mod tests {
         //        Node3[GG] -> Node4[CC]
         // k=2
         // Diamond pattern: A->B, A->C, B->D, C->D
-        let nodes = vec![
-            Node {
-                id: 0,
-                sequence: b"AA".to_vec(),
-            },
-            Node {
-                id: 1,
-                sequence: b"TT".to_vec(),
-            },
-            Node {
-                id: 2,
-                sequence: b"GG".to_vec(),
-            },
-            Node {
-                id: 3,
-                sequence: b"CC".to_vec(),
-            },
-        ];
-
+        let nodes = Nodes::from_seq(vec![
+            b"AA".to_vec(),
+            b"TT".to_vec(),
+            b"GG".to_vec(),
+            b"CC".to_vec(),
+        ]);
         let edges = vec![
             Edge {
                 from_node: 0,
@@ -968,16 +901,7 @@ mod tests {
         // Graph: Node1[AANA] -> Node2[TTNT]
         // k=2
         // Should handle N as invalid and reset
-        let nodes = vec![
-            Node {
-                id: 0,
-                sequence: b"AANA".to_vec(),
-            },
-            Node {
-                id: 1,
-                sequence: b"TTNT".to_vec(),
-            },
-        ];
+        let nodes = Nodes::from_seq(vec![b"AANA".to_vec(), b"TTNT".to_vec()]);
 
         let edges = vec![Edge {
             from_node: 0,
