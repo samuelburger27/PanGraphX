@@ -1,7 +1,7 @@
 use crate::core::core_types::{Edge, Node, Nodes};
 use crate::core::graph::CoreGraph;
 use crate::de_bruijn_conversion::k_mers::OrientedKmer;
-use crate::{CoreGraphDTO, Kmer, Sequence};
+use crate::{CoreGraphDTO, Kmer};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -76,9 +76,9 @@ impl From<DeBruijn> for CoreGraphDTO {
                 let from_node = node_map.get(&dbg_edge.from.kmer).unwrap();
                 let to_node = node_map.get(&dbg_edge.to.kmer).unwrap();
                 Edge {
-                    from_node: from_node.id.clone(),
+                    from_node: from_node.id,
                     from_orient: dbg_edge.from.direction,
-                    to_node: to_node.id.clone(),
+                    to_node: to_node.id,
                     to_orient: dbg_edge.to.direction,
                     overlap: db_graph.k_size - 1,
                 }
@@ -90,7 +90,7 @@ impl From<DeBruijn> for CoreGraphDTO {
         let mut seq = vec![Vec::new(); node_map.len()];
         
         for node in node_map.values() {
-            seq[node.id as usize] = node.sequence.clone();
+            seq[node.id] = node.sequence.clone();
         }
 
         let nodes = Nodes::from_seq(seq);

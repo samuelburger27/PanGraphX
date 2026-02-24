@@ -195,10 +195,10 @@ impl OrientedKmer {
                 direction: Orientation::Forward,
             };
         }
-        return Self {
+        Self {
             kmer: canonical,
             direction: Orientation::Reverse,
-        };
+        }
     }
 
     /// Constructs an `OrientedKmer` from a byte slice.
@@ -212,10 +212,10 @@ impl OrientedKmer {
                 direction: Orientation::Forward,
             };
         }
-        return Self {
+        Self {
             kmer: canonical,
             direction: Orientation::Reverse,
-        };
+        }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {

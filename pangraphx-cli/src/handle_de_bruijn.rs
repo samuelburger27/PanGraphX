@@ -1,4 +1,4 @@
-use super::convert::infer_graph_format;
+use super::handle_convert::infer_graph_format;
 use crate::cli::args_parser::DeBruijnArgs;
 use anyhow::{Ok, Result};
 use log::debug;
@@ -27,7 +27,7 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
     Ok(())
 }
 
-///
+/// Converts a directed graph into a de Bruijn graph with the specified k-mer size, optionally using full topology and/or coloring.
 fn create_converted_dbg_graph(
     graph: CoreGraphDTO,
     kmer_size: usize,
@@ -42,11 +42,9 @@ fn create_converted_dbg_graph(
             );
         }
         ColoredDBG::from_directed_graph(graph, kmer_size).into()
+    } else if full_topology {
+        DeBruijn::from_directed_graph_full_topography(graph, kmer_size).into()
     } else {
-        if full_topology {
-            DeBruijn::from_directed_graph_full_topography(graph, kmer_size).into()
-        } else {
-            DeBruijn::from_directed_graph(graph, kmer_size).into()
-        }
+        DeBruijn::from_directed_graph(graph, kmer_size).into()
     }
 }

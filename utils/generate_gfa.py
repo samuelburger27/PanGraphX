@@ -45,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument("--link-prob", type=float, default=0.8,
                         help="Probability of link creation between segments")
 
-    parser.add_argument("--seed", type=int, default=42,
+    parser.add_argument("--seed", type=int, default=69,
                         help="Random seed for reproducibility")
     parser.add_argument("--num-paths", type=int, default=2,
                         help="Number of paths to include in the GFA")

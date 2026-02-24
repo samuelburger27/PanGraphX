@@ -26,9 +26,9 @@ impl CoreGraph {
         CoreGraph {
             nodes: graph.nodes,
             edges: graph.edges,
-            path_map: path_map,
+            path_map,
             node_name_map: graph.node_name_map,
-            adjacency_list: adjacency_list,
+            adjacency_list,
         }
     }
 
@@ -38,7 +38,7 @@ impl CoreGraph {
             let from_node = &edge.from_node;
             adjacency_list
                 .entry(*from_node)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(i);
         }
         adjacency_list
@@ -120,7 +120,7 @@ impl CoreGraph {
         // Update adjacency list
         self.adjacency_list
             .entry(edge_from_node)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(edge_idx);
 
         Ok(edge_idx)

@@ -3,7 +3,7 @@ use crate::core::core_types::{Edge, Node, Nodes, Path, Step};
 use crate::core::graph::CoreGraph;
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::de_bruijn_conversion::k_mers::OrientedKmer;
-use crate::{Kmer, Sequence};
+use crate::Kmer;
 use std::collections::{HashMap, HashSet};
 
 pub struct ColorPath {
@@ -82,9 +82,9 @@ impl From<ColoredDBG> for CoreGraphDTO {
                 let from_node = node_map.get(&dbg_edge.from.kmer).unwrap();
                 let to_node = node_map.get(&dbg_edge.to.kmer).unwrap();
                 Edge {
-                    from_node: from_node.id.clone(),
+                    from_node: from_node.id,
                     from_orient: dbg_edge.from.direction,
-                    to_node: to_node.id.clone(),
+                    to_node: to_node.id,
                     to_orient: dbg_edge.to.direction,
                     overlap: colored_dbg.dbg.k_size - 1,
                 }
@@ -102,7 +102,7 @@ impl From<ColoredDBG> for CoreGraphDTO {
                     .map(|o_kmer| {
                         let node = node_map.get(&o_kmer.kmer).unwrap();
                         Step {
-                            node_id: node.id.clone(),
+                            node_id: node.id,
                             orientation: o_kmer.direction,
                         }
                     })
@@ -121,7 +121,7 @@ impl From<ColoredDBG> for CoreGraphDTO {
         let mut seq = vec![Vec::new(); node_map.len()];
 
         for node in node_map.values() {
-            seq[node.id as usize] = node.sequence.clone();
+            seq[node.id] = node.sequence.clone();
         }
 
         let nodes = Nodes::from_seq(seq);

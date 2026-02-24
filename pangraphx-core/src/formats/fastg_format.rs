@@ -101,7 +101,7 @@ impl<R: Read + Seek> GraphParser<R> for FastgCodec {
 fn record_node(
     node_sequence: Sequence,
     name_id_map: &HashMap<NodeName, NodeId>,
-    sequences: &mut Vec<Option<Sequence>>,
+    sequences: &mut [Option<Sequence>],
     last_node_name: &[u8],
 ) -> PanResult<()> {
     if !node_sequence.is_empty() {

@@ -70,10 +70,8 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
             reverse_mapping.insert(v, *k);
         }
         for path in &gfa.paths {
-            for cigar in &path.overlaps {
-                if let Some(cigar) = cigar {
-                    println!("{}", cigar);
-                }
+            for cigar in path.overlaps.iter().flatten() {
+                println!("{}", cigar);
             }
         }
         let edges = gfa

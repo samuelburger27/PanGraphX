@@ -13,7 +13,7 @@ pub enum Commands {
     Convert(ConvertArgs),
 
     /// Convert variation graph to De Bruijn graph
-    DBG(DeBruijnArgs),
+    Ddb(DeBruijnArgs),
 
     /// Show basic info about a graph file
     Info(InfoArgs),

@@ -32,8 +32,6 @@ cargo build --release
 
 The compiled binary will be available at `target/release/pangraphx-cli`.
 
-
-
 ### CLI Usage
 
 #### List Supported Formats
@@ -123,7 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-#### Convert Between Formats
+#### Convert Between Formats Code
 
 ```rust
 use std::fs::File;
@@ -164,7 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Project Structure
 
-```
+``` text
 pangraphx-core/          # Core library crate
 ├── src/
 │   ├── core/           # Internal graph representation (CoreGraph, CoreGraphDTO)
@@ -220,9 +218,10 @@ RUST_LOG=debug pangraphx-cli convert -i graph.gfa -o graph.vg
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues or pull requests. 
+Contributions are welcome! Please feel free to submit issues or pull requests.
 
 When contributing:
+
 - Follow Rust conventions and use `rustfmt` for formatting
 - Ensure all tests pass before submitting
 - Add tests for new functionality

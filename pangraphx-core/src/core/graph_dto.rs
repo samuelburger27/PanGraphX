@@ -1,6 +1,6 @@
 use crate::PathName;
 
-use super::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path, Sequence};
+use super::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path};
 use std::collections::{HashMap, HashSet};
 
 /// The main graph data transfer object (DTO) containing nodes, edges, and paths
@@ -22,11 +22,10 @@ impl CoreGraphDTO {
     }
 
     pub fn get_name_from_id(&self, node_id: NodeId) -> String {
-        if let Some(map) = &self.node_name_map {
-            if let Some(name) = map.get(&node_id) {
+        if let Some(map) = &self.node_name_map
+            && let Some(name) = map.get(&node_id) {
                 return String::from_utf8_lossy(name).to_string();
             }
-        }
         node_id.to_string()
     }
 }
@@ -58,7 +57,7 @@ impl CoreGraphDTO {
             return false;
         }
 
-        let self_node_map: HashMap<&[u8], NodeId> = self
+        let _self_node_map: HashMap<&[u8], NodeId> = self
             .nodes
             .iter()
             .map(|node| (node.sequence.as_slice(), node.id))
