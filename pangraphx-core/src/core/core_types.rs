@@ -62,7 +62,7 @@ pub struct Step {
     pub orientation: Orientation,
 }
 
-/// A named, ordered traversal through nodes in the graph.
+/// A uniquely named, ordered traversal through nodes in the graph.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Path {
     pub name: PathName,
