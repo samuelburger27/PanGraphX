@@ -2,6 +2,7 @@ use crate::core::core_types::{Edge, Node, Nodes};
 use crate::core::graph::CoreGraph;
 use crate::de_bruijn_conversion::k_mers::OrientedKmer;
 use crate::{CoreGraphDTO, Kmer};
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -20,18 +21,33 @@ impl DeBruijn {
     pub fn from_directed_graph(graph: CoreGraphDTO, k: usize) -> Self {
         let lookup_graph = CoreGraph::new(graph);
         let extracted_o_kmers = lookup_graph.extract_kmers_paths(k);
-        let mut edges = HashSet::new();
-        let mut all_kmers = HashSet::new();
-        for (_, kmers) in extracted_o_kmers {
-            // Construct de Bruijn edges from kmers
-            for window in kmers.windows(2) {
-                let from = window[0];
-                let to = window[1];
-                all_kmers.insert(from.kmer);
-                all_kmers.insert(to.kmer);
-                edges.insert(DbgEdge { from, to });
-            }
-        }
+
+        // Parallelize path processing with fold + reduce for thread-local aggregation
+        let (edges, all_kmers) = extracted_o_kmers
+            .into_par_iter()
+            .fold(
+                || (HashSet::new(), HashSet::new()),
+                |(mut edges_local, mut kmers_local), (_, kmers)| {
+                    // Construct de Bruijn edges from kmers
+                    for window in kmers.windows(2) {
+                        let from = window[0];
+                        let to = window[1];
+                        kmers_local.insert(from.kmer);
+                        kmers_local.insert(to.kmer);
+                        edges_local.insert(DbgEdge { from, to });
+                    }
+                    (edges_local, kmers_local)
+                },
+            )
+            .reduce(
+                || (HashSet::new(), HashSet::new()),
+                |(mut edges1, mut kmers1), (edges2, kmers2)| {
+                    edges1.extend(edges2);
+                    kmers1.extend(kmers2);
+                    (edges1, kmers1)
+                },
+            );
+
         DeBruijn {
             kmers: all_kmers,
             edges,
@@ -85,10 +101,9 @@ impl From<DeBruijn> for CoreGraphDTO {
             })
             .collect();
 
-        
         // Create nodes in the order of their IDs
         let mut seq = vec![Vec::new(); node_map.len()];
-        
+
         for node in node_map.values() {
             seq[node.id] = node.sequence.clone();
         }

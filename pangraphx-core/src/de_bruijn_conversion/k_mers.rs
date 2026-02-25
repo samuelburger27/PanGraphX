@@ -3,6 +3,8 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::vec;
 
+use rayon::prelude::*;
+
 use crate::core::core_types::{Node, Orientation, Path};
 use crate::core::graph::CoreGraph;
 use crate::de_bruijn_conversion::de_bruijn_graph::DbgEdge;
@@ -245,13 +247,18 @@ impl CoreGraph {
     /// Extracts oriented k-mers from all predefined paths in the graph.
     ///
     /// Returns a map associating each `Path` with its sequence of k-mers.
+    ///
+    /// # Implementation
+    ///
+    /// This operation is parallelized across available cores using Rayon.
+    /// Each path's k-mer extraction is independent, allowing near-linear speedup.
     pub fn extract_kmers_paths(&self, k: usize) -> HashMap<&Path, Vec<OrientedKmer>> {
-        let mut kmers = HashMap::new();
-        for path in self.path_map.values() {
-            let extracted = self.extract_kmers_from_path(path, k);
-            kmers.insert(path, extracted);
-        }
-        kmers
+        self.path_map
+            .values()
+            .collect::<Vec<_>>()
+            .into_par_iter()
+            .map(|path| (path, self.extract_kmers_from_path(path, k)))
+            .collect()
     }
 
     /// Extracts k-mers from a single specific path.
