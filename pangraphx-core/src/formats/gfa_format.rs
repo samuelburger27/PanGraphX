@@ -72,11 +72,6 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
         for (k, v) in &mapping {
             reverse_mapping.insert(v, *k);
         }
-        for path in &gfa.paths {
-            for cigar in path.overlaps.iter().flatten() {
-                println!("{}", cigar);
-            }
-        }
 
         // Phase 2: Parallelize edge creation from links
         let edges = gfa
