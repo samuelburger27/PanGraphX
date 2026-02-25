@@ -1,6 +1,7 @@
 use crate::PathName;
 
 use super::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path};
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 /// The main graph data transfer object (DTO) containing nodes, edges, and paths
@@ -71,23 +72,28 @@ impl CoreGraphDTO {
 
         let other_edge_set: HashSet<&Edge> = other.edges.iter().collect();
 
-        // Check if all edges in self have a corresponding edge in other
-        for edge in &self.edges {
-            let from_seq = self.nodes[edge.from_node].sequence.as_slice();
-            let to_seq = self.nodes[edge.to_node].sequence.as_slice();
-            let other_from = other_node_map.get(from_seq).unwrap();
-            let other_to = other_node_map.get(to_seq).unwrap();
+        // Parallelize edge checking: check if all edges in self have a corresponding edge in other
+        let all_edges_match = self
+            .edges
+            .par_iter()
+            .all(|edge| {
+                let from_seq = self.nodes[edge.from_node].sequence.as_slice();
+                let to_seq = self.nodes[edge.to_node].sequence.as_slice();
+                let other_from = other_node_map.get(from_seq).unwrap();
+                let other_to = other_node_map.get(to_seq).unwrap();
 
-            let other_expected_edge = Edge {
-                from_node: *other_from,
-                from_orient: edge.from_orient,
-                to_node: *other_to,
-                to_orient: edge.to_orient,
-                overlap: edge.overlap,
-            };
-            if !other_edge_set.contains(&other_expected_edge) {
-                return false;
-            }
+                let other_expected_edge = Edge {
+                    from_node: *other_from,
+                    from_orient: edge.from_orient,
+                    to_node: *other_to,
+                    to_orient: edge.to_orient,
+                    overlap: edge.overlap,
+                };
+                other_edge_set.contains(&other_expected_edge)
+            });
+
+        if !all_edges_match {
+            return false;
         }
 
         // Check if all paths in self have a corresponding path in other
