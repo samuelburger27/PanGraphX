@@ -24,9 +24,10 @@ impl CoreGraphDTO {
 
     pub fn get_name_from_id(&self, node_id: NodeId) -> String {
         if let Some(map) = &self.node_name_map
-            && let Some(name) = map.get(&node_id) {
-                return String::from_utf8_lossy(name).to_string();
-            }
+            && let Some(name) = map.get(&node_id)
+        {
+            return String::from_utf8_lossy(name).to_string();
+        }
         node_id.to_string()
     }
 }
@@ -73,32 +74,31 @@ impl CoreGraphDTO {
         let other_edge_set: HashSet<&Edge> = other.edges.iter().collect();
 
         // Parallelize edge checking: check if all edges in self have a corresponding edge in other
-        let all_edges_match = self
-            .edges
-            .par_iter()
-            .all(|edge| {
-                let from_seq = self.nodes[edge.from_node].sequence.as_slice();
-                let to_seq = self.nodes[edge.to_node].sequence.as_slice();
-                let other_from = other_node_map.get(from_seq).unwrap();
-                let other_to = other_node_map.get(to_seq).unwrap();
+        let all_edges_match = self.edges.par_iter().all(|edge| {
+            let from_seq = self.nodes[edge.from_node].sequence.as_slice();
+            let to_seq = self.nodes[edge.to_node].sequence.as_slice();
+            let other_from = other_node_map.get(from_seq).unwrap();
+            let other_to = other_node_map.get(to_seq).unwrap();
 
-                let other_expected_edge = Edge {
-                    from_node: *other_from,
-                    from_orient: edge.from_orient,
-                    to_node: *other_to,
-                    to_orient: edge.to_orient,
-                    overlap: edge.overlap,
-                };
-                other_edge_set.contains(&other_expected_edge)
-            });
+            let other_expected_edge = Edge {
+                from_node: *other_from,
+                from_orient: edge.from_orient,
+                to_node: *other_to,
+                to_orient: edge.to_orient,
+                overlap: edge.overlap,
+            };
+            other_edge_set.contains(&other_expected_edge)
+        });
 
         if !all_edges_match {
             return false;
         }
 
         // Check if all paths in self have a corresponding path in other
-        let other_path_set: HashSet<PathName> = other.paths.iter().map(|path| path.name.clone()).collect();
-        let self_path_set: HashSet<PathName> = self.paths.iter().map(|path| path.name.clone()).collect();
+        let other_path_set: HashSet<PathName> =
+            other.paths.iter().map(|path| path.name.clone()).collect();
+        let self_path_set: HashSet<PathName> =
+            self.paths.iter().map(|path| path.name.clone()).collect();
 
         // TODO for now only check if path names are the same, but ideally should also check if the steps and overlaps are the same (ignoring node IDs)
         self_path_set == other_path_set

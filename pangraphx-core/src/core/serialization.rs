@@ -2,9 +2,9 @@ use crate::CoreGraphDTO;
 use crate::GraphFormat;
 use crate::PanResult;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write, Seek};
+use std::io::{BufRead, BufReader, Seek, Write};
 
-pub trait GraphReader : BufRead + Seek {}
+pub trait GraphReader: BufRead + Seek {}
 
 impl<T: BufRead + Seek> GraphReader for T {}
 

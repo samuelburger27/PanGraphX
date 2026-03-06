@@ -36,10 +36,7 @@ impl CoreGraph {
         let mut adjacency_list: HashMap<NodeId, Vec<usize>> = HashMap::new();
         for (i, edge) in graph.edges.iter().enumerate() {
             let from_node = &edge.from_node;
-            adjacency_list
-                .entry(*from_node)
-                .or_default()
-                .push(i);
+            adjacency_list.entry(*from_node).or_default().push(i);
         }
         adjacency_list
     }

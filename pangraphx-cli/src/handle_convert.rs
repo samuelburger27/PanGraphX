@@ -1,8 +1,8 @@
-use crate::cli::args_parser::{ConvertArgs};
+use crate::cli::args_parser::ConvertArgs;
 use anyhow::{Ok, Result};
 use log::{debug, warn};
 use pangraphx_core::{CoreGraphDTO, GraphFormat};
-use std::{path::Path};
+use std::path::Path;
 
 pub fn handle_conversion(args: &ConvertArgs) -> Result<()> {
     // Handle conversion command

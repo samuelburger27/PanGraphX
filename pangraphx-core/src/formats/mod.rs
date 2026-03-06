@@ -7,5 +7,5 @@ pub mod vg_format;
 pub use fastg_format::FastgCodec;
 pub use gbz_format::GBZCodec;
 pub use gfa_format::GFACodec;
-pub use vg_format::VGCodec;
 pub use odgi_format::ODGICodec;
+pub use vg_format::VGCodec;
