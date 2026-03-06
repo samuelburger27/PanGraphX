@@ -1,9 +1,10 @@
 use super::de_bruijn_graph::{DbgEdge, DeBruijn};
+use crate::Kmer;
 use crate::core::core_types::{Edge, Node, Nodes, Path, Step};
 use crate::core::graph::CoreGraph;
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::de_bruijn_conversion::k_mers::OrientedKmer;
-use crate::Kmer;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 pub struct ColorPath {
@@ -19,28 +20,42 @@ impl ColoredDBG {
     pub fn from_directed_graph(graph: CoreGraphDTO, k: usize) -> Self {
         let lookup_graph = CoreGraph::new(graph);
         let extracted_o_kmers = lookup_graph.extract_kmers_paths(k);
-        let mut edges = HashSet::new();
-        let mut all_kmers = HashSet::new();
-        let mut paths = Vec::new();
-        for (_, kmers) in extracted_o_kmers.into_iter() {
-            let mut path = ColorPath {
-                sequence: Vec::new(),
-            };
-            for window in kmers.windows(2) {
-                let from = window[0];
-                let to = window[1];
-                all_kmers.insert(from.kmer);
-                all_kmers.insert(to.kmer);
-                let dbg_edge = DbgEdge { from, to };
-                edges.insert(dbg_edge);
-                path.sequence.push(from);
-            }
-            // Add the last kmer to the path
-            if let Some(last_kmer) = kmers.last() {
-                path.sequence.push(*last_kmer);
-            }
-            paths.push(path);
-        }
+
+        // Parallelize path processing with fold + reduce for thread-local aggregation
+        let (edges, all_kmers, paths) = extracted_o_kmers
+            .into_par_iter()
+            .fold(
+                || (HashSet::new(), HashSet::new(), Vec::new()),
+                |(mut edges_local, mut kmers_local, mut paths_local), (_, kmers)| {
+                    let mut path = ColorPath {
+                        sequence: Vec::new(),
+                    };
+                    for window in kmers.windows(2) {
+                        let from = window[0];
+                        let to = window[1];
+                        kmers_local.insert(from.kmer);
+                        kmers_local.insert(to.kmer);
+                        let dbg_edge = DbgEdge { from, to };
+                        edges_local.insert(dbg_edge);
+                        path.sequence.push(from);
+                    }
+                    // Add the last kmer to the path
+                    if let Some(last_kmer) = kmers.last() {
+                        path.sequence.push(*last_kmer);
+                    }
+                    paths_local.push(path);
+                    (edges_local, kmers_local, paths_local)
+                },
+            )
+            .reduce(
+                || (HashSet::new(), HashSet::new(), Vec::new()),
+                |(mut edges1, mut kmers1, mut paths1), (edges2, kmers2, paths2)| {
+                    edges1.extend(edges2);
+                    kmers1.extend(kmers2);
+                    paths1.extend(paths2);
+                    (edges1, kmers1, paths1)
+                },
+            );
 
         ColoredDBG {
             dbg: DeBruijn {

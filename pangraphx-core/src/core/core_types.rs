@@ -1,3 +1,5 @@
+use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
+
 use crate::{PanResult, error::PanGraphXError};
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
@@ -150,6 +152,15 @@ impl Nodes {
         } else {
             None
         }
+    }
+
+    /// Returns a parallel iterator over the nodes in the collection.
+    pub fn par_iter(&self) -> impl ParallelIterator<Item = &Node> {
+        self.0.par_iter()
+    }
+    /// Returns a parallel mutable iterator over the nodes in the collection.
+    pub fn par_iter_mut(&mut self) -> impl ParallelIterator<Item = &mut Node> {
+        self.0.par_iter_mut()
     }
 }
 

@@ -58,7 +58,8 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                         })?
                         .to_vec();
                     nodes.push(sequence);
-                    node_id_map.insert(nodes.len() - 1, node_id.to_string().into_bytes());}
+                    node_id_map.insert(nodes.len() - 1, node_id.to_string().into_bytes());
+                }
             }
         }
 

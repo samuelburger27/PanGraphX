@@ -6,6 +6,7 @@ use gfa::cigar::CIGAR;
 use gfa::gfa::orientation::Orientation as GFAOrientation;
 use gfa::parser::{GFAParser, GFAParserBuilder};
 use log::debug;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Seek, Write};
 
@@ -59,6 +60,8 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
         // TODO in future maybe support optional fields
         let parser: GFAParser<Vec<u8>, ()> = GFAParserBuilder::all().build();
         let gfa = parser.parse_lines(lines_iter)?;
+
+        // Phase 1: Create nodes sequentially (maintaining order)
         let mut mapping = HashMap::new();
         let mut nodes = Nodes::new();
         for (i, node) in gfa.segments.iter().enumerate() {
@@ -69,14 +72,11 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
         for (k, v) in &mapping {
             reverse_mapping.insert(v, *k);
         }
-        for path in &gfa.paths {
-            for cigar in path.overlaps.iter().flatten() {
-                println!("{}", cigar);
-            }
-        }
+
+        // Phase 2: Parallelize edge creation from links
         let edges = gfa
             .links
-            .into_iter()
+            .into_par_iter()
             .map(|link| {
                 PanResult::Ok(Edge {
                     from_node: *reverse_mapping.get(&link.from_segment[..]).ok_or_else(|| {
@@ -92,9 +92,10 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
             })
             .collect::<PanResult<Vec<Edge>>>()?;
 
+        // Phase 3: Parallelize path creation from paths
         let paths: Vec<Path> = gfa
             .paths
-            .into_iter()
+            .into_par_iter()
             .map(|p| {
                 let steps: Vec<Step> = p
                     .iter()
@@ -141,51 +142,78 @@ impl GraphSerializer for GFACodec {
         // TODO maybe include newer version
         writer.write_all(b"H\tVN:Z:1.0\n")?;
 
-        // write nodes
-        for node in &graph.nodes {
-            let name = graph.get_node_name(node);
-            let seq = String::from_utf8_lossy(&node.sequence);
-            writer.write_all(format!("S\t{}\t{}\n", name, seq).as_bytes())?;
+        // Parallelize node formatting
+        let node_lines: Vec<String> = graph
+            .nodes
+            .par_iter()
+            .map(|node| {
+                let name = graph.get_node_name(node);
+                let seq = String::from_utf8_lossy(&node.sequence);
+                format!("S\t{}\t{}\n", name, seq)
+            })
+            .collect();
+
+        // Write all node lines sequentially
+        for line in node_lines {
+            writer.write_all(line.as_bytes())?;
         }
-        // Write edges
-        for edge in &graph.edges {
-            let from_name = graph.get_node_name(&graph.nodes[edge.from_node]);
-            let to_name = graph.get_node_name(&graph.nodes[edge.to_node]);
-            let overlap = edge.overlap.to_string() + "M";
-            writer.write_all(
+
+        // Parallelize edge formatting
+        let edge_lines: Vec<String> = graph
+            .edges
+            .par_iter()
+            .map(|edge| {
+                let from_name = graph.get_node_name(&graph.nodes[edge.from_node]);
+                let to_name = graph.get_node_name(&graph.nodes[edge.to_node]);
+                let overlap = edge.overlap.to_string() + "M";
                 format!(
                     "L\t{}\t{}\t{}\t{}\t{}\n",
                     from_name, edge.from_orient, to_name, edge.to_orient, overlap
                 )
-                .as_bytes(),
-            )?;
+            })
+            .collect();
+
+        // Write all edge lines sequentially
+        for line in edge_lines {
+            writer.write_all(line.as_bytes())?;
         }
-        // Write paths
-        for path in &graph.paths {
-            let segments = path
-                .steps
-                .iter()
-                .map(|step| {
-                    let name: String = graph.get_name_from_id(step.node_id);
-                    let orient = match step.orientation {
-                        Orientation::Forward => "+",
-                        Orientation::Reverse => "-",
-                    };
-                    format!("{}{}", name, orient)
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            let mut overlaps = path
-                .overlaps
-                .iter()
-                .map(|opt| opt.to_string() + "M")
-                .collect::<Vec<_>>()
-                .join(",");
-            if overlaps.is_empty() || overlaps.chars().all(|c| c == '0' || c == 'M' || c == ',') {
-                overlaps = "*".to_string();
-            }
-            let name = String::from_utf8_lossy(&path.name);
-            writer.write_all(format!("P\t{}\t{}\t{}\n", name, segments, overlaps).as_bytes())?;
+
+        // Parallelize path formatting
+        let path_lines: Vec<String> = graph
+            .paths
+            .par_iter()
+            .map(|path| {
+                let segments = path
+                    .steps
+                    .iter()
+                    .map(|step| {
+                        let name: String = graph.get_name_from_id(step.node_id);
+                        let orient = match step.orientation {
+                            Orientation::Forward => "+",
+                            Orientation::Reverse => "-",
+                        };
+                        format!("{}{}", name, orient)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let mut overlaps = path
+                    .overlaps
+                    .iter()
+                    .map(|opt| opt.to_string() + "M")
+                    .collect::<Vec<_>>()
+                    .join(",");
+                if overlaps.is_empty() || overlaps.chars().all(|c| c == '0' || c == 'M' || c == ',')
+                {
+                    overlaps = "*".to_string();
+                }
+                let name = String::from_utf8_lossy(&path.name);
+                format!("P\t{}\t{}\t{}\n", name, segments, overlaps)
+            })
+            .collect();
+
+        // Write all path lines sequentially
+        for line in path_lines {
+            writer.write_all(line.as_bytes())?;
         }
 
         Ok(())
