@@ -42,10 +42,6 @@ pub struct ConvertArgs {
     /// Override output format (e.g. gfa, gbz, fastg)
     #[arg(long)]
     pub to: Option<String>,
-
-    /// Number of threads to use
-    #[arg(short = 't', long, default_value_t = 1)]
-    pub threads: usize,
 }
 
 #[derive(Args, Debug)]

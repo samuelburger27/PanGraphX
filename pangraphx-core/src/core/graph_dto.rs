@@ -1,5 +1,3 @@
-use crate::PathName;
-
 use super::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -33,9 +31,15 @@ impl CoreGraphDTO {
 }
 
 impl CoreGraphDTO {
-    /// Checks if two CoreGraphDTO instances are isomorphic, meaning they represent the same graph structure and contain same sequences, regardless of the order of nodes, edges, and paths.
+    /// Checks if two CoreGraphDTO instances are isomorphic, meaning they represent
+    /// the same graph structure and contain the same sequences, regardless of the
+    /// internal ordering of nodes, edges, and paths.
+    ///
+    /// Uses node names (from `node_name_map` or stringified IDs) as the canonical
+    /// identity for building a bijection between the two graphs. This correctly
+    /// handles graphs with duplicate sequences.
     pub fn isomorphic(&self, other: &CoreGraphDTO) -> bool {
-        // Check if the number of nodes, edges, and paths are the same
+        // Quick cardinality checks
         if self.nodes.len() != other.nodes.len()
             || self.edges.len() != other.edges.len()
             || self.paths.len() != other.paths.len()
@@ -43,64 +47,75 @@ impl CoreGraphDTO {
             return false;
         }
 
-        let self_sequences: HashSet<&[u8]> = self
-            .nodes
-            .iter()
-            .map(|node| node.sequence.as_slice())
+        // Build name → NodeId maps for both graphs
+        let self_name_to_id: HashMap<String, NodeId> = (0..self.nodes.len())
+            .map(|id| (self.get_name_from_id(id), id))
+            .collect();
+        let other_name_to_id: HashMap<String, NodeId> = (0..other.nodes.len())
+            .map(|id| (other.get_name_from_id(id), id))
             .collect();
 
-        let other_sequences: HashSet<&[u8]> = other
-            .nodes
-            .iter()
-            .map(|node| node.sequence.as_slice())
-            .collect();
-
-        if self_sequences != other_sequences {
+        // Verify same set of node names
+        if self_name_to_id.len() != other_name_to_id.len() {
             return false;
         }
 
-        let _self_node_map: HashMap<&[u8], NodeId> = self
-            .nodes
-            .iter()
-            .map(|node| (node.sequence.as_slice(), node.id))
-            .collect();
+        // Build self NodeId → other NodeId mapping via shared names
+        // and verify sequences match
+        let mut id_mapping: HashMap<NodeId, NodeId> = HashMap::with_capacity(self.nodes.len());
+        for (name, &self_id) in &self_name_to_id {
+            let Some(&other_id) = other_name_to_id.get(name) else {
+                return false; // name exists in self but not in other
+            };
+            if self.nodes[self_id].sequence != other.nodes[other_id].sequence {
+                return false; // same name, different sequence
+            }
+            id_mapping.insert(self_id, other_id);
+        }
 
-        let other_node_map: HashMap<&[u8], NodeId> = other
-            .nodes
-            .iter()
-            .map(|node| (node.sequence.as_slice(), node.id))
-            .collect();
-
+        // Check edges: remap each self-edge via the bijection and look it up in other
         let other_edge_set: HashSet<&Edge> = other.edges.iter().collect();
-
-        // Parallelize edge checking: check if all edges in self have a corresponding edge in other
         let all_edges_match = self.edges.par_iter().all(|edge| {
-            let from_seq = self.nodes[edge.from_node].sequence.as_slice();
-            let to_seq = self.nodes[edge.to_node].sequence.as_slice();
-            let other_from = other_node_map.get(from_seq).unwrap();
-            let other_to = other_node_map.get(to_seq).unwrap();
-
-            let other_expected_edge = Edge {
-                from_node: *other_from,
+            let Some(&mapped_from) = id_mapping.get(&edge.from_node) else {
+                return false;
+            };
+            let Some(&mapped_to) = id_mapping.get(&edge.to_node) else {
+                return false;
+            };
+            let remapped = Edge {
+                from_node: mapped_from,
                 from_orient: edge.from_orient,
-                to_node: *other_to,
+                to_node: mapped_to,
                 to_orient: edge.to_orient,
                 overlap: edge.overlap,
             };
-            other_edge_set.contains(&other_expected_edge)
+            other_edge_set.contains(&remapped)
         });
-
         if !all_edges_match {
             return false;
         }
 
-        // Check if all paths in self have a corresponding path in other
-        let other_path_set: HashSet<PathName> =
-            other.paths.iter().map(|path| path.name.clone()).collect();
-        let self_path_set: HashSet<PathName> =
-            self.paths.iter().map(|path| path.name.clone()).collect();
+        // Check paths: match by name, then verify steps match after remapping
+        let other_paths_by_name: HashMap<&[u8], &Path> =
+            other.paths.iter().map(|p| (p.name.as_slice(), p)).collect();
 
-        // TODO for now only check if path names are the same, but ideally should also check if the steps and overlaps are the same (ignoring node IDs)
-        self_path_set == other_path_set
+        self.paths.par_iter().all(|self_path| {
+            let Some(other_path) = other_paths_by_name.get(self_path.name.as_slice()) else {
+                return false; // path name not found
+            };
+            if self_path.steps.len() != other_path.steps.len() {
+                return false;
+            }
+            self_path
+                .steps
+                .iter()
+                .zip(other_path.steps.iter())
+                .all(|(s, o)| {
+                    let Some(&mapped_id) = id_mapping.get(&s.node_id) else {
+                        return false;
+                    };
+                    mapped_id == o.node_id && s.orientation == o.orientation
+                })
+        })
     }
 }

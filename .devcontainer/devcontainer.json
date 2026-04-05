@@ -6,7 +6,7 @@
     
   },
 
-  "postCreateCommand": "rustup component add rustfmt clippy && sudo apt update && sudo apt-get install -y build-essential cmake libjemalloc-dev pkg-config python3-dev",
+  "postCreateCommand": ".devcontainer/setup.sh",
 
   "customizations": {
     "vscode": {
@@ -19,6 +19,6 @@
         "editor.formatOnSave": true
       }
     }
-  },
+  }
 
 }

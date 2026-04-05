@@ -41,7 +41,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
             Some(iter) => {
                 let mut map = HashMap::new();
                 for segment in iter {
-                    let id = segment.id - 1; // GBZ node IDs are 1-based, convert to 0-based
+                    let id = segment.id;
                     map.insert(id, segment.name.to_vec());
                     node_seq[id as usize] = Node {
                         id,
@@ -85,9 +85,9 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                         // has a greater id.
                         if successor.id >= segment.id {
                             edges.push(Edge {
-                                from_node: segment.id - 1, // Convert to 0-based ID
+                                from_node: segment.id,
                                 from_orient: Orientation::Forward,
-                                to_node: successor.id - 1, // Convert to 0-based ID
+                                to_node: successor.id,
                                 to_orient: orientation.into(),
                                 overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
@@ -162,7 +162,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                 let steps: Vec<Step> = match gbz.segment_path(path_id, GbwtOrientation::Forward) {
                     Some(iter) => iter
                         .map(|(segment, orientation)| Step {
-                            node_id: segment.id - 1, // Convert to 0-based ID
+                            node_id: segment.id,
                             orientation: orientation.into(),
                         })
                         .collect(),

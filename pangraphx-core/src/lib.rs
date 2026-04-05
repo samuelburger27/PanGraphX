@@ -61,6 +61,7 @@ pub mod core;
 pub mod de_bruijn_conversion;
 pub mod error;
 pub mod formats;
+pub mod proto_gen;
 #[cfg(test)]
 pub mod test_helpers;
 pub mod traits;
@@ -78,7 +79,9 @@ pub use error::PanResult;
 use std::fmt::Display;
 
 use crate::error::PanGraphXError;
-use crate::formats::{FastgCodec, GBZCodec, GFACodec, ODGICodec, VGCodec};
+#[cfg(feature = "odgi")]
+use crate::formats::ODGICodec;
+use crate::formats::{FastgCodec, GBZCodec, GFACodec, VGCodec};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::io::{Read, Seek};
 
@@ -93,7 +96,8 @@ pub enum GraphFormat {
     VG,
     /// FASTG graph format.
     FASTG,
-    /// ODGI binary graph format.
+    /// ODGI binary graph format (requires `odgi` feature, Linux only).
+    #[cfg(feature = "odgi")]
     ODGI,
 }
 
@@ -104,6 +108,7 @@ impl Display for GraphFormat {
             GraphFormat::GFA => write!(f, "GFA"),
             GraphFormat::VG => write!(f, "VG"),
             GraphFormat::FASTG => write!(f, "FASTG"),
+            #[cfg(feature = "odgi")]
             GraphFormat::ODGI => write!(f, "ODGI"),
         }
     }
@@ -112,9 +117,12 @@ impl Display for GraphFormat {
 impl GraphFormat {
     /// Returns an iterator over all supported formats.
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::GBZ, Self::GFA, Self::VG, Self::FASTG, Self::ODGI]
-            .iter()
-            .copied()
+        let base = [Self::GBZ, Self::GFA, Self::VG, Self::FASTG];
+        #[cfg(feature = "odgi")]
+        let extra = [Self::ODGI];
+        #[cfg(not(feature = "odgi"))]
+        let extra: [Self; 0] = [];
+        base.into_iter().chain(extra)
     }
 
     /// Returns the conventional filename extension for this format.
@@ -124,6 +132,7 @@ impl GraphFormat {
             GraphFormat::GFA => "gfa",
             GraphFormat::VG => "vg",
             GraphFormat::FASTG => "fastg",
+            #[cfg(feature = "odgi")]
             GraphFormat::ODGI => "odgi",
         }
     }
@@ -137,6 +146,7 @@ impl GraphFormat {
             "vg" => Ok(GraphFormat::VG),
             "gbz" => Ok(GraphFormat::GBZ),
             "fastg" => Ok(GraphFormat::FASTG),
+            #[cfg(feature = "odgi")]
             "odgi" => Ok(GraphFormat::ODGI),
             _ => Err(PanGraphXError::UnsupportedFormat),
         }
@@ -149,6 +159,7 @@ impl GraphFormat {
             GraphFormat::VG => Box::new(VGCodec),
             GraphFormat::GBZ => Box::new(GBZCodec),
             GraphFormat::FASTG => Box::new(FastgCodec),
+            #[cfg(feature = "odgi")]
             GraphFormat::ODGI => Box::new(ODGICodec),
         }
     }
@@ -160,6 +171,7 @@ impl GraphFormat {
             GraphFormat::VG => Box::new(VGCodec),
             GraphFormat::GBZ => Box::new(GBZCodec),
             GraphFormat::FASTG => Box::new(FastgCodec),
+            #[cfg(feature = "odgi")]
             GraphFormat::ODGI => Box::new(ODGICodec),
         }
     }
