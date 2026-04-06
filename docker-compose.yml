@@ -1,8 +1,0 @@
-services:
-  pangraphx:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./data:/data
-    entrypoint: ["./target/release/pangraphx-cli"]

@@ -133,7 +133,7 @@ impl GraphFormat {
             GraphFormat::VG => "vg",
             GraphFormat::FASTG => "fastg",
             #[cfg(feature = "odgi")]
-            GraphFormat::ODGI => "odgi",
+            GraphFormat::ODGI => "og",
         }
     }
 
@@ -147,7 +147,7 @@ impl GraphFormat {
             "gbz" => Ok(GraphFormat::GBZ),
             "fastg" => Ok(GraphFormat::FASTG),
             #[cfg(feature = "odgi")]
-            "odgi" => Ok(GraphFormat::ODGI),
+            "og" => Ok(GraphFormat::ODGI),
             _ => Err(PanGraphXError::UnsupportedFormat),
         }
     }
@@ -174,13 +174,5 @@ impl GraphFormat {
             #[cfg(feature = "odgi")]
             GraphFormat::ODGI => Box::new(ODGICodec),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
     }
 }

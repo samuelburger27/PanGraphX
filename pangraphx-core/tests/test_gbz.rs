@@ -1,5 +1,5 @@
 use pangraphx_core::*;
-use std::{fs, path};
+use std::fs;
 use tempfile::NamedTempFile;
 
 #[test]

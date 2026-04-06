@@ -43,7 +43,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                 for segment in iter {
                     let id = segment.id;
                     map.insert(id, segment.name.to_vec());
-                    node_seq[id as usize] = Node {
+                    node_seq[id] = Node {
                         id,
                         sequence: segment.sequence.to_vec(),
                     };
@@ -63,7 +63,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                             ))
                         })?
                         .to_vec();
-                    node_seq[id as usize] = Node {
+                    node_seq[id] = Node {
                         id,
                         sequence: sequence.clone(),
                     };
@@ -104,9 +104,9 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                                 && orientation == GbwtOrientation::Forward)
                         {
                             edges.push(Edge {
-                                from_node: segment.id - 1, // Convert to 0-based ID
+                                from_node: segment.id, // Convert to 0-based ID
                                 from_orient: Orientation::Reverse,
-                                to_node: successor.id - 1, // Convert to 0-based ID
+                                to_node: successor.id, // Convert to 0-based ID
                                 to_orient: orientation.into(),
                                 overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });

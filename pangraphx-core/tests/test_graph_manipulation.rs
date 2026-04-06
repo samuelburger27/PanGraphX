@@ -88,7 +88,7 @@ fn test_add_path() {
 
     graph.add_path(path.clone()).unwrap();
     assert_eq!(graph.path_count(), 1);
-    assert_eq!(graph.path_map.get(&b"path1".to_vec()), Some(&path));
+    assert_eq!(graph.path_map.get(b"path1".as_slice()), Some(&path));
 }
 
 #[test]
@@ -197,7 +197,7 @@ fn test_remove_node_updates_paths() {
     graph.add_path(path).unwrap();
     graph.remove_node(n2).unwrap();
 
-    let updated_path = graph.path_map.get(&b"path1".to_vec()).unwrap();
+    let updated_path = graph.path_map.get(b"path1".as_slice()).unwrap();
     assert_eq!(updated_path.steps.len(), 2);
     assert_eq!(updated_path.steps[0].node_id, 0); // n1, still at position 0
     assert_eq!(updated_path.steps[1].node_id, 1); // n3, now at position 1
@@ -330,11 +330,11 @@ fn test_complex_graph_manipulation() {
     assert_eq!(graph.edge_count(), 0); // Both edges removed
 
     // Check paths were updated
-    let p1 = graph.path_map.get(&b"path1".to_vec()).unwrap();
+    let p1 = graph.path_map.get(b"path1".as_slice()).unwrap();
     assert_eq!(p1.steps.len(), 1);
     assert_eq!(p1.steps[0].node_id, 0);
 
-    let p2 = graph.path_map.get(&b"path2".to_vec()).unwrap();
+    let p2 = graph.path_map.get(b"path2".as_slice()).unwrap();
     assert_eq!(p2.steps.len(), 1);
     assert_eq!(p2.steps[0].node_id, 1);
 }

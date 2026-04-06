@@ -73,15 +73,11 @@ fn write_varint(writer: &mut dyn Write, mut value: u64) -> PanResult<()> {
 fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
     let mut graphs = Vec::new();
 
-    loop {
-        // Read group count
-        let count = match read_varint(reader)? {
-            Some(c) => c as usize,
-            None => break, // EOF
-        };
+    while let Some(c) = read_varint(reader)? {
+        let count = c as usize;
 
         if count == 0 {
-            continue;
+            continue; // skip empty groups
         }
 
         // Read first message (may be type tag)
@@ -96,17 +92,15 @@ fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
         // Type tags are short ASCII strings; Graph messages are protobuf-encoded.
         let (is_type_tag, tag_str) = detect_type_tag(&first_buf);
 
-        let remaining_count;
+        let remaining_count = count - 1;
         if is_type_tag {
             debug!("VG stream type tag: {:?}", tag_str);
-            remaining_count = count - 1;
         } else {
             // First message is an actual Graph, decode it
             let graph = vg_proto::Graph::decode(first_buf.as_slice()).map_err(|e| {
                 PanGraphXError::Parse(format!("Failed to decode VG Graph message: {}", e))
             })?;
             graphs.push(graph);
-            remaining_count = count - 1;
         }
 
         // Read remaining messages in the group
@@ -384,8 +378,7 @@ impl GraphSerializer for VGCodec {
         let proto_paths: Vec<vg_proto::Path> = graph
             .paths
             .iter()
-            .enumerate()
-            .map(|(_, path)| {
+            .map(|path| {
                 let mappings: Vec<vg_proto::Mapping> = path
                     .steps
                     .iter()
@@ -491,7 +484,7 @@ mod tests {
         };
 
         let mut buf = Vec::new();
-        write_vg_graphs(&mut buf, &[graph.clone()]).unwrap();
+        write_vg_graphs(&mut buf, std::slice::from_ref(&graph)).unwrap();
 
         let mut cursor = Cursor::new(&buf);
         let decoded = read_vg_graphs(&mut cursor).unwrap();
