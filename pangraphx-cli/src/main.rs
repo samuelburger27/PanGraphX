@@ -40,6 +40,6 @@ fn main() -> Result<()> {
             println!("Validating {:?}", args.file);
             todo!("TODO");
         }
-        Commands::Formats => handle_formats(),
+        Commands::Format => handle_formats(),
     }
 }

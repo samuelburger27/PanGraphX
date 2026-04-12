@@ -22,7 +22,7 @@ pub enum Commands {
     Validate(ValidateArgs),
 
     /// List supported graph formats
-    Formats,
+    Format,
 }
 
 #[derive(Args, Debug)]
