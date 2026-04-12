@@ -9,7 +9,7 @@ use cli::args_parser::{Cli, Commands};
 use handle_convert::handle_conversion;
 use handle_de_bruijn::handle_de_bruijn;
 use handle_formats::handle_formats;
-use log::debug;
+use handle_info::handle_info;
 
 fn main() -> Result<()> {
     // production logging configuration
@@ -26,20 +26,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Convert(args) => handle_conversion(&args),
         Commands::Ddb(args) => handle_de_bruijn(&args),
-        Commands::Info(args) => {
-            // TODO
-            debug!("Arguments for info: {:?}", args);
-            // Handle info command
-            println!("Getting info for {:?}", args.file);
-            todo!("TODO");
-        }
-        Commands::Validate(args) => {
-            // TODO
-            // Handle validate command
-            debug!("Arguments for validation: {:?}", args);
-            println!("Validating {:?}", args.file);
-            todo!("TODO");
-        }
+        Commands::Info(args) => handle_info(&args),
         Commands::Format => handle_formats(),
     }
 }

@@ -8,8 +8,8 @@ pub fn handle_formats() -> Result<()> {
     println!("{}", format!("{:-<80}", "").dimmed()); // Horizontal separator
 
     for format in GraphFormat::iter() {
-        let name = format.to_string(); // e.g., "GFA"
-        let ext = format.get_extension(); // e.g., "gfa"
+        let name = format.to_string();
+        let ext = format.get_extension();
         let desc = format.get_description();
 
         // Bold the format name and extension for visual hierarchy

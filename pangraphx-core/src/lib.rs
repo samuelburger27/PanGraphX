@@ -117,7 +117,7 @@ impl Display for GraphFormat {
 impl GraphFormat {
     /// Returns an iterator over all supported formats.
     pub fn iter() -> impl Iterator<Item = Self> {
-        let base = [Self::GBZ, Self::GFA, Self::VG, Self::FASTG];
+        let base = [Self::GFA, Self::GBZ, Self::VG, Self::FASTG];
         #[cfg(feature = "odgi")]
         let extra = [Self::ODGI];
         #[cfg(not(feature = "odgi"))]
