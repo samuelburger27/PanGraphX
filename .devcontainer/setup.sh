@@ -11,3 +11,6 @@ chmod +x vg
 sudo mv vg /usr/local/bin/
 
 alias pangraphx='/workspaces/pangraphx/target/debug/pangraphx-cli'
+
+ln -s /usr/local/bin/pangraphx /usr/local/bin/pangraphx-cli
+echo "Setup complete!"

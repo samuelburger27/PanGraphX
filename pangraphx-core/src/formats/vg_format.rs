@@ -194,6 +194,7 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
         let mut all_proto_nodes = Vec::new();
         let mut all_proto_edges = Vec::new();
         let mut all_proto_paths: HashMap<String, Vec<vg_proto::Mapping>> = HashMap::new();
+        // TODO lookup is currently O(n) per mapping, can optimize by building a name → path map first if needed
         let mut path_order: Vec<String> = Vec::new();
 
         for graph in &proto_graphs {
@@ -279,6 +280,11 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
                         node_id,
                         orientation,
                     });
+                } else {
+                    return Err(PanGraphXError::Parse(format!(
+                        "Mapping in path {} missing position",
+                        path_name
+                    )));
                 }
             }
 

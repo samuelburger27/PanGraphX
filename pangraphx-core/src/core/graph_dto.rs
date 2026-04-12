@@ -55,6 +55,11 @@ impl CoreGraphDTO {
             .map(|id| (other.get_name_from_id(id), id))
             .collect();
 
+        if self_name_to_id.len() != self.nodes.len() || other_name_to_id.len() != other.nodes.len()
+        {
+            // ensure all nodes have unique names
+            return false;
+        }
         // Verify same set of node names
         if self_name_to_id.len() != other_name_to_id.len() {
             return false;

@@ -41,27 +41,6 @@ ODGI support requires native C++ libraries that only build on Linux. Enable it w
 cargo build --workspace --features pangraphx-core/odgi --release
 ```
 
-#### Docker (Recommended for ODGI Support)
-
-Docker provides the easiest way to use PanGraphX with full ODGI support on any platform:
-
-```bash
-# Build the image
-docker compose build
-
-# Run a conversion (files go in the ./data directory)
-docker compose run pangraphx convert -i /data/graph.gfa -o /data/graph.vg
-
-# List supported formats
-docker compose run pangraphx formats
-
-# Or use docker directly
-docker build -t pangraphx .
-docker run -v $(pwd)/data:/data pangraphx convert -i /data/graph.gfa -o /data/graph.vg
-```
-
-Place your input files in the `data/` directory — it is mounted into the container at `/data`.
-
 ### CLI Usage
 
 #### List Supported Formats
@@ -233,18 +212,6 @@ cargo test --package pangraphx-core
 
 # Run tests for a specific module
 cargo test --package pangraphx-core -- formats::gfa_format
-```
-
-### Docker
-
-Build and test with full ODGI support using Docker:
-
-```bash
-# Build the Docker image
-docker compose build
-
-# Run tests inside the container
-docker compose run pangraphx cargo test --workspace --features pangraphx-core/odgi
 ```
 
 ### Environment Setup
