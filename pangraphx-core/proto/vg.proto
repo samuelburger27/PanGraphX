@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package vg;
+
+// A Graph is a collection of nodes, edges, and paths.
+// VG files contain multiple partial Graph messages that together form the full graph.
+message Graph {
+    repeated Node node = 1;
+    repeated Edge edge = 2;
+    repeated Path path = 3;
+}
+
+// A node stores a DNA sequence with a unique positive ID.
+message Node {
+    string sequence = 1;
+    string name = 2;
+    int64 id = 3;
+}
+
+// An edge connects two nodes. By default it connects the end of 'from' to the
+// start of 'to' (both forward orientation).
+message Edge {
+    int64 from = 1;
+    int64 to = 2;
+    bool from_start = 3;
+    bool to_end = 4;
+    int32 overlap = 5;
+}
+
+// Edits describe base-level transformations in a mapping.
+message Edit {
+    int32 from_length = 1;
+    int32 to_length = 2;
+    string sequence = 3;
+}
+
+// A Mapping maps a portion of a read/path to a node position with edits.
+message Mapping {
+    Position position = 1;
+    repeated Edit edit = 2;
+    int64 rank = 5;
+}
+
+// A position in the graph: node ID, offset, and strand.
+message Position {
+    int64 node_id = 1;
+    int64 offset = 2;
+    bool is_reverse = 4;
+    string name = 5;
+}
+
+// A Path is a named walk through the graph described by a series of Mappings.
+message Path {
+    string name = 1;
+    repeated Mapping mapping = 2;
+    bool is_circular = 3;
+    int64 length = 4;
+}

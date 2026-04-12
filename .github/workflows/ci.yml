@@ -14,12 +14,12 @@ jobs:
     name: Test and Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake libjemalloc-dev pkg-config python3-dev
+          sudo apt-get install -y build-essential cmake libjemalloc-dev pkg-config python3-dev protobuf-compiler
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -33,7 +33,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Run Tests
-        run: cargo test --verbose
+        run: cargo test --all-features --verbose

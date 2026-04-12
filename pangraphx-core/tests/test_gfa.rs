@@ -34,6 +34,4 @@ fn test_gfa_format() {
         let saved_content = fs::read_to_string(temp_file.path()).unwrap();
         assert_eq!(original_content, saved_content);
     }
-
-    // Your test code here
 }

@@ -15,8 +15,9 @@ A fast and efficient Rust library and command-line tool for working with pangeno
 
 - **GFA** (Graphical Fragment Assembly) v1.0, v1.1 with local extensions
 - **GBZ** (Graph Bioinformatics Zipped) - compressed graph format
-- **VG** (Variation Graph) - JSON-based variation graph format
+- **VG** (Variation Graph) - protobuf-based variation graph format
 - **FASTG** (FASTA Gapped) - sequence format with assembly graph metadata
+- **ODGI** (Optimized Dynamic Genome/Graph Implementation) - requires `odgi` feature flag, Linux only
 
 ## Quick Start
 
@@ -32,6 +33,14 @@ cargo build --release
 
 The compiled binary will be available at `target/release/pangraphx-cli`.
 
+#### With ODGI Support (Linux Only)
+
+ODGI support requires native C++ libraries that only build on Linux. Enable it with the `odgi` feature flag:
+
+```bash
+cargo build --workspace --features pangraphx-core/odgi --release
+```
+
 ### CLI Usage
 
 #### List Supported Formats
@@ -46,12 +55,6 @@ Convert a GFA file to GBZ format with automatic format detection:
 
 ```bash
 pangraphx-cli convert -i graph.gfa -o graph.gbz
-```
-
-Use multiple threads for faster conversion:
-
-```bash
-pangraphx-cli convert -i graph.gfa -o graph.gbz -t 4
 ```
 
 Explicitly specify input and output formats:
@@ -193,6 +196,9 @@ cargo build --workspace
 
 # Build release version (optimized)
 cargo build --workspace --release
+
+# Build with ODGI support (Linux only)
+cargo build --workspace --features pangraphx-core/odgi --release
 ```
 
 ### Run Tests
@@ -215,21 +221,6 @@ Enable debug logging:
 ```bash
 RUST_LOG=debug pangraphx-cli convert -i graph.gfa -o graph.vg
 ```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit issues or pull requests.
-
-When contributing:
-
-- Follow Rust conventions and use `rustfmt` for formatting
-- Ensure all tests pass before submitting
-- Add tests for new functionality
-- Update documentation as needed
-
-## Project Goals
-
-PanGraphX aims to provide a robust, performance-oriented toolkit for working with pangenome graphs in research and production environments. The modular design allows for easy extension with new formats and algorithms.
 
 ## License
 

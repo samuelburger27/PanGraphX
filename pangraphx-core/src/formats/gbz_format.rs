@@ -1,4 +1,4 @@
-use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
+use crate::core::core_types::{Edge, Node, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
@@ -33,21 +33,27 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
             ));
         };
 
-        let mut node_id_map = HashMap::new();
+        let node_name_map;
 
-        let mut nodes = Nodes::new();
+        let mut node_seq = vec![Node::default(); gbz.nodes()];
         // 1. Load Nodes
         match gbz.segment_iter() {
             Some(iter) => {
+                let mut map = HashMap::new();
                 for segment in iter {
-                    let id_str = segment.name.to_vec();
-                    node_id_map.insert(nodes.len(), id_str);
-                    let sequence = segment.sequence.to_vec();
-                    nodes.push(sequence);
+                    let id = segment.id;
+                    map.insert(id, segment.name.to_vec());
+                    node_seq[id] = Node {
+                        id,
+                        sequence: segment.sequence.to_vec(),
+                    };
                 }
+                node_name_map = Some(map);
             }
             None => {
+                node_name_map = None; // No segment names, disable node name mapping
                 for node_id in gbz.node_iter() {
+                    let id = node_id - 1; // GBZ node IDs are 1-based, convert to 0-based
                     let sequence = gbz
                         .sequence(node_id)
                         .ok_or_else(|| {
@@ -57,8 +63,10 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                             ))
                         })?
                         .to_vec();
-                    nodes.push(sequence);
-                    node_id_map.insert(nodes.len() - 1, node_id.to_string().into_bytes());
+                    node_seq[id] = Node {
+                        id,
+                        sequence: sequence.clone(),
+                    };
                 }
             }
         }
@@ -96,9 +104,9 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                                 && orientation == GbwtOrientation::Forward)
                         {
                             edges.push(Edge {
-                                from_node: segment.id,
+                                from_node: segment.id, // Convert to 0-based ID
                                 from_orient: Orientation::Reverse,
-                                to_node: successor.id,
+                                to_node: successor.id, // Convert to 0-based ID
                                 to_orient: orientation.into(),
                                 overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
@@ -113,9 +121,9 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                     {
                         if successor >= node_id {
                             edges.push(Edge {
-                                from_node: node_id,
+                                from_node: node_id - 1, // Convert to 0-based ID
                                 from_orient: Orientation::Forward,
-                                to_node: successor,
+                                to_node: successor - 1, // Convert to 0-based ID
                                 to_orient: orientation.into(),
                                 overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
@@ -128,9 +136,9 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                             || (successor == node_id && orientation == GbwtOrientation::Forward)
                         {
                             edges.push(Edge {
-                                from_node: node_id,
+                                from_node: node_id - 1, // Convert to 0-based ID
                                 from_orient: Orientation::Reverse,
-                                to_node: successor,
+                                to_node: successor - 1, // Convert to 0-based ID
                                 to_orient: orientation.into(),
                                 overlap: 0, // GBZ does not store overlap information TODO check, workaround ?
                             });
@@ -165,7 +173,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                             PanGraphXError::Parse("GBZ file missing path steps".to_string())
                         })?
                         .map(|(node_id, orientation)| Step {
-                            node_id,
+                            node_id: node_id - 1, // Convert to 0-based ID
                             orientation: orientation.into(),
                         })
                         .collect(),
@@ -178,12 +186,13 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                 });
             }
         }
+        let nodes = Nodes::from_node_vec(node_seq)?;
 
         Ok(CoreGraphDTO {
             nodes,
             edges,
             paths,
-            node_name_map: Some(node_id_map),
+            node_name_map,
         })
     }
 }
