@@ -1,5 +1,6 @@
 use crate::cli::args_parser::ConvertArgs;
-use anyhow::{Ok, Result};
+use anyhow::{Context, Result};
+use colored::Colorize;
 use log::{debug, warn};
 use pangraphx_core::{CoreGraphDTO, GraphFormat};
 use std::path::Path;
@@ -21,8 +22,57 @@ pub fn handle_conversion(args: &ConvertArgs) -> Result<()> {
     })?;
     debug!("Input format: {:?}", input_format);
     debug!("Output format: {:?}", output_format);
-    let graph = CoreGraphDTO::load_from_file(&args.input, input_format)?;
-    graph.save_to_file(&args.output, output_format)?;
+
+    println!(
+        "{} {}",
+        "📂".bright_cyan(),
+        format!("Loading graph from file: {}", args.input).bold()
+    );
+    println!(
+        "   {} {}",
+        "Format:".dimmed(),
+        input_format.to_string().green()
+    );
+
+    let graph = CoreGraphDTO::load_from_file(&args.input, input_format).with_context(|| {
+        format!(
+            "failed to load '{}' as {}",
+            args.input,
+            input_format.to_string().to_uppercase()
+        )
+    })?;
+    println!(
+        "{} {}",
+        "✓".green().bold(),
+        "Successfully loaded graph from file".green()
+    );
+
+    println!(
+        "{} {}",
+        "📁".bright_cyan(),
+        format!("Saving to file: {}", args.output).bold()
+    );
+    println!(
+        "   {} {}",
+        "Format:".dimmed(),
+        output_format.to_string().green()
+    );
+
+    graph
+        .save_to_file(&args.output, output_format)
+        .with_context(|| {
+            format!(
+                "failed to save '{}' as {}",
+                args.output,
+                output_format.to_string().to_uppercase()
+            )
+        })?;
+
+    println!(
+        "{} {}",
+        "✓".green().bold(),
+        "Successfully converted graph and saved to file".green()
+    );
     Ok(())
 }
 

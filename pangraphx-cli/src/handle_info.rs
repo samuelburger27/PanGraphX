@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::Colorize;
 use log::debug;
 
@@ -20,7 +20,14 @@ pub fn handle_info(args: &InfoArgs) -> Result<()> {
     );
     println!("   {} {}", "Format:".dimmed(), format.to_string().green());
 
-    let graph = pangraphx_core::CoreGraphDTO::load_from_file(&args.file, format)?;
+    let graph =
+        pangraphx_core::CoreGraphDTO::load_from_file(&args.file, format).with_context(|| {
+            format!(
+                "failed to load '{}' as {}",
+                args.file,
+                format.to_string().to_uppercase()
+            )
+        })?;
     println!(
         "{} {}",
         "✓".green().bold(),

@@ -15,7 +15,7 @@ pub enum Commands {
     /// Convert variation graph to De Bruijn graph
     Ddb(DeBruijnArgs),
 
-    ///  Validate graph file and show informations about the graph file
+    /// Show basic information about a graph file
     Info(InfoArgs),
 
     /// List supported graph formats
@@ -49,12 +49,6 @@ pub struct InfoArgs {
     /// Override input format (e.g. gfa, gbz, fastg)
     #[arg(short = 'f', long)]
     pub format: Option<String>,
-}
-
-#[derive(Args, Debug)]
-pub struct ValidateArgs {
-    #[arg(help = "Graph file to validate")]
-    pub file: String,
 }
 
 #[derive(Args, Debug)]
