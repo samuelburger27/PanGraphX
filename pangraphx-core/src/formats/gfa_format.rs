@@ -57,7 +57,6 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
         let buf_reader = BufReader::new(reader);
         let lines: Vec<String> = buf_reader.lines().collect::<Result<Vec<_>, _>>()?;
         let lines_iter = lines.iter().map(|s| s.as_bytes());
-        // TODO in future maybe support optional fields
         let parser: GFAParser<Vec<u8>, ()> = GFAParserBuilder::all().build();
         let gfa = parser.parse_lines(lines_iter)?;
 
@@ -139,7 +138,6 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
 impl GraphSerializer for GFACodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
         // write header
-        // TODO maybe include newer version
         writer.write_all(b"H\tVN:Z:1.0\n")?;
 
         // Parallelize node formatting

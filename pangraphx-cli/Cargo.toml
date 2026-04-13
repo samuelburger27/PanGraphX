@@ -12,3 +12,5 @@ simplelog = "0.12"
 log = "0.4.28"
 pangraphx-core = { path = "../pangraphx-core" }
 env_logger = "0.11.8"
+textwrap = "0.16.2"
+colored = "3.1.1"

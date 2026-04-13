@@ -117,7 +117,7 @@ impl Display for GraphFormat {
 impl GraphFormat {
     /// Returns an iterator over all supported formats.
     pub fn iter() -> impl Iterator<Item = Self> {
-        let base = [Self::GBZ, Self::GFA, Self::VG, Self::FASTG];
+        let base = [Self::GFA, Self::GBZ, Self::VG, Self::FASTG];
         #[cfg(feature = "odgi")]
         let extra = [Self::ODGI];
         #[cfg(not(feature = "odgi"))]
@@ -173,6 +173,27 @@ impl GraphFormat {
             GraphFormat::FASTG => Box::new(FastgCodec),
             #[cfg(feature = "odgi")]
             GraphFormat::ODGI => Box::new(ODGICodec),
+        }
+    }
+
+    pub fn get_description(&self) -> &str {
+        match self {
+            GraphFormat::GFA => {
+                "Graphical Fragment Assembly (v1.0): An interoperable, text-based standard for representing pangenome nodes, edges, and paths."
+            }
+            GraphFormat::VG => {
+                "VG Protobuf: A serialized binary format used by the vg toolkit; supports rich metadata but can be storage-intensive."
+            }
+            GraphFormat::GBZ => {
+                "GBZ: A highly compressed, read-only format for large pangenomes. Note: Currently, only deserialization (loading) is supported."
+            }
+            GraphFormat::FASTG => {
+                "FASTG: A text-based format designed to capture assembly ambiguities; largely superseded by GFA in modern workflows."
+            }
+            #[cfg(feature = "odgi")]
+            GraphFormat::ODGI => {
+                "ODGI: A dynamic, memory-efficient binary format optimized for large-scale pangenome analysis and graph manipulation."
+            }
         }
     }
 }
