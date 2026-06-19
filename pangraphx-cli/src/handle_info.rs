@@ -5,7 +5,7 @@ use log::debug;
 use crate::{cli::args_parser::InfoArgs, handle_convert::infer_graph_format};
 
 pub fn handle_info(args: &InfoArgs) -> Result<()> {
-    debug!("Arguments for info: {:#?}", args);
+    debug!("Arguments for info: {args:#?}");
     // Handle info command
     let format = infer_graph_format(&args.file, &args.format).ok_or_else(|| {
         anyhow::anyhow!(

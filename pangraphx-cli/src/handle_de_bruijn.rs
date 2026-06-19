@@ -19,8 +19,8 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
         )
     })?;
 
-    debug!("Input format: {:?}", input_format);
-    debug!("Output format: {:?}", output_format);
+    debug!("Input format: {input_format:?}");
+    debug!("Output format: {output_format:?}");
 
     println!(
         "{} {}",

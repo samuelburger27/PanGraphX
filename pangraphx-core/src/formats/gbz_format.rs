@@ -15,8 +15,8 @@ pub struct GBZCodec;
 impl From<GbwtOrientation> for Orientation {
     fn from(o: GbwtOrientation) -> Self {
         match o {
-            GbwtOrientation::Forward => Orientation::Forward,
-            GbwtOrientation::Reverse => Orientation::Reverse,
+            GbwtOrientation::Forward => Self::Forward,
+            GbwtOrientation::Reverse => Self::Reverse,
         }
     }
 }
@@ -37,37 +37,33 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
 
         let mut node_seq = vec![Node::default(); gbz.nodes()];
         // 1. Load Nodes
-        match gbz.segment_iter() {
-            Some(iter) => {
-                let mut map = HashMap::new();
-                for segment in iter {
-                    let id = segment.id;
-                    map.insert(id, segment.name.to_vec());
-                    node_seq[id] = Node {
-                        id,
-                        sequence: segment.sequence.to_vec(),
-                    };
-                }
-                node_name_map = Some(map);
+        if let Some(iter) = gbz.segment_iter() {
+            let mut map = HashMap::new();
+            for segment in iter {
+                let id = segment.id;
+                map.insert(id, segment.name.to_vec());
+                node_seq[id] = Node {
+                    id,
+                    sequence: segment.sequence.to_vec(),
+                };
             }
-            None => {
-                node_name_map = None; // No segment names, disable node name mapping
-                for node_id in gbz.node_iter() {
-                    let id = node_id - 1; // GBZ node IDs are 1-based, convert to 0-based
-                    let sequence = gbz
-                        .sequence(node_id)
-                        .ok_or_else(|| {
-                            PanGraphXError::Parse(format!(
-                                "Node {} doesn't have a sequence, GBZ file is not valid",
-                                node_id
-                            ))
-                        })?
-                        .to_vec();
-                    node_seq[id] = Node {
-                        id,
-                        sequence: sequence.clone(),
-                    };
-                }
+            node_name_map = Some(map);
+        } else {
+            node_name_map = None; // No segment names, disable node name mapping
+            for node_id in gbz.node_iter() {
+                let id = node_id - 1; // GBZ node IDs are 1-based, convert to 0-based
+                let sequence = gbz
+                    .sequence(node_id)
+                    .ok_or_else(|| {
+                        PanGraphXError::Parse(format!(
+                            "Node {node_id} doesn't have a sequence, GBZ file is not valid"
+                        ))
+                    })?
+                    .to_vec();
+                node_seq[id] = Node {
+                    id,
+                    sequence: sequence.clone(),
+                };
             }
         }
 

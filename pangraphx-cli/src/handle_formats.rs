@@ -25,7 +25,7 @@ pub fn handle_formats() -> Result<()> {
 
         // Highlight "Note" in yellow after wrapping for visibility
         let colored_desc = wrapped.replace("Note", &format!("{}", "Note".yellow().bold()));
-        println!("{}", colored_desc);
+        println!("{colored_desc}");
         println!();
     }
     Ok(())

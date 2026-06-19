@@ -9,13 +9,13 @@ pub trait GraphReader: BufRead + Seek {}
 impl<T: BufRead + Seek> GraphReader for T {}
 
 impl CoreGraphDTO {
-    pub fn load_from_file(path: &str, format: GraphFormat) -> PanResult<CoreGraphDTO> {
+    pub fn load_from_file(path: &str, format: GraphFormat) -> PanResult<Self> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
         Self::load(&mut reader, format)
     }
 
-    pub fn load<R: GraphReader>(reader: &mut R, format: GraphFormat) -> PanResult<CoreGraphDTO> {
+    pub fn load<R: GraphReader>(reader: &mut R, format: GraphFormat) -> PanResult<Self> {
         format.get_parser::<R>().parse(reader)
     }
 

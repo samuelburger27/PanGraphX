@@ -15,8 +15,8 @@ pub struct GFACodec;
 impl From<GFAOrientation> for Orientation {
     fn from(orientation: GFAOrientation) -> Self {
         match orientation {
-            GFAOrientation::Forward => Orientation::Forward,
-            GFAOrientation::Backward => Orientation::Reverse,
+            GFAOrientation::Forward => Self::Forward,
+            GFAOrientation::Backward => Self::Reverse,
         }
     }
 }
@@ -30,10 +30,7 @@ fn cigar_to_overlap(cigar: CIGAR) -> u32 {
         if op == gfa::cigar::CIGAROp::M {
             result += count;
         } else {
-            debug!(
-                "Non-match CIGAR op encountered: {:?} with count {}",
-                op, count
-            );
+            debug!("Non-match CIGAR op encountered: {op:?} with count {count}");
             debug!("Ignoring non-match operations for overlap calculation");
         }
     }
@@ -50,13 +47,13 @@ fn parse_overlap(cigar_str: &[u8]) -> u32 {
     }
 }
 
-/// Implementation of GraphParser for GFA format
-/// Uses gfa crate to parse GFA files and converts to CoreGraph
+/// Implementation of `GraphParser` for GFA format
+/// Uses gfa crate to parse GFA files and converts to `CoreGraph`
 impl<R: Read + Seek> GraphParser<R> for GFACodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
         let buf_reader = BufReader::new(reader);
         let lines: Vec<String> = buf_reader.lines().collect::<Result<Vec<_>, _>>()?;
-        let lines_iter = lines.iter().map(|s| s.as_bytes());
+        let lines_iter = lines.iter().map(std::string::String::as_bytes);
         let parser: GFAParser<Vec<u8>, ()> = GFAParserBuilder::all().build();
         let gfa = parser.parse_lines(lines_iter)?;
 
@@ -147,7 +144,7 @@ impl GraphSerializer for GFACodec {
             .map(|node| {
                 let name = graph.get_node_name(node);
                 let seq = String::from_utf8_lossy(&node.sequence);
-                format!("S\t{}\t{}\n", name, seq)
+                format!("S\t{name}\t{seq}\n")
             })
             .collect();
 
@@ -190,7 +187,7 @@ impl GraphSerializer for GFACodec {
                             Orientation::Forward => "+",
                             Orientation::Reverse => "-",
                         };
-                        format!("{}{}", name, orient)
+                        format!("{name}{orient}")
                     })
                     .collect::<Vec<_>>()
                     .join(",");
@@ -205,7 +202,7 @@ impl GraphSerializer for GFACodec {
                     overlaps = "*".to_string();
                 }
                 let name = String::from_utf8_lossy(&path.name);
-                format!("P\t{}\t{}\t{}\n", name, segments, overlaps)
+                format!("P\t{name}\t{segments}\t{overlaps}\n")
             })
             .collect();
 

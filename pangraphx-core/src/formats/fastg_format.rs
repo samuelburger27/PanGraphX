@@ -75,8 +75,7 @@ impl<R: Read + Seek> GraphParser<R> for FastgCodec {
             .map(|(id, seq_opt)| {
                 let seq = seq_opt.ok_or_else(|| {
                     PanGraphXError::Parse(format!(
-                        "Node {} does not have a sequence, FASTG file is not valid",
-                        id
+                        "Node {id} does not have a sequence, FASTG file is not valid"
                     ))
                 })?;
                 Ok(seq)
@@ -125,7 +124,7 @@ fn record_node(
     Ok(())
 }
 
-/// Retrieves the node ID for a given node name, creating a new entry in the name_id_map
+/// Retrieves the node ID for a given node name, creating a new entry in the `name_id_map`
 /// and sequences vector if the node name has not been seen before.  
 #[inline]
 fn get_node_id(
@@ -133,20 +132,19 @@ fn get_node_id(
     name_id_map: &mut HashMap<NodeName, NodeId>,
     sequences: &mut Vec<Option<Sequence>>,
 ) -> NodeId {
-    match name_id_map.get(node_name) {
-        Some(id) => *id,
-        None => {
-            let new_id = name_id_map.len();
-            name_id_map.insert(node_name.to_vec(), new_id);
-            sequences.push(None); // Placeholder for sequence, will be filled in later
-            new_id
-        }
+    if let Some(id) = name_id_map.get(node_name) {
+        *id
+    } else {
+        let new_id = name_id_map.len();
+        name_id_map.insert(node_name.to_vec(), new_id);
+        sequences.push(None); // Placeholder for sequence, will be filled in later
+        new_id
     }
 }
 
 /// Parses a FASTG header line to extract the node name, edges, and orientations.
-/// Updates the name_id_map with any new nodes encountered in the header and
-/// populates the edge_buff with edges defined in the header.
+/// Updates the `name_id_map` with any new nodes encountered in the header and
+/// populates the `edge_buff` with edges defined in the header.
 /// Returns the node name for the current header.
 fn parse_header_line(
     line: &[u8],
@@ -170,12 +168,7 @@ fn parse_header_line(
     };
 
     // Extract node name, excluding the orientation marker if present
-    let node_name = &line[1..separator
-        - if from_orientation == Orientation::Reverse {
-            1
-        } else {
-            0
-        }];
+    let node_name = &line[1..separator - usize::from(from_orientation == Orientation::Reverse)];
 
     // Get or create the node ID for this node name
     let from_node_id = get_node_id(node_name, name_id_map, sequences);
@@ -207,7 +200,7 @@ fn parse_header_line(
             to_node: to_id,
             to_orient: edge_orientation,
             overlap: 0, // FASTG does not specify overlaps, use 0 as default
-        })
+        });
     }
     Ok(node_name.to_vec())
 }

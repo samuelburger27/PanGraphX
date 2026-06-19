@@ -8,7 +8,7 @@ fn test_vg_parsing() {
     for entry in test_files {
         let path = entry.unwrap().path();
         let path_string = path.to_str().unwrap();
-        println!("Testing VG parsing for file: {}...", path_string);
+        println!("Testing VG parsing for file: {path_string}...");
 
         let graph = CoreGraphDTO::load_from_file(path_string, GraphFormat::VG).unwrap();
 
@@ -24,18 +24,15 @@ fn test_vg_parsing() {
         // Basic sanity checks
         assert!(
             !graph.nodes.is_empty(),
-            "No nodes parsed from {}",
-            path_string
+            "No nodes parsed from {path_string}"
         );
         assert!(
             !graph.edges.is_empty(),
-            "No edges parsed from {}",
-            path_string
+            "No edges parsed from {path_string}"
         );
         assert!(
             !graph.paths.is_empty(),
-            "No paths parsed from {}",
-            path_string
+            "No paths parsed from {path_string}"
         );
 
         // Check node IDs are unique
@@ -43,8 +40,7 @@ fn test_vg_parsing() {
         assert_eq!(
             node_ids.len(),
             graph.nodes.len(),
-            "Duplicate node IDs found in {}",
-            path_string
+            "Duplicate node IDs found in {path_string}"
         );
     }
 }
@@ -57,7 +53,7 @@ fn test_vg_roundtrip_from_gfa() {
     for entry in test_files {
         let path = entry.unwrap().path();
         let path_string = path.to_str().unwrap();
-        println!("Testing VG round-trip from GFA file: {}...", path_string);
+        println!("Testing VG round-trip from GFA file: {path_string}...");
 
         let original = CoreGraphDTO::load_from_file(path_string, GraphFormat::GFA).unwrap();
 
@@ -76,25 +72,21 @@ fn test_vg_roundtrip_from_gfa() {
         assert_eq!(
             original.nodes.len(),
             reloaded.nodes.len(),
-            "Node count mismatch for {}",
-            path_string
+            "Node count mismatch for {path_string}"
         );
         assert_eq!(
             original.edges.len(),
             reloaded.edges.len(),
-            "Edge count mismatch for {}",
-            path_string
+            "Edge count mismatch for {path_string}"
         );
         assert_eq!(
             original.paths.len(),
             reloaded.paths.len(),
-            "Path count mismatch for {}",
-            path_string
+            "Path count mismatch for {path_string}"
         );
         assert!(
             original.isomorphic(&reloaded),
-            "Graphs not isomorphic after VG round-trip for {}",
-            path_string
+            "Graphs not isomorphic after VG round-trip for {path_string}"
         );
     }
 }
@@ -129,20 +121,17 @@ fn test_vg_self_roundtrip() {
         assert_eq!(
             graph1.nodes.len(),
             graph2.nodes.len(),
-            "VG self round-trip node count mismatch for {}",
-            path_string
+            "VG self round-trip node count mismatch for {path_string}"
         );
         assert_eq!(
             graph1.edges.len(),
             graph2.edges.len(),
-            "VG self round-trip edge count mismatch for {}",
-            path_string
+            "VG self round-trip edge count mismatch for {path_string}"
         );
         assert_eq!(
             graph1.paths.len(),
             graph2.paths.len(),
-            "VG self round-trip path count mismatch for {}",
-            path_string
+            "VG self round-trip path count mismatch for {path_string}"
         );
     }
 }
@@ -179,8 +168,7 @@ fn test_vg_to_gfa_conversion() {
 
         assert!(
             original.isomorphic(&converted),
-            "GFA→VG→GFA round-trip not isomorphic for {}",
-            path_string
+            "GFA→VG→GFA round-trip not isomorphic for {path_string}"
         );
     }
 }

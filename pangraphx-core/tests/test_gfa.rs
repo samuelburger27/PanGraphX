@@ -11,9 +11,9 @@ fn test_gfa_format() {
     for entry in test_files {
         let path = entry.unwrap().path();
         let path_string = path.to_str().unwrap();
-        println!("Testing GFA file: {}... ", path_string);
+        println!("Testing GFA file: {path_string}... ");
         let graph = CoreGraphDTO::load_from_file(path_string, format);
-        assert!(graph.is_ok(), "Failed to parse GFA file: {}", path_string);
+        assert!(graph.is_ok(), "Failed to parse GFA file: {path_string}");
         let graph = graph.unwrap();
         let temp_file = NamedTempFile::new().unwrap();
         graph
@@ -25,8 +25,7 @@ fn test_gfa_format() {
             CoreGraphDTO::load_from_file(temp_file.path().to_str().unwrap(), format).unwrap();
         assert_eq!(
             graph, reloaded_graph,
-            "Graphs do not match after save/load cycle for file: {}",
-            path_string
+            "Graphs do not match after save/load cycle for file: {path_string}"
         );
 
         // Compare file contents

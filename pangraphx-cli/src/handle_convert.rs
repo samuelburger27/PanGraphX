@@ -7,7 +7,7 @@ use std::path::Path;
 
 pub fn handle_conversion(args: &ConvertArgs) -> Result<()> {
     // Handle conversion command
-    debug!("Arguments for conversion: {:#?}", args);
+    debug!("Arguments for conversion: {args:#?}");
     let input_format = infer_graph_format(&args.input, &args.from).ok_or_else(|| {
         anyhow::anyhow!(
             "Input graph format is not supported or couldn't be inferred: {}",
@@ -20,8 +20,8 @@ pub fn handle_conversion(args: &ConvertArgs) -> Result<()> {
             args.output
         )
     })?;
-    debug!("Input format: {:?}", input_format);
-    debug!("Output format: {:?}", output_format);
+    debug!("Input format: {input_format:?}");
+    debug!("Output format: {output_format:?}");
 
     println!(
         "{} {}",
@@ -86,7 +86,7 @@ pub fn infer_graph_format(path: &str, specified_format: &Option<String>) -> Opti
             .and_then(|ext| ext.to_str())?
             .to_lowercase();
         if extension.is_empty() {
-            warn!("File {} has no extension", path);
+            warn!("File {path} has no extension");
             return None;
         }
         GraphFormat::from_extension(&extension).ok()

@@ -1,4 +1,4 @@
-//! Core library for PanGraphX.
+//! Core library for `PanGraphX`.
 //!
 //! `pangraphx-core` provides a unified API for parsing, converting, and manipulating
 //! pangenome graph formats.
@@ -104,10 +104,10 @@ pub enum GraphFormat {
 impl Display for GraphFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GraphFormat::GBZ => write!(f, "GBZ"),
-            GraphFormat::GFA => write!(f, "GFA"),
-            GraphFormat::VG => write!(f, "VG"),
-            GraphFormat::FASTG => write!(f, "FASTG"),
+            Self::GBZ => write!(f, "GBZ"),
+            Self::GFA => write!(f, "GFA"),
+            Self::VG => write!(f, "VG"),
+            Self::FASTG => write!(f, "FASTG"),
             #[cfg(feature = "odgi")]
             GraphFormat::ODGI => write!(f, "ODGI"),
         }
@@ -126,12 +126,13 @@ impl GraphFormat {
     }
 
     /// Returns the conventional filename extension for this format.
-    pub fn get_extension(&self) -> &str {
+    #[must_use]
+    pub const fn get_extension(&self) -> &str {
         match self {
-            GraphFormat::GBZ => "gbz",
-            GraphFormat::GFA => "gfa",
-            GraphFormat::VG => "vg",
-            GraphFormat::FASTG => "fastg",
+            Self::GBZ => "gbz",
+            Self::GFA => "gfa",
+            Self::VG => "vg",
+            Self::FASTG => "fastg",
             #[cfg(feature = "odgi")]
             GraphFormat::ODGI => "og",
         }
@@ -142,10 +143,10 @@ impl GraphFormat {
     /// Matching is case-insensitive.
     pub fn from_extension(extension: &str) -> PanResult<Self> {
         match extension.to_lowercase().as_str() {
-            "gfa" => Ok(GraphFormat::GFA),
-            "vg" => Ok(GraphFormat::VG),
-            "gbz" => Ok(GraphFormat::GBZ),
-            "fastg" => Ok(GraphFormat::FASTG),
+            "gfa" => Ok(Self::GFA),
+            "vg" => Ok(Self::VG),
+            "gbz" => Ok(Self::GBZ),
+            "fastg" => Ok(Self::FASTG),
             #[cfg(feature = "odgi")]
             "og" => Ok(GraphFormat::ODGI),
             _ => Err(PanGraphXError::UnsupportedFormat),
@@ -153,41 +154,44 @@ impl GraphFormat {
     }
 
     /// Returns a parser implementation for the selected format.
+    #[must_use]
     pub fn get_parser<R: Read + Seek>(&self) -> Box<dyn GraphParser<R>> {
         match self {
-            GraphFormat::GFA => Box::new(GFACodec),
-            GraphFormat::VG => Box::new(VGCodec),
-            GraphFormat::GBZ => Box::new(GBZCodec),
-            GraphFormat::FASTG => Box::new(FastgCodec),
+            Self::GFA => Box::new(GFACodec),
+            Self::VG => Box::new(VGCodec),
+            Self::GBZ => Box::new(GBZCodec),
+            Self::FASTG => Box::new(FastgCodec),
             #[cfg(feature = "odgi")]
             GraphFormat::ODGI => Box::new(ODGICodec),
         }
     }
 
     /// Returns a serializer implementation for the selected format.
+    #[must_use]
     pub fn get_serializer(&self) -> Box<dyn GraphSerializer> {
         match self {
-            GraphFormat::GFA => Box::new(GFACodec),
-            GraphFormat::VG => Box::new(VGCodec),
-            GraphFormat::GBZ => Box::new(GBZCodec),
-            GraphFormat::FASTG => Box::new(FastgCodec),
+            Self::GFA => Box::new(GFACodec),
+            Self::VG => Box::new(VGCodec),
+            Self::GBZ => Box::new(GBZCodec),
+            Self::FASTG => Box::new(FastgCodec),
             #[cfg(feature = "odgi")]
             GraphFormat::ODGI => Box::new(ODGICodec),
         }
     }
 
-    pub fn get_description(&self) -> &str {
+    #[must_use]
+    pub const fn get_description(&self) -> &str {
         match self {
-            GraphFormat::GFA => {
+            Self::GFA => {
                 "Graphical Fragment Assembly (v1.0): An interoperable, text-based standard for representing pangenome nodes, edges, and paths."
             }
-            GraphFormat::VG => {
+            Self::VG => {
                 "VG Protobuf: A serialized binary format used by the vg toolkit; supports rich metadata but can be storage-intensive."
             }
-            GraphFormat::GBZ => {
+            Self::GBZ => {
                 "GBZ: A highly compressed, read-only format for large pangenomes. Note: Currently, only deserialization (loading) is supported."
             }
-            GraphFormat::FASTG => {
+            Self::FASTG => {
                 "FASTG: A text-based format designed to capture assembly ambiguities; largely superseded by GFA in modern workflows."
             }
             #[cfg(feature = "odgi")]

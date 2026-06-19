@@ -31,7 +31,7 @@ fn read_varint<R: Read>(reader: &mut R) -> PanResult<Option<u64>> {
             }
             Ok(_) => {
                 let byte = buf[0];
-                value |= ((byte & 0x7F) as u64) << shift;
+                value |= u64::from(byte & 0x7F) << shift;
                 if byte & 0x80 == 0 {
                     return Ok(Some(value));
                 }
@@ -94,11 +94,11 @@ fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
 
         let remaining_count = count - 1;
         if is_type_tag {
-            debug!("VG stream type tag: {:?}", tag_str);
+            debug!("VG stream type tag: {tag_str:?}");
         } else {
             // First message is an actual Graph, decode it
             let graph = vg_proto::Graph::decode(first_buf.as_slice()).map_err(|e| {
-                PanGraphXError::Parse(format!("Failed to decode VG Graph message: {}", e))
+                PanGraphXError::Parse(format!("Failed to decode VG Graph message: {e}"))
             })?;
             graphs.push(graph);
         }
@@ -113,7 +113,7 @@ fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
             reader.read_exact(&mut msg_buf)?;
 
             let graph = vg_proto::Graph::decode(msg_buf.as_slice()).map_err(|e| {
-                PanGraphXError::Parse(format!("Failed to decode VG Graph message: {}", e))
+                PanGraphXError::Parse(format!("Failed to decode VG Graph message: {e}"))
             })?;
             graphs.push(graph);
         }
@@ -162,7 +162,7 @@ fn write_vg_graphs(writer: &mut dyn Write, graphs: &[vg_proto::Graph]) -> PanRes
 /// - `from_start = true` means leaving from the start of the node → Reverse
 /// - `to_end = false` means arriving at the start of the node → Forward
 /// - `to_end = true` means arriving at the end of the node → Reverse
-fn vg_edge_to_orientations(from_start: bool, to_end: bool) -> (Orientation, Orientation) {
+const fn vg_edge_to_orientations(from_start: bool, to_end: bool) -> (Orientation, Orientation) {
     let from_orient = if from_start {
         Orientation::Reverse
     } else {
@@ -199,7 +199,7 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
 
         for graph in &proto_graphs {
             all_proto_nodes.extend(graph.node.iter().cloned());
-            all_proto_edges.extend(graph.edge.iter().cloned());
+            all_proto_edges.extend(graph.edge.iter().copied());
             for path in &graph.path {
                 let entry = all_proto_paths.entry(path.name.clone()).or_default();
                 if !path_order.contains(&path.name) {
@@ -259,7 +259,7 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
         let mut paths = Vec::new();
         for path_name in &path_order {
             let mappings = all_proto_paths.get(path_name).ok_or_else(|| {
-                PanGraphXError::Parse(format!("Missing mappings for path {}", path_name))
+                PanGraphXError::Parse(format!("Missing mappings for path {path_name}"))
             })?;
 
             let mut steps = Vec::with_capacity(mappings.len());
@@ -282,8 +282,7 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
                     });
                 } else {
                     return Err(PanGraphXError::Parse(format!(
-                        "Mapping in path {} missing position",
-                        path_name
+                        "Mapping in path {path_name} missing position"
                     )));
                 }
             }
@@ -396,8 +395,7 @@ impl GraphSerializer for VGCodec {
                         let node_seq_len = graph
                             .nodes
                             .get(step.node_id)
-                            .map(|n| n.sequence.len())
-                            .unwrap_or(0);
+                            .map_or(0, |n| n.sequence.len());
                         vg_proto::Mapping {
                             position: Some(vg_proto::Position {
                                 node_id: vg_node_id,
@@ -445,13 +443,23 @@ mod tests {
 
     #[test]
     fn test_varint_roundtrip() {
-        let values: Vec<u64> = vec![0, 1, 127, 128, 255, 300, 16384, u32::MAX as u64, u64::MAX];
+        let values: Vec<u64> = vec![
+            0,
+            1,
+            127,
+            128,
+            255,
+            300,
+            16384,
+            u64::from(u32::MAX),
+            u64::MAX,
+        ];
         for &val in &values {
             let mut buf = Vec::new();
             write_varint(&mut buf, val).unwrap();
             let mut cursor = Cursor::new(&buf);
             let decoded = read_varint(&mut cursor).unwrap().unwrap();
-            assert_eq!(val, decoded, "Varint round-trip failed for {}", val);
+            assert_eq!(val, decoded, "Varint round-trip failed for {val}");
         }
     }
 
@@ -643,8 +651,7 @@ mod tests {
         for (i, node) in parsed.nodes.iter().enumerate() {
             assert_eq!(
                 node.sequence, original.nodes[i].sequence,
-                "Node {} sequence mismatch",
-                i
+                "Node {i} sequence mismatch"
             );
         }
 
@@ -747,13 +754,11 @@ mod tests {
             assert_eq!(parsed.edges.len(), 1);
             assert_eq!(
                 parsed.edges[0].from_orient, from_o,
-                "from_orient mismatch for {:?} → {:?}",
-                from_o, to_o
+                "from_orient mismatch for {from_o:?} → {to_o:?}"
             );
             assert_eq!(
                 parsed.edges[0].to_orient, to_o,
-                "to_orient mismatch for {:?} → {:?}",
-                from_o, to_o
+                "to_orient mismatch for {from_o:?} → {to_o:?}"
             );
         }
     }
