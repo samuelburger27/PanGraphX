@@ -5,6 +5,9 @@ edition = "2024"
 description = "CLI tool based on PanGraphX: converting and inspecting genome graphs."
 license = "MIT"
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow = "1.0.100"
 clap = { version = "4.5.50", features = ["derive"] }
