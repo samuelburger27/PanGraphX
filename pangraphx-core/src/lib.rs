@@ -109,7 +109,7 @@ impl Display for GraphFormat {
             Self::VG => write!(f, "VG"),
             Self::FASTG => write!(f, "FASTG"),
             #[cfg(feature = "odgi")]
-            GraphFormat::ODGI => write!(f, "ODGI"),
+            Self::ODGI => write!(f, "ODGI"),
         }
     }
 }
@@ -134,7 +134,7 @@ impl GraphFormat {
             Self::VG => "vg",
             Self::FASTG => "fastg",
             #[cfg(feature = "odgi")]
-            GraphFormat::ODGI => "og",
+            Self::ODGI => "og",
         }
     }
 
@@ -151,7 +151,7 @@ impl GraphFormat {
             "gbz" => Ok(Self::GBZ),
             "fastg" => Ok(Self::FASTG),
             #[cfg(feature = "odgi")]
-            "og" => Ok(GraphFormat::ODGI),
+            "og" => Ok(Self::ODGI),
             _ => Err(PanGraphXError::UnsupportedFormat),
         }
     }
@@ -165,7 +165,7 @@ impl GraphFormat {
             Self::GBZ => Box::new(GBZCodec),
             Self::FASTG => Box::new(FastgCodec),
             #[cfg(feature = "odgi")]
-            GraphFormat::ODGI => Box::new(ODGICodec),
+            Self::ODGI => Box::new(ODGICodec),
         }
     }
 
@@ -178,7 +178,7 @@ impl GraphFormat {
             Self::GBZ => Box::new(GBZCodec),
             Self::FASTG => Box::new(FastgCodec),
             #[cfg(feature = "odgi")]
-            GraphFormat::ODGI => Box::new(ODGICodec),
+            Self::ODGI => Box::new(ODGICodec),
         }
     }
 
@@ -198,7 +198,7 @@ impl GraphFormat {
                 "FASTG: A text-based format designed to capture assembly ambiguities; largely superseded by GFA in modern workflows."
             }
             #[cfg(feature = "odgi")]
-            GraphFormat::ODGI => {
+            Self::ODGI => {
                 "ODGI: A dynamic, memory-efficient binary format optimized for large-scale pangenome analysis and graph manipulation."
             }
         }

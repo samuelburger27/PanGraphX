@@ -489,10 +489,10 @@ mod tests {
         assert_eq!(graph.edges.len(), 5);
 
         // Verify structure
-        let a_edges: Vec<_> = graph.edges.iter().filter(|e| e.from_node == 0).collect();
-        assert_eq!(a_edges.len(), 2, "Node A should have 2 outgoing edges");
+        let a_edges = graph.edges.iter().filter(|e| e.from_node == 0);
+        assert_eq!(a_edges.count(), 2, "Node A should have 2 outgoing edges");
 
-        let b_edges: Vec<_> = graph.edges.iter().filter(|e| e.from_node == 1).collect();
-        assert_eq!(b_edges.len(), 2, "Node B should have 2 outgoing edges");
+        let b_edges = graph.edges.iter().filter(|e| e.from_node == 1);
+        assert_eq!(b_edges.count(), 2, "Node B should have 2 outgoing edges");
     }
 }
