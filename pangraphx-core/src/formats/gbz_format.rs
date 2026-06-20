@@ -22,6 +22,7 @@ impl From<GbwtOrientation> for Orientation {
 }
 // TODO should rewrite
 
+#[allow(clippy::too_many_lines)]
 impl<R: Read + Seek> GraphParser<R> for GBZCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
         // 1. Load the GBZ file using the Serialize trait method

@@ -19,6 +19,7 @@ pub struct DeBruijn {
 
 impl DeBruijn {
     #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn from_directed_graph(graph: CoreGraphDTO, k: usize) -> Self {
         let lookup_graph = CoreGraph::new(graph);
         let extracted_o_kmers = lookup_graph.extract_kmers_paths(k);
@@ -57,6 +58,7 @@ impl DeBruijn {
     }
 
     #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn from_directed_graph_full_topography(graph: CoreGraphDTO, k: usize) -> Self {
         let lookup_graph = CoreGraph::new(graph);
         let (kmers, edges) = lookup_graph.extract_kmers_from_full_topology(k);
@@ -107,7 +109,7 @@ impl From<DeBruijn> for CoreGraphDTO {
         let mut seq = vec![Vec::new(); node_map.len()];
 
         for node in node_map.values() {
-            seq[node.id] = node.sequence.clone();
+            node.sequence.clone_into(&mut seq[node.id]);
         }
 
         let nodes = Nodes::from_seq(seq);

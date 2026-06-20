@@ -132,14 +132,11 @@ fn get_node_id(
     name_id_map: &mut HashMap<NodeName, NodeId>,
     sequences: &mut Vec<Option<Sequence>>,
 ) -> NodeId {
-    if let Some(id) = name_id_map.get(node_name) {
-        *id
-    } else {
-        let new_id = name_id_map.len();
-        name_id_map.insert(node_name.to_vec(), new_id);
+    let new_id = name_id_map.len();
+    *name_id_map.entry(node_name.to_vec()).or_insert_with(|| {
         sequences.push(None); // Placeholder for sequence, will be filled in later
         new_id
-    }
+    })
 }
 
 /// Parses a FASTG header line to extract the node name, edges, and orientations.

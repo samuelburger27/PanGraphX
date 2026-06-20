@@ -8,13 +8,13 @@ use std::path::Path;
 pub fn handle_conversion(args: &ConvertArgs) -> Result<()> {
     // Handle conversion command
     debug!("Arguments for conversion: {args:#?}");
-    let input_format = infer_graph_format(&args.input, &args.from).ok_or_else(|| {
+    let input_format = infer_graph_format(&args.input, args.from.as_ref()).ok_or_else(|| {
         anyhow::anyhow!(
             "Input graph format is not supported or couldn't be inferred: {}",
             args.input
         )
     })?;
-    let output_format = infer_graph_format(&args.output, &args.to).ok_or_else(|| {
+    let output_format = infer_graph_format(&args.output, args.to.as_ref()).ok_or_else(|| {
         anyhow::anyhow!(
             "Output graph format is not supported or couldn't be inferred: {}",
             args.output
@@ -77,7 +77,7 @@ pub fn handle_conversion(args: &ConvertArgs) -> Result<()> {
 }
 
 /// Infer graph format from specified format or file extension if no format specified
-pub fn infer_graph_format(path: &str, specified_format: &Option<String>) -> Option<GraphFormat> {
+pub fn infer_graph_format(path: &str, specified_format: Option<&String>) -> Option<GraphFormat> {
     if let Some(ext) = specified_format {
         GraphFormat::from_extension(ext).ok()
     } else {

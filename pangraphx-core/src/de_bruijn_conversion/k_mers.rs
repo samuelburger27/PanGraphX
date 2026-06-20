@@ -16,25 +16,19 @@ use crate::de_bruijn_conversion::de_bruijn_graph::DbgEdge;
 /// * 'C' / 'c'       -> 1 (binary 01)
 /// * 'G' / 'g'       -> 2 (binary 10)
 /// * 'T' / 't'       -> 3 (binary 11)
-#[inline(always)]
 const fn encode_base(b: u8) -> u8 {
     match b {
         b'A' | b'a' => 0,
         b'C' | b'c' => 1,
         b'G' | b'g' => 2,
-        b'T' | b't' => 3,
         _ => 3,
     }
 }
 
 /// Checks if a byte represents a valid nucleotide (A, C, G, T).
 ///
-#[inline(always)]
 const fn is_valid_nucleotide(b: u8) -> bool {
-    match b {
-        b'A' | b'a' | b'C' | b'c' | b'G' | b'g' | b'T' | b't' => true,
-        _ => false, // N, R, Y, etc. are invalid
-    }
+    matches!(b, b'A' | b'a' | b'C' | b'c' | b'G' | b'g' | b'T' | b't')
 }
 
 /// Computes the Reverse Complement of a 2-bit encoded base.
@@ -42,18 +36,15 @@ const fn is_valid_nucleotide(b: u8) -> bool {
 /// # Mapping
 /// * 0 (A) <-> 3 (T)
 /// * 1 (C) <-> 2 (G)
-#[inline(always)]
 const fn rc_base(x: u8) -> u8 {
     match x {
         0 => 3, // A->T
         1 => 2, // C->G
         2 => 1, // G->C
-        3 => 0, // T->A
-        _ => 0,
+        _ => 0, // T->A and anything else
     }
 }
 
-#[inline(always)]
 const fn suffix_mask(n_bases: usize) -> u128 {
     (1u128 << (2 * n_bases)) - 1
 }
@@ -69,7 +60,6 @@ const fn suffix_mask(n_bases: usize) -> u128 {
 /// * `code`: The current 2-bit encoded k-mer.
 /// * `k`: The length of the k-mer (must be 1 <= k <= 63).
 /// * `next_base`: The ASCII byte of the incoming nucleotide.
-#[inline(always)]
 #[must_use]
 pub fn roll_kmer(code: u128, k: usize, next_base: u8) -> u128 {
     let mask: u128 = suffix_mask(k - 1);
@@ -400,12 +390,12 @@ impl CoreGraph {
             }
 
             // --- 2. State Checking (Cycle Detection) ---
-            let mut suffix_code = code;
-
             // Only mask if we actually have a full k-mer context
-            if code_size == k {
-                suffix_code = code & suffix_mask(k - 1);
-            }
+            let suffix_code = if code_size == k {
+                code & suffix_mask(k - 1)
+            } else {
+                code
+            };
             // we stop to prevent infinite loops in cycles.
             if !visited_states.insert(VisitState {
                 node,

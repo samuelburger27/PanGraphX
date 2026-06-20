@@ -41,10 +41,7 @@ fn cigar_to_overlap(cigar: CIGAR) -> u32 {
 // For now, this seems sufficient
 #[inline]
 fn parse_overlap(cigar_str: &[u8]) -> u32 {
-    match CIGAR::from_bytestring(cigar_str) {
-        Some(cigar) => cigar_to_overlap(cigar),
-        None => 0,
-    }
+    CIGAR::from_bytestring(cigar_str).map_or(0, cigar_to_overlap)
 }
 
 /// Implementation of `GraphParser` for GFA format
@@ -110,10 +107,7 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
                 let overlaps: Vec<u32> = p
                     .overlaps
                     .into_iter()
-                    .map(|opt_cigar| match opt_cigar {
-                        Some(cigar) => cigar_to_overlap(cigar),
-                        None => 0,
-                    })
+                    .map(|opt_cigar| opt_cigar.map_or(0, cigar_to_overlap))
                     .collect();
                 PanResult::Ok(Path {
                     name: p.path_name,

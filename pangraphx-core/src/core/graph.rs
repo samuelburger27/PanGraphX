@@ -440,14 +440,13 @@ impl CoreGraph {
     /// Checks if an edge exists between two nodes.
     #[must_use]
     pub fn has_edge(&self, from_node: NodeId, to_node: NodeId) -> bool {
-        if let Some(edge_indices) = self.adjacency_list.get(&from_node) {
-            edge_indices.iter().any(|&idx| {
-                let edge = &self.edges[idx];
-                edge.to_node == to_node
+        self.adjacency_list
+            .get(&from_node)
+            .is_some_and(|edge_indices| {
+                edge_indices
+                    .iter()
+                    .any(|&idx| self.edges[idx].to_node == to_node)
             })
-        } else {
-            false
-        }
     }
 }
 

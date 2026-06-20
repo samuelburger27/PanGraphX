@@ -97,6 +97,9 @@ impl Nodes {
     }
 
     /// Creates a `Nodes` collection from a vector of `Node`, ensuring that node IDs are unique and correspond to their index.
+    ///
+    /// # Errors
+    /// Returns an error if any node ID does not match its index in the vector.
     pub fn from_node_vec(nodes: Vec<Node>) -> PanResult<Self> {
         // Ensure node IDs are unique and correspond to their index
         for (index, node) in nodes.iter().enumerate() {

@@ -141,6 +141,9 @@ impl GraphFormat {
     /// Resolves a format from a filename extension.
     ///
     /// Matching is case-insensitive.
+    ///
+    /// # Errors
+    /// Returns an error if the extension does not correspond to a supported format.
     pub fn from_extension(extension: &str) -> PanResult<Self> {
         match extension.to_lowercase().as_str() {
             "gfa" => Ok(Self::GFA),

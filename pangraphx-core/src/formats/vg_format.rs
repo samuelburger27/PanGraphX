@@ -70,6 +70,7 @@ fn write_varint(writer: &mut dyn Write, mut value: u64) -> PanResult<()> {
 /// The VG framing format consists of groups. Each group starts with a varint
 /// count of messages, each message is length-prefixed with a varint. The first
 /// message in a group may be a type tag string (e.g. `"VG"`).
+#[allow(clippy::cast_possible_truncation)]
 fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
     let mut graphs = Vec::new();
 
@@ -186,6 +187,7 @@ fn orientations_to_vg_edge(from_orient: Orientation, to_orient: Orientation) -> 
 // GraphParser implementation
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::cast_sign_loss)]
 impl<R: Read + Seek> GraphParser<R> for VGCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
         let proto_graphs = read_vg_graphs(reader)?;
@@ -307,26 +309,35 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
 // GraphSerializer implementation
 // ---------------------------------------------------------------------------
 
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::too_many_lines
+)]
 impl GraphSerializer for VGCodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
         // Build reverse mapping: internal ID → original VG ID
-        let internal_to_vg_id: HashMap<usize, i64> = if let Some(name_map) = &graph.node_name_map {
-            name_map
-                .iter()
-                .map(|(&id, name)| {
-                    let vg_id = String::from_utf8_lossy(name)
-                        .parse::<i64>()
-                        .unwrap_or((id + 1) as i64);
-                    (id, vg_id)
-                })
-                .collect()
-        } else {
-            graph
-                .nodes
-                .iter()
-                .map(|n| (n.id, (n.id + 1) as i64))
-                .collect()
-        };
+        let internal_to_vg_id: HashMap<usize, i64> = graph.node_name_map.as_ref().map_or_else(
+            || {
+                graph
+                    .nodes
+                    .iter()
+                    .map(|n| (n.id, (n.id + 1) as i64))
+                    .collect()
+            },
+            |name_map| {
+                name_map
+                    .iter()
+                    .map(|(&id, name)| {
+                        let vg_id = String::from_utf8_lossy(name)
+                            .parse::<i64>()
+                            .unwrap_or((id + 1) as i64);
+                        (id, vg_id)
+                    })
+                    .collect()
+            },
+        );
 
         // Convert nodes
         let proto_nodes: Vec<vg_proto::Node> = graph
