@@ -6,6 +6,7 @@ A fast and efficient Rust library and command-line tool for working with pangeno
 
 - **Format Conversion**: Convert between GFA, GBZ, VG, and FASTG formats
 - **Graph Inspection**: Query basic information about graph files
+- **Graph Statistics**: Report sequence-length metrics (incl. N50), connected components, degree distribution, and path lengths
 - **Format Validation**: Validate graph structure and format compliance
 - **De Bruijn Graphs**: Construct de Bruijn graphs from existing genome graphs with configurable k-mer sizes
 - **Colored De Bruijn Graphs**: Generate colored de Bruijn graphs for multi-sample analysis
@@ -69,6 +70,45 @@ Display basic information about a graph:
 
 ```bash
 pangraphx-cli info graph.gfa
+```
+
+#### Compute Graph Statistics
+
+Print detailed statistics about a graph — sequence-length distribution (total,
+min/avg/max, N50), the number of weakly connected components, the in/out degree
+distribution, and the path-length distribution:
+
+```bash
+pangraphx-cli stats graph.gfa
+```
+
+Override the input format when it cannot be inferred from the file extension:
+
+```bash
+pangraphx-cli stats graph.dat --format gfa
+```
+
+Example output:
+
+```text
+Graph Statistics:
+--------------------------------------------------
+ Sequence
+   Nodes:             169
+   Total length:      5,386 bp
+   Node length:       min 10 / avg 31.9 / max 32 bp
+   N50:               32 bp
+ Topology
+   Edges:             168
+   Components:        1   (largest 169 nodes)
+   Isolated nodes:    0
+   In-degree:         min 0 / avg 0.99 / max 1
+   Out-degree:        min 0 / avg 0.99 / max 1
+   Degree histogram:  1:2  2:167
+ Paths
+   Paths:             1
+   Path length:       min 5,386 / avg 5386.0 / max 5,386 bp   (total 5,386 bp)
+   Path steps:        min 169 / avg 169.0 / max 169
 ```
 
 #### Validate Graph Files
@@ -163,6 +203,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+#### Compute Graph Statistics
+
+```rust
+use pangraphx_core::{CoreGraph, CoreGraphDTO, GraphFormat};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let dto = CoreGraphDTO::load_from_file("graph.gfa", GraphFormat::GFA)?;
+    let graph = CoreGraph::new(dto);
+    let stats = graph.compute_stats();
+
+    println!("Nodes: {}", stats.node_count);
+    println!("Total sequence length: {} bp", stats.node_len.total);
+    println!("N50: {} bp", stats.node_len.n50);
+    println!("Connected components: {}", stats.component_count);
+    Ok(())
+}
+```
+
 ## Project Structure
 
 ``` text
@@ -180,8 +238,9 @@ pangraphx-cli/          # CLI tool crate
 ├── src/
 │   ├── main.rs         # Entry point
 │   ├── cli/            # CLI argument definitions
-│   ├── convert.rs      # Format conversion handler
-│   ├── handle_info.rs  # Graph info handler
+│   ├── handle_convert.rs  # Format conversion handler
+│   ├── handle_info.rs     # Graph info handler
+│   ├── handle_stats.rs    # Graph statistics handler
 │   └── ...
 └── Cargo.toml
 ```
