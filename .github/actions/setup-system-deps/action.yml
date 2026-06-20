@@ -1,0 +1,20 @@
+name: Setup system dependencies
+description: >-
+  Install the native build dependencies PanGraphX needs. protobuf-compiler is
+  required for every build (prost-build); cmake, jemalloc, pkg-config and the
+  Python headers are required by the odgi-ffi dependency behind the `odgi`
+  feature (enabled by --all-features).
+runs:
+  using: composite
+  steps:
+    - name: apt-get install
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          build-essential \
+          cmake \
+          libjemalloc-dev \
+          pkg-config \
+          python3-dev \
+          protobuf-compiler
