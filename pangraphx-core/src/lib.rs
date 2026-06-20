@@ -70,6 +70,8 @@ pub mod traits;
 pub use core::core_types::{
     Edge, Node, NodeId, NodeName, Orientation, Path, PathName, Sequence, Step,
 };
+/// Graph statistics summary types produced by [`CoreGraph::compute_stats`].
+pub use core::stats::{DegreeStats, GraphStats, LenStats, PathStats};
 /// Internal graph model with efficient lookup and manipulation utilities.
 pub use core::{graph::CoreGraph, graph_dto::CoreGraphDTO};
 /// de Bruijn graph data structures and helpers.

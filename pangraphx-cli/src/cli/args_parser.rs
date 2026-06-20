@@ -18,6 +18,9 @@ pub enum Commands {
     /// Show basic information about a graph file
     Info(InfoArgs),
 
+    /// Show detailed statistics about a graph file
+    Stats(StatsArgs),
+
     /// List supported graph formats
     Format,
 }
@@ -44,6 +47,16 @@ pub struct ConvertArgs {
 #[derive(Args, Debug)]
 pub struct InfoArgs {
     #[arg(help = "Graph file to inspect")]
+    pub file: String,
+
+    /// Override input format (e.g. gfa, gbz, fastg)
+    #[arg(short = 'f', long)]
+    pub format: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct StatsArgs {
+    #[arg(help = "Graph file to analyze")]
     pub file: String,
 
     /// Override input format (e.g. gfa, gbz, fastg)
