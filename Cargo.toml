@@ -9,7 +9,6 @@ resolver = "2"
 warnings = "deny"
 
 [workspace.lints.clippy]
-# Your strict settings
 pedantic = { level = "deny", priority = -1 }
 perf = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
