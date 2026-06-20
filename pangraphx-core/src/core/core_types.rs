@@ -21,8 +21,8 @@ pub enum Orientation {
 impl Display for Orientation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Orientation::Forward => write!(f, "+"),
-            Orientation::Reverse => write!(f, "-"),
+            Self::Forward => write!(f, "+"),
+            Self::Reverse => write!(f, "-"),
         }
     }
 }
@@ -30,9 +30,9 @@ impl Display for Orientation {
 impl From<bool> for Orientation {
     fn from(is_reverse: bool) -> Self {
         if is_reverse {
-            Orientation::Reverse
+            Self::Reverse
         } else {
-            Orientation::Forward
+            Self::Forward
         }
     }
 }
@@ -73,6 +73,7 @@ pub struct Path {
 }
 
 /// A collection of nodes in the graph.
+///
 /// Wraps a vector of `Node` and enforces the invariant that node IDs correspond to their index in the vector.
 /// Invariant: Node IDs are unique and correspond to their index in the vector.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -80,20 +81,25 @@ pub struct Nodes(Vec<Node>);
 
 impl Nodes {
     /// Creates a new, empty collection of nodes.
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self(Vec::new())
     }
     /// Creates a new `Nodes` collection from a vector of sequences
+    #[must_use]
     pub fn from_seq(nodes: Vec<Sequence>) -> Self {
         let nodes = nodes
             .into_iter()
             .enumerate()
-            .map(|(id, sequence)| Node { id, sequence })
+            .map(|(id, sequence)| Node { sequence, id })
             .collect();
         Self(nodes)
     }
 
     /// Creates a `Nodes` collection from a vector of `Node`, ensuring that node IDs are unique and correspond to their index.
+    ///
+    /// # Errors
+    /// Returns an error if any node ID does not match its index in the vector.
     pub fn from_node_vec(nodes: Vec<Node>) -> PanResult<Self> {
         // Ensure node IDs are unique and correspond to their index
         for (index, node) in nodes.iter().enumerate() {
@@ -110,16 +116,18 @@ impl Nodes {
     /// Adds a new node with the given sequence, automatically assigning it the next available ID.
     pub fn push(&mut self, sequence: Sequence) {
         let id = self.0.len();
-        self.0.push(Node { id, sequence });
+        self.0.push(Node { sequence, id });
     }
 
     /// Returns the number of nodes in the collection.
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
 
     /// Checks if the collection of nodes is empty.
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
@@ -127,6 +135,7 @@ impl Nodes {
         self.0.get_mut(node_id)
     }
 
+    #[must_use]
     pub fn get(&self, node_id: NodeId) -> Option<&Node> {
         self.0.get(node_id)
     }
@@ -155,6 +164,7 @@ impl Nodes {
     }
 
     /// Returns a parallel iterator over the nodes in the collection.
+    #[must_use]
     pub fn par_iter(&self) -> impl ParallelIterator<Item = &Node> {
         self.0.par_iter()
     }

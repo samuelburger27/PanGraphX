@@ -17,6 +17,8 @@ pub struct ColoredDBG {
 }
 
 impl ColoredDBG {
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn from_directed_graph(graph: CoreGraphDTO, k: usize) -> Self {
         let lookup_graph = CoreGraph::new(graph);
         let extracted_o_kmers = lookup_graph.extract_kmers_paths(k);
@@ -57,7 +59,7 @@ impl ColoredDBG {
                 },
             );
 
-        ColoredDBG {
+        Self {
             dbg: DeBruijn {
                 kmers: all_kmers,
                 edges,
@@ -68,7 +70,8 @@ impl ColoredDBG {
     }
 }
 
-/// Conversion from ColoredDBG to CoreGraph
+/// Conversion from `ColoredDBG` to `CoreGraph`
+#[allow(clippy::cast_possible_truncation)]
 impl From<ColoredDBG> for CoreGraphDTO {
     fn from(colored_dbg: ColoredDBG) -> Self {
         //Create nodes from kmers
@@ -136,12 +139,12 @@ impl From<ColoredDBG> for CoreGraphDTO {
         let mut seq = vec![Vec::new(); node_map.len()];
 
         for node in node_map.values() {
-            seq[node.id] = node.sequence.clone();
+            node.sequence.clone_into(&mut seq[node.id]);
         }
 
         let nodes = Nodes::from_seq(seq);
 
-        CoreGraphDTO {
+        Self {
             nodes,
             edges,
             paths,

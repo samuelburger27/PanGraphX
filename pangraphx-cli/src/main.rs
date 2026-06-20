@@ -35,7 +35,10 @@ fn run() -> Result<()> {
         Commands::Convert(args) => handle_conversion(&args),
         Commands::Ddb(args) => handle_de_bruijn(&args),
         Commands::Info(args) => handle_info(&args),
-        Commands::Format => handle_formats(),
+        Commands::Format => {
+            handle_formats();
+            Ok(())
+        }
     }
 }
 

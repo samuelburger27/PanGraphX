@@ -23,6 +23,6 @@ pub type PanResult<T> = std::result::Result<T, PanGraphXError>;
 // Convert gfa parser errors into our library Parse error variant
 impl From<gfa::parser::error::ParseError> for PanGraphXError {
     fn from(err: gfa::parser::error::ParseError) -> Self {
-        PanGraphXError::Parse(err.to_string())
+        Self::Parse(err.to_string())
     }
 }

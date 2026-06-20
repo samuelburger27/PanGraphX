@@ -1,9 +1,8 @@
-use anyhow::Result;
 use colored::Colorize;
 use pangraphx_core::GraphFormat;
 use textwrap::{Options, fill};
 
-pub fn handle_formats() -> Result<()> {
+pub fn handle_formats() {
     println!("{}", "Supported Graph Formats:".bold().bright_cyan());
     println!("{}", format!("{:-<80}", "").dimmed()); // Horizontal separator
 
@@ -25,8 +24,7 @@ pub fn handle_formats() -> Result<()> {
 
         // Highlight "Note" in yellow after wrapping for visibility
         let colored_desc = wrapped.replace("Note", &format!("{}", "Note".yellow().bold()));
-        println!("{}", colored_desc);
+        println!("{colored_desc}");
         println!();
     }
-    Ok(())
 }

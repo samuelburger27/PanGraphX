@@ -3,7 +3,7 @@ use crate::core::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path, PathNam
 use crate::error::{PanGraphXError, PanResult};
 use std::collections::HashMap;
 
-/// A CoreGraph type providing efficient lookup and graph manipulation capabilities.
+/// A `CoreGraph` type providing efficient lookup and graph manipulation capabilities.
 pub struct CoreGraph {
     pub nodes: Nodes,
     pub edges: Vec<Edge>,
@@ -14,7 +14,8 @@ pub struct CoreGraph {
 }
 
 impl CoreGraph {
-    pub fn new(graph: CoreGraphDTO) -> CoreGraph {
+    #[must_use]
+    pub fn new(graph: CoreGraphDTO) -> Self {
         let adjacency_list = Self::build_adjacency_list(&graph);
 
         let path_map = graph
@@ -23,7 +24,7 @@ impl CoreGraph {
             .map(|path| (path.name.clone(), path))
             .collect();
 
-        CoreGraph {
+        Self {
             nodes: graph.nodes,
             edges: graph.edges,
             path_map,
@@ -44,7 +45,7 @@ impl CoreGraph {
     // ===== Graph Manipulation Methods =====
 
     /// Adds a new node to the graph with the given sequence.
-    /// Returns the NodeId assigned to the new node.
+    /// Returns the `NodeId` assigned to the new node.
     ///
     /// # Arguments
     /// * `sequence` - DNA sequence for the new node
@@ -77,7 +78,7 @@ impl CoreGraph {
     /// * `edge` - The edge to add
     ///
     /// # Errors
-    /// Returns an error if the from_node or to_node doesn't exist in the graph.
+    /// Returns an error if the `from_node` or `to_node` doesn't exist in the graph.
     ///
     /// # Examples
     /// ```
@@ -193,8 +194,7 @@ impl CoreGraph {
     pub fn remove_node(&mut self, node_id: NodeId) -> PanResult<()> {
         if node_id >= self.nodes.len() {
             return Err(PanGraphXError::Other(format!(
-                "Node {} does not exist",
-                node_id
+                "Node {node_id} does not exist"
             )));
         }
 
@@ -293,8 +293,7 @@ impl CoreGraph {
     pub fn remove_edge(&mut self, edge_idx: usize) -> PanResult<()> {
         if edge_idx >= self.edges.len() {
             return Err(PanGraphXError::Other(format!(
-                "Edge index {} is out of bounds",
-                edge_idx
+                "Edge index {edge_idx} is out of bounds"
             )));
         }
 
@@ -344,16 +343,19 @@ impl CoreGraph {
     }
 
     /// Returns the number of nodes in the graph.
-    pub fn node_count(&self) -> usize {
+    #[must_use]
+    pub const fn node_count(&self) -> usize {
         self.nodes.len()
     }
 
     /// Returns the number of edges in the graph.
-    pub fn edge_count(&self) -> usize {
+    #[must_use]
+    pub const fn edge_count(&self) -> usize {
         self.edges.len()
     }
 
     /// Returns the number of paths in the graph.
+    #[must_use]
     pub fn path_count(&self) -> usize {
         self.path_map.len()
     }
@@ -365,7 +367,7 @@ impl CoreGraph {
     pub fn get_node(&self, node_id: NodeId) -> PanResult<&Node> {
         self.nodes
             .get(node_id)
-            .ok_or_else(|| PanGraphXError::Other(format!("Node {} does not exist", node_id)))
+            .ok_or_else(|| PanGraphXError::Other(format!("Node {node_id} does not exist")))
     }
 
     /// Gets a mutable reference to a node by its ID.
@@ -376,8 +378,7 @@ impl CoreGraph {
         let len = self.nodes.len();
         self.nodes.get_mut(node_id).ok_or_else(|| {
             PanGraphXError::Other(format!(
-                "Node {} does not exist (graph has {} nodes)",
-                node_id, len
+                "Node {node_id} does not exist (graph has {len} nodes)"
             ))
         })
     }
@@ -387,9 +388,9 @@ impl CoreGraph {
     /// # Errors
     /// Returns an error if the edge index is out of bounds.
     pub fn get_edge(&self, edge_idx: usize) -> PanResult<&Edge> {
-        self.edges.get(edge_idx).ok_or_else(|| {
-            PanGraphXError::Other(format!("Edge index {} is out of bounds", edge_idx))
-        })
+        self.edges
+            .get(edge_idx)
+            .ok_or_else(|| PanGraphXError::Other(format!("Edge index {edge_idx} is out of bounds")))
     }
 
     /// Gets a reference to a path by its name.
@@ -425,8 +426,7 @@ impl CoreGraph {
     pub fn get_outgoing_edges(&self, node_id: NodeId) -> PanResult<Vec<&Edge>> {
         if node_id >= self.nodes.len() {
             return Err(PanGraphXError::Other(format!(
-                "Node {} does not exist",
-                node_id
+                "Node {node_id} does not exist"
             )));
         }
 
@@ -438,21 +438,21 @@ impl CoreGraph {
     }
 
     /// Checks if an edge exists between two nodes.
+    #[must_use]
     pub fn has_edge(&self, from_node: NodeId, to_node: NodeId) -> bool {
-        if let Some(edge_indices) = self.adjacency_list.get(&from_node) {
-            edge_indices.iter().any(|&idx| {
-                let edge = &self.edges[idx];
-                edge.to_node == to_node
+        self.adjacency_list
+            .get(&from_node)
+            .is_some_and(|edge_indices| {
+                edge_indices
+                    .iter()
+                    .any(|&idx| self.edges[idx].to_node == to_node)
             })
-        } else {
-            false
-        }
     }
 }
 
 impl From<CoreGraph> for CoreGraphDTO {
     fn from(graph: CoreGraph) -> Self {
-        CoreGraphDTO {
+        Self {
             nodes: graph.nodes,
             edges: graph.edges,
             paths: graph.path_map.into_values().collect(),

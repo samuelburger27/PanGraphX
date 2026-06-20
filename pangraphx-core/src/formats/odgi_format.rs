@@ -14,9 +14,10 @@ use tempfile::NamedTempFile;
 pub struct ODGICodec;
 
 /// Converts an ODGI edge to the internal `Edge` representation.
+#[allow(clippy::cast_possible_truncation)]
 impl From<(usize, OdgiEdge)> for Edge {
     fn from((from_id, edge): (usize, OdgiEdge)) -> Self {
-        Edge {
+        Self {
             from_node: from_id,
             from_orient: Orientation::from(edge.from_orientation),
             to_node: edge.to_node as usize,
@@ -26,6 +27,7 @@ impl From<(usize, OdgiEdge)> for Edge {
     }
 }
 
+#[allow(clippy::cast_possible_truncation)]
 impl<R: Read + Seek> GraphParser<R> for ODGICodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
         // `odgi_ffi` currently parses from a file path, so the input stream is staged
@@ -38,7 +40,7 @@ impl<R: Read + Seek> GraphParser<R> for ODGICodec {
         })?;
 
         let odgi_graph = OdgiGraph::load(temp_path)
-            .map_err(|e| PanGraphXError::Parse(format!("Failed to parse ODGI graph: {:?}", e)))?;
+            .map_err(|e| PanGraphXError::Parse(format!("Failed to parse ODGI graph: {e:?}")))?;
 
         temp_file.close()?;
 
@@ -66,14 +68,13 @@ impl<R: Read + Seek> GraphParser<R> for ODGICodec {
         // Build each path by projecting every position to its corresponding node/orientation.
         for path_name in path_names {
             let path_len = odgi_graph.get_path_length(&path_name).ok_or_else(|| {
-                PanGraphXError::Parse(format!("Failed to get path length for path: {}", path_name))
+                PanGraphXError::Parse(format!("Failed to get path length for path: {path_name}"))
             })?;
             let mut steps = Vec::with_capacity(path_len as usize);
             for pos in 0..path_len {
                 let path_pos = odgi_graph.project(&path_name, pos).ok_or_else(|| {
                     PanGraphXError::Parse(format!(
-                        "Failed to project path position for path: {}, pos: {}",
-                        path_name, pos
+                        "Failed to project path position for path: {path_name}, pos: {pos}"
                     ))
                 })?;
                 steps.push(Step {
@@ -113,7 +114,7 @@ impl GraphSerializer for ODGICodec {
         let output_path = output_file.path().to_string_lossy().to_string();
 
         gfa_to_odgi(&temp_path, &output_path).map_err(|e| {
-            PanGraphXError::Serialize(format!("Failed to convert GFA to ODGI format: {:?}", e))
+            PanGraphXError::Serialize(format!("Failed to convert GFA to ODGI format: {e:?}"))
         })?;
         copy(&mut output_file, writer)?;
         Ok(())

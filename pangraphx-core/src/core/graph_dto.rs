@@ -5,21 +5,23 @@ use std::collections::{HashMap, HashSet};
 /// The main graph data transfer object (DTO) containing nodes, edges, and paths
 /// for serialization and deserialization.
 ///
-/// For graph manipulation consider using CoreGraph for efficient lookup and manipulation
+/// For graph manipulation consider using `CoreGraph` for efficient lookup and manipulation
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CoreGraphDTO {
     pub nodes: Nodes,
     pub edges: Vec<Edge>,
     pub paths: Vec<Path>,
-    /// mapping from NodeId to original node names (if available).
+    /// mapping from `NodeId` to original node names (if available).
     pub node_name_map: Option<HashMap<NodeId, NodeName>>,
 }
 
 impl CoreGraphDTO {
+    #[must_use]
     pub fn get_node_name(&self, node: &Node) -> String {
         self.get_name_from_id(node.id)
     }
 
+    #[must_use]
     pub fn get_name_from_id(&self, node_id: NodeId) -> String {
         if let Some(map) = &self.node_name_map
             && let Some(name) = map.get(&node_id)
@@ -31,14 +33,15 @@ impl CoreGraphDTO {
 }
 
 impl CoreGraphDTO {
-    /// Checks if two CoreGraphDTO instances are isomorphic, meaning they represent
+    /// Checks if two `CoreGraphDTO` instances are isomorphic, meaning they represent
     /// the same graph structure and contain the same sequences, regardless of the
     /// internal ordering of nodes, edges, and paths.
     ///
     /// Uses node names (from `node_name_map` or stringified IDs) as the canonical
     /// identity for building a bijection between the two graphs. This correctly
     /// handles graphs with duplicate sequences.
-    pub fn isomorphic(&self, other: &CoreGraphDTO) -> bool {
+    #[must_use]
+    pub fn isomorphic(&self, other: &Self) -> bool {
         // Quick cardinality checks
         if self.nodes.len() != other.nodes.len()
             || self.edges.len() != other.edges.len()

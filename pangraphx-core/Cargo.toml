@@ -6,6 +6,10 @@ description = "Core library for PanGraphX: a toolkit for genome graph loading an
 license = "MIT"
 repository = "https://github.com/samuelburger27/PanGraphX"
 
+# Inside crate_a/Cargo.toml and crate_b/Cargo.toml
+[lints]
+workspace = true
+
 [features]
 default = []
 odgi = ["dep:odgi-ffi"]

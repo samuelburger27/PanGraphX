@@ -6,21 +6,21 @@ use log::{debug, warn};
 use pangraphx_core::{ColoredDBG, CoreGraphDTO, DeBruijn};
 
 pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
-    let input_format = infer_graph_format(&args.input, &args.from).ok_or_else(|| {
+    let input_format = infer_graph_format(&args.input, args.from.as_ref()).ok_or_else(|| {
         anyhow::anyhow!(
             "Input graph format is not supported or couldn't be inferred: {}",
             args.input
         )
     })?;
-    let output_format = infer_graph_format(&args.output, &args.to).ok_or_else(|| {
+    let output_format = infer_graph_format(&args.output, args.to.as_ref()).ok_or_else(|| {
         anyhow::anyhow!(
             "Output graph format is not supported or couldn't be inferred: {}",
             args.output
         )
     })?;
 
-    debug!("Input format: {:?}", input_format);
-    debug!("Output format: {:?}", output_format);
+    debug!("Input format: {input_format:?}");
+    debug!("Output format: {output_format:?}");
 
     println!(
         "{} {}",

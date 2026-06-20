@@ -16,25 +16,19 @@ use crate::de_bruijn_conversion::de_bruijn_graph::DbgEdge;
 /// * 'C' / 'c'       -> 1 (binary 01)
 /// * 'G' / 'g'       -> 2 (binary 10)
 /// * 'T' / 't'       -> 3 (binary 11)
-#[inline(always)]
-fn encode_base(b: u8) -> u8 {
+const fn encode_base(b: u8) -> u8 {
     match b {
         b'A' | b'a' => 0,
         b'C' | b'c' => 1,
         b'G' | b'g' => 2,
-        b'T' | b't' => 3,
         _ => 3,
     }
 }
 
 /// Checks if a byte represents a valid nucleotide (A, C, G, T).
 ///
-#[inline(always)]
-fn is_valid_nucleotide(b: u8) -> bool {
-    match b {
-        b'A' | b'a' | b'C' | b'c' | b'G' | b'g' | b'T' | b't' => true,
-        _ => false, // N, R, Y, etc. are invalid
-    }
+const fn is_valid_nucleotide(b: u8) -> bool {
+    matches!(b, b'A' | b'a' | b'C' | b'c' | b'G' | b'g' | b'T' | b't')
 }
 
 /// Computes the Reverse Complement of a 2-bit encoded base.
@@ -42,19 +36,16 @@ fn is_valid_nucleotide(b: u8) -> bool {
 /// # Mapping
 /// * 0 (A) <-> 3 (T)
 /// * 1 (C) <-> 2 (G)
-#[inline(always)]
-fn rc_base(x: u8) -> u8 {
+const fn rc_base(x: u8) -> u8 {
     match x {
         0 => 3, // A->T
         1 => 2, // C->G
         2 => 1, // G->C
-        3 => 0, // T->A
-        _ => 0,
+        _ => 0, // T->A and anything else
     }
 }
 
-#[inline(always)]
-fn suffix_mask(n_bases: usize) -> u128 {
+const fn suffix_mask(n_bases: usize) -> u128 {
     (1u128 << (2 * n_bases)) - 1
 }
 
@@ -69,10 +60,10 @@ fn suffix_mask(n_bases: usize) -> u128 {
 /// * `code`: The current 2-bit encoded k-mer.
 /// * `k`: The length of the k-mer (must be 1 <= k <= 63).
 /// * `next_base`: The ASCII byte of the incoming nucleotide.
-#[inline(always)]
+#[must_use]
 pub fn roll_kmer(code: u128, k: usize, next_base: u8) -> u128 {
     let mask: u128 = suffix_mask(k - 1);
-    let next_code = encode_base(next_base) as u128;
+    let next_code = u128::from(encode_base(next_base));
     ((code & mask) << 2) | next_code
 }
 
@@ -98,10 +89,11 @@ impl Debug for Kmer {
 impl Kmer {
     /// Creates a Kmer from a slice of bytes (e.g., `b"ACGT"`).
     #[inline]
+    #[must_use]
     pub fn from_bases(bases: &[u8]) -> Self {
         let mut code: u128 = 0;
         for &b in bases {
-            code = (code << 2) | encode_base(b) as u128;
+            code = (code << 2) | u128::from(encode_base(b));
         }
         Self {
             code,
@@ -113,12 +105,13 @@ impl Kmer {
     ///
     /// This reverses the order of bases and complements each base (A <-> T, C <-> G).
     #[inline]
+    #[must_use]
     pub fn rev_comp(&self) -> Self {
         let mut x = self.code;
         let mut rc: u128 = 0;
         for _ in 0..self.k {
             let b = (x & 3) as u8;
-            rc = (rc << 2) | rc_base(b) as u128;
+            rc = (rc << 2) | u128::from(rc_base(b));
             x >>= 2;
         }
         Self {
@@ -132,12 +125,14 @@ impl Kmer {
     /// The canonical form is defined as the lexicographically smaller sequence
     /// between the forward k-mer and its reverse complement.
     #[inline]
+    #[must_use]
     pub fn canonical(&self) -> Self {
         let rc = self.rev_comp();
         if self.code <= rc.code { *self } else { rc }
     }
 
     /// Decodes the `u128` back into a human-readable byte vector.
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = vec![0; self.k];
         let mut x = self.code;
@@ -188,6 +183,7 @@ impl OrientedKmer {
     ///
     /// Determines if the provided code corresponds to the Forward or Reverse
     /// canonical direction.
+    #[must_use]
     pub fn from_code(code: u128, k: usize) -> Self {
         let raw = Kmer { code, k };
         let canonical = raw.canonical();
@@ -205,6 +201,7 @@ impl OrientedKmer {
 
     /// Constructs an `OrientedKmer` from a byte slice.
     #[inline]
+    #[must_use]
     pub fn from_bases(bases: &[u8]) -> Self {
         let raw = Kmer::from_bases(bases);
         let canonical = raw.canonical();
@@ -220,6 +217,7 @@ impl OrientedKmer {
         }
     }
 
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         if self.direction == Orientation::Forward {
             self.kmer.to_bytes()
@@ -252,6 +250,7 @@ impl CoreGraph {
     ///
     /// This operation is parallelized across available cores using Rayon.
     /// Each path's k-mer extraction is independent, allowing near-linear speedup.
+    #[must_use]
     pub fn extract_kmers_paths(&self, k: usize) -> HashMap<&Path, Vec<OrientedKmer>> {
         self.path_map
             .values()
@@ -282,7 +281,7 @@ impl CoreGraph {
                 }
                 // Fill window until size k
                 if len < k {
-                    code = (code << 2) | encode_base(base) as u128;
+                    code = (code << 2) | u128::from(encode_base(base));
                     len += 1;
 
                     if len == k {
@@ -309,7 +308,7 @@ impl CoreGraph {
     ///    We only stop recursion if we encounter a specific Node *with the exact same incoming (k-1) context*.
     ///
     /// # Arguments
-    /// * `adjacency_list`: Map of NodeId to outgoing Edges.
+    /// * `adjacency_list`: Map of `NodeId` to outgoing Edges.
     /// * `kmer_buffer`: Collection to store unique canonical K-mers found.
     /// * `edge_buffer`: Collection to store unique De Bruijn edges (`Kmer_A -> Kmer_B`).
     /// * `visited_states`: Set of previously seen (Node + Context) states.
@@ -346,7 +345,7 @@ impl CoreGraph {
 
             // --- 1. Process Node Sequence ---
             // Iterate through the sequence of the current node to update the rolling window.
-            for &base in node.sequence.iter() {
+            for &base in &node.sequence {
                 if !is_valid_nucleotide(base) {
                     // Reset
                     code = 0;
@@ -357,7 +356,7 @@ impl CoreGraph {
 
                 if code_size < k {
                     // FILLING BUFFER
-                    code = (code << 2) | encode_base(base) as u128;
+                    code = (code << 2) | u128::from(encode_base(base));
                     code_size += 1;
 
                     if code_size == k {
@@ -391,12 +390,12 @@ impl CoreGraph {
             }
 
             // --- 2. State Checking (Cycle Detection) ---
-            let mut suffix_code = code;
-
             // Only mask if we actually have a full k-mer context
-            if code_size == k {
-                suffix_code = code & suffix_mask(k - 1);
-            }
+            let suffix_code = if code_size == k {
+                code & suffix_mask(k - 1)
+            } else {
+                code
+            };
             // we stop to prevent infinite loops in cycles.
             if !visited_states.insert(VisitState {
                 node,
@@ -429,6 +428,7 @@ impl CoreGraph {
     /// representation by traversing all valid paths through the nodes.
     ///
     /// Returns a tuple: `(Set of Nodes (Kmers), Set of Edges (DbgEdges))`
+    #[must_use]
     pub fn extract_kmers_from_full_topology(&self, k: usize) -> (HashSet<Kmer>, HashSet<DbgEdge>) {
         let mut kmers = HashSet::new();
         let mut edges = HashSet::new();

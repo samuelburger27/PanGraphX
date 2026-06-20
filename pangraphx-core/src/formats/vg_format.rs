@@ -31,7 +31,7 @@ fn read_varint<R: Read>(reader: &mut R) -> PanResult<Option<u64>> {
             }
             Ok(_) => {
                 let byte = buf[0];
-                value |= ((byte & 0x7F) as u64) << shift;
+                value |= u64::from(byte & 0x7F) << shift;
                 if byte & 0x80 == 0 {
                     return Ok(Some(value));
                 }
@@ -70,6 +70,7 @@ fn write_varint(writer: &mut dyn Write, mut value: u64) -> PanResult<()> {
 /// The VG framing format consists of groups. Each group starts with a varint
 /// count of messages, each message is length-prefixed with a varint. The first
 /// message in a group may be a type tag string (e.g. `"VG"`).
+#[allow(clippy::cast_possible_truncation)]
 fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
     let mut graphs = Vec::new();
 
@@ -94,11 +95,11 @@ fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
 
         let remaining_count = count - 1;
         if is_type_tag {
-            debug!("VG stream type tag: {:?}", tag_str);
+            debug!("VG stream type tag: {tag_str:?}");
         } else {
             // First message is an actual Graph, decode it
             let graph = vg_proto::Graph::decode(first_buf.as_slice()).map_err(|e| {
-                PanGraphXError::Parse(format!("Failed to decode VG Graph message: {}", e))
+                PanGraphXError::Parse(format!("Failed to decode VG Graph message: {e}"))
             })?;
             graphs.push(graph);
         }
@@ -113,7 +114,7 @@ fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
             reader.read_exact(&mut msg_buf)?;
 
             let graph = vg_proto::Graph::decode(msg_buf.as_slice()).map_err(|e| {
-                PanGraphXError::Parse(format!("Failed to decode VG Graph message: {}", e))
+                PanGraphXError::Parse(format!("Failed to decode VG Graph message: {e}"))
             })?;
             graphs.push(graph);
         }
@@ -162,7 +163,7 @@ fn write_vg_graphs(writer: &mut dyn Write, graphs: &[vg_proto::Graph]) -> PanRes
 /// - `from_start = true` means leaving from the start of the node → Reverse
 /// - `to_end = false` means arriving at the start of the node → Forward
 /// - `to_end = true` means arriving at the end of the node → Reverse
-fn vg_edge_to_orientations(from_start: bool, to_end: bool) -> (Orientation, Orientation) {
+const fn vg_edge_to_orientations(from_start: bool, to_end: bool) -> (Orientation, Orientation) {
     let from_orient = if from_start {
         Orientation::Reverse
     } else {
@@ -186,6 +187,7 @@ fn orientations_to_vg_edge(from_orient: Orientation, to_orient: Orientation) -> 
 // GraphParser implementation
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::cast_sign_loss)]
 impl<R: Read + Seek> GraphParser<R> for VGCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
         let proto_graphs = read_vg_graphs(reader)?;
@@ -199,7 +201,7 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
 
         for graph in &proto_graphs {
             all_proto_nodes.extend(graph.node.iter().cloned());
-            all_proto_edges.extend(graph.edge.iter().cloned());
+            all_proto_edges.extend(graph.edge.iter().copied());
             for path in &graph.path {
                 let entry = all_proto_paths.entry(path.name.clone()).or_default();
                 if !path_order.contains(&path.name) {
@@ -259,7 +261,7 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
         let mut paths = Vec::new();
         for path_name in &path_order {
             let mappings = all_proto_paths.get(path_name).ok_or_else(|| {
-                PanGraphXError::Parse(format!("Missing mappings for path {}", path_name))
+                PanGraphXError::Parse(format!("Missing mappings for path {path_name}"))
             })?;
 
             let mut steps = Vec::with_capacity(mappings.len());
@@ -282,8 +284,7 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
                     });
                 } else {
                     return Err(PanGraphXError::Parse(format!(
-                        "Mapping in path {} missing position",
-                        path_name
+                        "Mapping in path {path_name} missing position"
                     )));
                 }
             }
@@ -308,26 +309,35 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
 // GraphSerializer implementation
 // ---------------------------------------------------------------------------
 
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::too_many_lines
+)]
 impl GraphSerializer for VGCodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
         // Build reverse mapping: internal ID → original VG ID
-        let internal_to_vg_id: HashMap<usize, i64> = if let Some(name_map) = &graph.node_name_map {
-            name_map
-                .iter()
-                .map(|(&id, name)| {
-                    let vg_id = String::from_utf8_lossy(name)
-                        .parse::<i64>()
-                        .unwrap_or((id + 1) as i64);
-                    (id, vg_id)
-                })
-                .collect()
-        } else {
-            graph
-                .nodes
-                .iter()
-                .map(|n| (n.id, (n.id + 1) as i64))
-                .collect()
-        };
+        let internal_to_vg_id: HashMap<usize, i64> = graph.node_name_map.as_ref().map_or_else(
+            || {
+                graph
+                    .nodes
+                    .iter()
+                    .map(|n| (n.id, (n.id + 1) as i64))
+                    .collect()
+            },
+            |name_map| {
+                name_map
+                    .iter()
+                    .map(|(&id, name)| {
+                        let vg_id = String::from_utf8_lossy(name)
+                            .parse::<i64>()
+                            .unwrap_or((id + 1) as i64);
+                        (id, vg_id)
+                    })
+                    .collect()
+            },
+        );
 
         // Convert nodes
         let proto_nodes: Vec<vg_proto::Node> = graph
@@ -396,8 +406,7 @@ impl GraphSerializer for VGCodec {
                         let node_seq_len = graph
                             .nodes
                             .get(step.node_id)
-                            .map(|n| n.sequence.len())
-                            .unwrap_or(0);
+                            .map_or(0, |n| n.sequence.len());
                         vg_proto::Mapping {
                             position: Some(vg_proto::Position {
                                 node_id: vg_node_id,
@@ -445,13 +454,23 @@ mod tests {
 
     #[test]
     fn test_varint_roundtrip() {
-        let values: Vec<u64> = vec![0, 1, 127, 128, 255, 300, 16384, u32::MAX as u64, u64::MAX];
+        let values: Vec<u64> = vec![
+            0,
+            1,
+            127,
+            128,
+            255,
+            300,
+            16384,
+            u64::from(u32::MAX),
+            u64::MAX,
+        ];
         for &val in &values {
             let mut buf = Vec::new();
             write_varint(&mut buf, val).unwrap();
             let mut cursor = Cursor::new(&buf);
             let decoded = read_varint(&mut cursor).unwrap().unwrap();
-            assert_eq!(val, decoded, "Varint round-trip failed for {}", val);
+            assert_eq!(val, decoded, "Varint round-trip failed for {val}");
         }
     }
 
@@ -643,8 +662,7 @@ mod tests {
         for (i, node) in parsed.nodes.iter().enumerate() {
             assert_eq!(
                 node.sequence, original.nodes[i].sequence,
-                "Node {} sequence mismatch",
-                i
+                "Node {i} sequence mismatch"
             );
         }
 
@@ -747,13 +765,11 @@ mod tests {
             assert_eq!(parsed.edges.len(), 1);
             assert_eq!(
                 parsed.edges[0].from_orient, from_o,
-                "from_orient mismatch for {:?} → {:?}",
-                from_o, to_o
+                "from_orient mismatch for {from_o:?} → {to_o:?}"
             );
             assert_eq!(
                 parsed.edges[0].to_orient, to_o,
-                "to_orient mismatch for {:?} → {:?}",
-                from_o, to_o
+                "to_orient mismatch for {from_o:?} → {to_o:?}"
             );
         }
     }

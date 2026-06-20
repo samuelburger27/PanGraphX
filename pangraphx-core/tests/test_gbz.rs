@@ -9,7 +9,7 @@ fn test_gbz_format() {
     for entry in test_files {
         let path = entry.unwrap().path();
         let path_string = path.to_str().unwrap();
-        println!("Testing GBZ file: {}... ", path_string);
+        println!("Testing GBZ file: {path_string}... ");
         let graph = CoreGraphDTO::load_from_file(path_string, format).unwrap();
         //let graph = graph.unwrap();
         let temp_file = NamedTempFile::new().unwrap();
@@ -25,8 +25,7 @@ fn test_gbz_format() {
 
         assert!(
             graph.isomorphic(&reloaded_graph),
-            "Graphs do not match after save/load cycle for file: {}",
-            path_string
+            "Graphs do not match after save/load cycle for file: {path_string}"
         );
     }
 }
