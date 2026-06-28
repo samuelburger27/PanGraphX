@@ -56,6 +56,19 @@ jobs:
       - name: cargo test
         run: cargo test --all-targets --all-features
 
+  bench:
+    name: Benchmarks (compile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-system-deps
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Build the criterion benches in the optimized bench profile so they can't
+      # silently rot. Full benchmark runs stay manual (too noisy/slow for CI).
+      - name: cargo bench --no-run
+        run: cargo bench --all-features --no-run
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
