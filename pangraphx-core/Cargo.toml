@@ -10,6 +10,9 @@ homepage = "https://github.com/samuelburger27/PanGraphX"
 documentation = "https://docs.rs/pangraphx-core"
 keywords = ["pangenome", "genomics", "bioinformatics", "graph", "gfa"]
 categories = ["algorithms", "data-structures", "parsing", "science"]
+# Only build the explicitly declared [[bench]] targets below; this keeps the
+# shared `benches/common/` helper module from being auto-discovered as a bench.
+autobenches = false
 
 [lints]
 workspace = true
@@ -34,3 +37,16 @@ tempfile = "3"
 prost-build = "0.13"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "formats"
+harness = false
+
+[[bench]]
+name = "de_bruijn"
+harness = false
+
+[[bench]]
+name = "parallel"
+harness = false
