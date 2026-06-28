@@ -5,6 +5,9 @@ edition = "2024"
 description = "Core library for PanGraphX: a toolkit for genome graph loading and format conversion."
 license = "MIT"
 repository = "https://github.com/samuelburger27/PanGraphX"
+# Only build the explicitly declared [[bench]] targets below; this keeps the
+# shared `benches/common/` helper module from being auto-discovered as a bench.
+autobenches = false
 
 # Inside crate_a/Cargo.toml and crate_b/Cargo.toml
 [lints]
@@ -30,3 +33,16 @@ tempfile = "3"
 prost-build = "0.13"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "formats"
+harness = false
+
+[[bench]]
+name = "de_bruijn"
+harness = false
+
+[[bench]]
+name = "parallel"
+harness = false
