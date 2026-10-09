@@ -24,3 +24,7 @@ pangraphx-core/merged.rs
 
 .idea
 .claude
+
+# giant gfa files are downloaded with a script and are not needed in the repo
+ecoli50.gfa
+chr22.hprc-v1.1-mc-grch38.gfa
