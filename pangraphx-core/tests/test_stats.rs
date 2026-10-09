@@ -127,6 +127,7 @@ fn test_empty_graph_stats() {
     assert_eq!(stats.path_count, 0);
     assert!(approx(stats.path_len.bp_mean, 0.0));
     assert!(stats.total_degree_hist.is_empty());
+    assert_eq!(stats.total_degree_hist, [] as [(usize, usize); 0]);
 }
 
 #[test]
