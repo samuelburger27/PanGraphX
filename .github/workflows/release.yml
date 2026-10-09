@@ -46,7 +46,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install protoc
         uses: arduino/setup-protoc@v3
+      - name: Install odgi system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/setup-system-deps
+      - name: cargo build (with odgi)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo build --release -p pangraphx-cli --target ${{ matrix.target }} --features pangraphx-core/odgi
       - name: cargo build
+        if: matrix.os != 'ubuntu-latest'
         run: cargo build --release -p pangraphx-cli --target ${{ matrix.target }}
       - name: Prepare artifact
         shell: bash
