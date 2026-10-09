@@ -62,8 +62,6 @@ pub mod de_bruijn_conversion;
 pub mod error;
 pub mod formats;
 pub mod proto_gen;
-#[cfg(test)]
-pub mod test_helpers;
 pub mod traits;
 
 /// Common graph primitive types used throughout the crate.
