@@ -32,20 +32,17 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: macos-13
-            target: x86_64-apple-darwin
           - os: macos-latest
             target: aarch64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
+      - name: Install protoc (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install protobuf
       - name: Install odgi system dependencies
         if: matrix.os == 'ubuntu-latest'
         uses: ./.github/actions/setup-system-deps
@@ -86,9 +83,7 @@ jobs:
             [ -f "$f" ] || continue
             case "$f" in
               *x86_64-unknown-linux-gnu) mv "$f" "${f%x86_64-unknown-linux-gnu}linux-x86_64" ;;
-              *x86_64-apple-darwin) mv "$f" "${f%x86_64-apple-darwin}macos-x86_64" ;;
               *aarch64-apple-darwin) mv "$f" "${f%aarch64-apple-darwin}macos-aarch64" ;;
-              *x86_64-pc-windows-msvc.exe) mv "$f" "${f%x86_64-pc-windows-msvc.exe}windows-x86_64.exe" ;;
               *) ;;
             esac
           done
