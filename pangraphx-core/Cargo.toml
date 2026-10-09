@@ -4,9 +4,13 @@ version = "0.1.0"
 edition = "2024"
 description = "Core library for PanGraphX: a toolkit for genome graph loading and format conversion."
 license = "MIT"
+readme = "README.md"
 repository = "https://github.com/samuelburger27/PanGraphX"
+homepage = "https://github.com/samuelburger27/PanGraphX"
+documentation = "https://docs.rs/pangraphx-core"
+keywords = ["pangenome", "genomics", "bioinformatics", "graph", "gfa"]
+categories = ["algorithms", "data-structures", "parsing", "science"]
 
-# Inside crate_a/Cargo.toml and crate_b/Cargo.toml
 [lints]
 workspace = true
 
