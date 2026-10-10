@@ -21,6 +21,9 @@ pub enum Commands {
     /// Show detailed statistics about a graph file
     Stats(StatsArgs),
 
+    /// Extract a subgraph (path, neighborhood, or component)
+    Extract(ExtractArgs),
+
     /// List supported graph formats
     Format,
 }
@@ -93,4 +96,75 @@ pub struct DeBruijnArgs {
     /// Override output format (e.g. gfa, gbz, fastg)
     #[arg(long)]
     pub to: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct ExtractArgs {
+    #[command(subcommand)]
+    pub mode: ExtractMode,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ExtractMode {
+    /// Extract a named path into a new graph
+    Path(ExtractPathArgs),
+
+    /// Extract the k-hop neighborhood of a node into a new graph
+    Neighborhood(ExtractNeighborhoodArgs),
+
+    /// Extract the connected component containing a node into a new graph
+    Component(ExtractComponentArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ExtractIoArgs {
+    /// Input file path (format inferred from suffix)
+    #[arg(short = 'i', long)]
+    pub input: String,
+
+    /// Output file path (format inferred from suffix)
+    #[arg(short = 'o', long)]
+    pub output: String,
+
+    /// Override input format (e.g. gfa, gbz, fastg)
+    #[arg(long)]
+    pub from: Option<String>,
+
+    /// Override output format (e.g. gfa, gbz, fastg)
+    #[arg(long)]
+    pub to: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct ExtractPathArgs {
+    /// Name of the path to extract
+    #[arg(short = 'p', long)]
+    pub path: String,
+
+    #[command(flatten)]
+    pub io: ExtractIoArgs,
+}
+
+#[derive(Args, Debug)]
+pub struct ExtractNeighborhoodArgs {
+    /// Node to center the neighborhood on (numeric ID or node name)
+    #[arg(short = 'n', long)]
+    pub node: String,
+
+    /// Radius of the neighborhood in hops
+    #[arg(short = 'r', long, default_value_t = 1)]
+    pub radius: usize,
+
+    #[command(flatten)]
+    pub io: ExtractIoArgs,
+}
+
+#[derive(Args, Debug)]
+pub struct ExtractComponentArgs {
+    /// Node whose connected component to extract (numeric ID or node name)
+    #[arg(short = 'n', long)]
+    pub node: String,
+
+    #[command(flatten)]
+    pub io: ExtractIoArgs,
 }
