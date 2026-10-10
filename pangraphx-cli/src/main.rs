@@ -3,6 +3,7 @@ mod handle_convert;
 mod handle_de_bruijn;
 mod handle_formats;
 mod handle_info;
+mod handle_search;
 mod handle_stats;
 use anyhow::Result;
 use clap::Parser;
@@ -12,6 +13,7 @@ use handle_convert::handle_conversion;
 use handle_de_bruijn::handle_de_bruijn;
 use handle_formats::handle_formats;
 use handle_info::handle_info;
+use handle_search::handle_search;
 use handle_stats::handle_stats;
 
 fn main() {
@@ -38,6 +40,7 @@ fn run() -> Result<()> {
         Commands::Ddb(args) => handle_de_bruijn(&args),
         Commands::Info(args) => handle_info(&args),
         Commands::Stats(args) => handle_stats(&args),
+        Commands::Search(args) => handle_search(&args),
         Commands::Format => {
             handle_formats();
             Ok(())
