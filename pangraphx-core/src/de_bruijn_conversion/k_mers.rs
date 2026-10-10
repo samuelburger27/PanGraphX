@@ -16,7 +16,7 @@ use crate::de_bruijn_conversion::de_bruijn_graph::DbgEdge;
 /// * 'C' / 'c'       -> 1 (binary 01)
 /// * 'G' / 'g'       -> 2 (binary 10)
 /// * 'T' / 't'       -> 3 (binary 11)
-const fn encode_base(b: u8) -> u8 {
+pub(crate) const fn encode_base(b: u8) -> u8 {
     match b {
         b'A' | b'a' => 0,
         b'C' | b'c' => 1,
@@ -27,7 +27,7 @@ const fn encode_base(b: u8) -> u8 {
 
 /// Checks if a byte represents a valid nucleotide (A, C, G, T).
 ///
-const fn is_valid_nucleotide(b: u8) -> bool {
+pub(crate) const fn is_valid_nucleotide(b: u8) -> bool {
     matches!(b, b'A' | b'a' | b'C' | b'c' | b'G' | b'g' | b'T' | b't')
 }
 

@@ -21,6 +21,9 @@ pub enum Commands {
     /// Show detailed statistics about a graph file
     Stats(StatsArgs),
 
+    /// Search for a sequence in a graph file
+    Search(SearchArgs),
+
     /// List supported graph formats
     Format,
 }
@@ -93,4 +96,27 @@ pub struct DeBruijnArgs {
     /// Override output format (e.g. gfa, gbz, fastg)
     #[arg(long)]
     pub to: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct SearchArgs {
+    /// Input file path (format inferred from suffix)
+    #[arg(short = 'i', long)]
+    pub input: String,
+
+    /// Query sequence to search for
+    #[arg(short = 'q', long)]
+    pub query: String,
+
+    /// k-mer size used for seeding the search
+    #[arg(short = 'k', long, default_value_t = 31)]
+    pub kmer_size: usize,
+
+    /// Override input format (e.g. gfa, gbz, fastg)
+    #[arg(short = 'f', long)]
+    pub format: Option<String>,
+
+    /// Output results as tab-separated values
+    #[arg(long, default_value_t = false)]
+    pub tsv: bool,
 }
