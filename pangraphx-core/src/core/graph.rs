@@ -393,6 +393,19 @@ impl CoreGraph {
             .ok_or_else(|| PanGraphXError::Other(format!("Edge index {edge_idx} is out of bounds")))
     }
 
+    /// Returns the human-readable name of a node.
+    ///
+    /// Uses the node name map when available, falling back to the node ID.
+    #[must_use]
+    pub fn get_node_name(&self, node_id: NodeId) -> String {
+        if let Some(map) = &self.node_name_map
+            && let Some(name) = map.get(&node_id)
+        {
+            return String::from_utf8_lossy(name).to_string();
+        }
+        node_id.to_string()
+    }
+
     /// Gets a reference to a path by its name.
     ///
     /// # Errors
