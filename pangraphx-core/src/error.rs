@@ -14,6 +14,9 @@ pub enum PanGraphXError {
     #[error("Format not supported")]
     UnsupportedFormat,
 
+    #[error("Deserialization not supported: DOT format is export-only")]
+    DeserializationNotSupported,
+
     #[error("Other Error: {0}")]
     Other(String),
 }

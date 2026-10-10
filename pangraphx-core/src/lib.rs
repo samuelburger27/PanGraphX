@@ -81,7 +81,7 @@ use std::fmt::Display;
 use crate::error::PanGraphXError;
 #[cfg(feature = "odgi")]
 use crate::formats::ODGICodec;
-use crate::formats::{FastgCodec, GBZCodec, GFACodec, VGCodec};
+use crate::formats::{DOTCodec, FastgCodec, GBZCodec, GFACodec, VGCodec};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::io::{Read, Seek};
 
@@ -99,6 +99,8 @@ pub enum GraphFormat {
     /// ODGI binary graph format (requires `odgi` feature, Linux only).
     #[cfg(feature = "odgi")]
     ODGI,
+    /// Graphviz DOT visualization format (export-only).
+    DOT,
 }
 
 impl Display for GraphFormat {
@@ -110,6 +112,7 @@ impl Display for GraphFormat {
             Self::FASTG => write!(f, "FASTG"),
             #[cfg(feature = "odgi")]
             Self::ODGI => write!(f, "ODGI"),
+            Self::DOT => write!(f, "DOT"),
         }
     }
 }
@@ -117,7 +120,7 @@ impl Display for GraphFormat {
 impl GraphFormat {
     /// Returns an iterator over all supported formats.
     pub fn iter() -> impl Iterator<Item = Self> {
-        let base = [Self::GFA, Self::GBZ, Self::VG, Self::FASTG];
+        let base = [Self::GFA, Self::GBZ, Self::VG, Self::FASTG, Self::DOT];
         #[cfg(feature = "odgi")]
         let extra = [Self::ODGI];
         #[cfg(not(feature = "odgi"))]
@@ -135,6 +138,7 @@ impl GraphFormat {
             Self::FASTG => "fastg",
             #[cfg(feature = "odgi")]
             Self::ODGI => "og",
+            Self::DOT => "dot",
         }
     }
 
@@ -152,6 +156,7 @@ impl GraphFormat {
             "fastg" => Ok(Self::FASTG),
             #[cfg(feature = "odgi")]
             "og" => Ok(Self::ODGI),
+            "dot" => Ok(Self::DOT),
             _ => Err(PanGraphXError::UnsupportedFormat),
         }
     }
@@ -166,6 +171,7 @@ impl GraphFormat {
             Self::FASTG => Box::new(FastgCodec),
             #[cfg(feature = "odgi")]
             Self::ODGI => Box::new(ODGICodec),
+            Self::DOT => Box::new(DOTCodec),
         }
     }
 
@@ -179,6 +185,7 @@ impl GraphFormat {
             Self::FASTG => Box::new(FastgCodec),
             #[cfg(feature = "odgi")]
             Self::ODGI => Box::new(ODGICodec),
+            Self::DOT => Box::new(DOTCodec),
         }
     }
 
@@ -200,6 +207,9 @@ impl GraphFormat {
             #[cfg(feature = "odgi")]
             Self::ODGI => {
                 "ODGI: A dynamic, memory-efficient binary format optimized for large-scale pangenome analysis and graph manipulation."
+            }
+            Self::DOT => {
+                "Graphviz DOT: A text-based graph description language used for visualization. Note: Currently, only serialization (export) is supported."
             }
         }
     }
