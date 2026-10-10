@@ -1,6 +1,7 @@
 mod cli;
 mod handle_convert;
 mod handle_de_bruijn;
+mod handle_extract;
 mod handle_formats;
 mod handle_info;
 mod handle_stats;
@@ -10,6 +11,7 @@ use cli::args_parser::{Cli, Commands};
 use colored::Colorize;
 use handle_convert::handle_conversion;
 use handle_de_bruijn::handle_de_bruijn;
+use handle_extract::handle_extract;
 use handle_formats::handle_formats;
 use handle_info::handle_info;
 use handle_stats::handle_stats;
@@ -38,6 +40,7 @@ fn run() -> Result<()> {
         Commands::Ddb(args) => handle_de_bruijn(&args),
         Commands::Info(args) => handle_info(&args),
         Commands::Stats(args) => handle_stats(&args),
+        Commands::Extract(args) => handle_extract(&args),
         Commands::Format => {
             handle_formats();
             Ok(())

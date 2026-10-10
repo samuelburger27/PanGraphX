@@ -5,6 +5,7 @@
 //! structure, in/out degree distribution, and path-length distribution of a graph.
 
 use super::graph::CoreGraph;
+use super::union_find::UnionFind;
 use std::collections::BTreeMap;
 
 /// A summary of structural statistics for a [`CoreGraph`].
@@ -263,50 +264,5 @@ fn path_stats(graph: &CoreGraph) -> PathStats {
         steps_min,
         steps_max,
         steps_mean: mean(steps_total, count),
-    }
-}
-
-/// Disjoint-set (union-find) over node IDs `0..n` with path compression and union by size.
-struct UnionFind {
-    parent: Vec<usize>,
-    size: Vec<usize>,
-}
-
-impl UnionFind {
-    fn new(n: usize) -> Self {
-        Self {
-            parent: (0..n).collect(),
-            size: vec![1; n],
-        }
-    }
-
-    fn find(&mut self, x: usize) -> usize {
-        let mut root = x;
-        while self.parent[root] != root {
-            root = self.parent[root];
-        }
-        // Path compression: point every node on the path directly at the root.
-        let mut cur = x;
-        while self.parent[cur] != cur {
-            let next = self.parent[cur];
-            self.parent[cur] = root;
-            cur = next;
-        }
-        root
-    }
-
-    fn union(&mut self, a: usize, b: usize) {
-        let ra = self.find(a);
-        let rb = self.find(b);
-        if ra == rb {
-            return;
-        }
-        let (big, small) = if self.size[ra] >= self.size[rb] {
-            (ra, rb)
-        } else {
-            (rb, ra)
-        };
-        self.parent[small] = big;
-        self.size[big] += self.size[small];
     }
 }

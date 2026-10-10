@@ -139,6 +139,26 @@ Use full topology (all topological walks instead of just haplotype paths):
 pangraphx-cli dbg -i graph.vg -k 31 --full-topology -o full_dbg.gfa
 ```
 
+#### Subgraph Extraction
+
+Extract a named path, a node's k-hop neighborhood, or an entire connected
+component into a new graph:
+
+```bash
+# Pull a named path into a new graph
+pangraphx-cli extract path -p chr1 -i graph.gfa -o chr1.gfa
+
+# Extract the 2-hop neighborhood around a node (by ID or name)
+pangraphx-cli extract neighborhood -n 42 -r 2 -i graph.gfa -o nb.gfa
+
+# Extract the connected component containing a node
+pangraphx-cli extract component -n 42 -i graph.gfa -o component.gfa
+```
+
+The `-n/--node` argument accepts either a numeric node ID or a node name (when
+the source format exposes node names). Node IDs are renumbered contiguously in
+the extracted graph.
+
 ### Library Usage
 
 Add PanGraphX to your `Cargo.toml`:
