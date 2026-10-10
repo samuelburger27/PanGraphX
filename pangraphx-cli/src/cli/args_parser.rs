@@ -35,11 +35,11 @@ pub struct ConvertArgs {
     #[arg(short = 'o', long)]
     pub output: String,
 
-    /// Override input format (e.g. gfa, gbz, fastg)
+    /// Override input format (e.g. gfa, gbz, fastg, dot)
     #[arg(long)]
     pub from: Option<String>,
 
-    /// Override output format (e.g. gfa, gbz, fastg)
+    /// Override output format (e.g. gfa, gbz, fastg, dot)
     #[arg(long)]
     pub to: Option<String>,
 }
@@ -90,7 +90,7 @@ pub struct DeBruijnArgs {
     #[arg(long)]
     pub from: Option<String>,
 
-    /// Override output format (e.g. gfa, gbz, fastg)
+    /// Override output format (e.g. gfa, gbz, fastg, dot)
     #[arg(long)]
     pub to: Option<String>,
 }
