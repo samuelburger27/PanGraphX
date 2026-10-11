@@ -5,8 +5,14 @@ use std::collections::HashMap;
 #[test]
 fn test_dot_extension_mapping() {
     assert_eq!(GraphFormat::DOT.get_extension(), "dot");
-    assert_eq!(GraphFormat::from_extension("dot").unwrap(), GraphFormat::DOT);
-    assert_eq!(GraphFormat::from_extension("DOT").unwrap(), GraphFormat::DOT);
+    assert_eq!(
+        GraphFormat::from_extension("dot").unwrap(),
+        GraphFormat::DOT
+    );
+    assert_eq!(
+        GraphFormat::from_extension("DOT").unwrap(),
+        GraphFormat::DOT
+    );
     assert_eq!(GraphFormat::DOT.to_string(), "DOT");
 }
 
@@ -92,5 +98,8 @@ fn test_dot_serialize_escapes_node_names() {
         .unwrap();
 
     let output = String::from_utf8(out).unwrap();
-    assert!(output.contains("a\\\"b\\\\c"), "unexpected output: {output}");
+    assert!(
+        output.contains("a\\\"b\\\\c"),
+        "unexpected output: {output}"
+    );
 }
