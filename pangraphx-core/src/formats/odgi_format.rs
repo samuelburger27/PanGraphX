@@ -14,13 +14,16 @@ use tempfile::NamedTempFile;
 pub struct ODGICodec;
 
 /// Converts an ODGI edge to the internal `Edge` representation.
+///
+/// `from_id` is a 0-based index into the node vector, while `edge.to_node`
+/// is the 1-based ODGI node identifier, so it is shifted by one.
 #[allow(clippy::cast_possible_truncation)]
 impl From<(usize, OdgiEdge)> for Edge {
     fn from((from_id, edge): (usize, OdgiEdge)) -> Self {
         Self {
             from_node: from_id,
             from_orient: Orientation::from(edge.from_orientation),
-            to_node: edge.to_node as usize,
+            to_node: (edge.to_node - 1) as usize,
             to_orient: Orientation::from(edge.to_orientation),
             overlap: 0, // ODGI edges do not have explicit overlap information
         }
@@ -44,22 +47,25 @@ impl<R: Read + Seek> GraphParser<R> for ODGICodec {
 
         temp_file.close()?;
 
-        let node_len = odgi_graph.node_count() as usize;
+        let node_len = odgi_graph.node_count();
 
-        let mut nodes = Vec::with_capacity(node_len);
-        let mut edges = Vec::with_capacity(node_len);
+        let mut nodes = Vec::with_capacity(node_len as usize);
+        let mut edges = Vec::with_capacity(node_len as usize);
 
-        for node_id in 0..node_len {
-            let seq = odgi_graph.get_node_sequence(node_id as u64).into_bytes();
+        // ODGI node identifiers are 1-based, while the internal `NodeId` is a
+        // 0-based index into the node vector. Iterate over the 1-based IDs and
+        // convert to 0-based indices when storing.
+        for odgi_id in 1..=node_len {
+            let seq = odgi_graph.get_node_sequence(odgi_id).into_bytes();
 
             nodes.push(Node {
-                id: node_id,
+                id: (odgi_id - 1) as usize,
                 sequence: seq,
             });
 
-            let successors = odgi_graph.get_successors(node_id as u64);
+            let successors = odgi_graph.get_successors(odgi_id);
             for succ in successors {
-                edges.push(Edge::from((node_id, succ)));
+                edges.push(Edge::from(((odgi_id - 1) as usize, succ)));
             }
         }
         let path_names = odgi_graph.get_path_names();
@@ -78,7 +84,7 @@ impl<R: Read + Seek> GraphParser<R> for ODGICodec {
                     ))
                 })?;
                 steps.push(Step {
-                    node_id: path_pos.node_id as usize,
+                    node_id: (path_pos.node_id - 1) as usize,
                     orientation: Orientation::from(path_pos.is_forward),
                 });
             }

@@ -36,7 +36,8 @@ RUNS="${RUNS:-10}"
 if [[ $# -gt 0 ]]; then
     DATASETS=("$@")
 else
-    DATASETS=(escherichia_phage_lambda mycoplasma_genitalium merged ecoli50 chr22.hprc-v1.1-mc-grch38)
+    # DATASETS=(escherichia_phage_lambda mycoplasma_genitalium merged ecoli50 chr22.hprc-v1.1-mc-grch38)
+    DATASETS=(escherichia_phage_lambda mycoplasma_genitalium merged)
 fi
 
 mkdir -p "$RESULTS"
