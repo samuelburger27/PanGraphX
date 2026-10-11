@@ -18,4 +18,4 @@ zstd -d ecoli50.gfa.zst
 https://cortexassembler.sourceforge.net
 
 
-**TODO create a script to download them**
+Download them with [`utils/download_gfa.sh`](../../../utils/download_gfa.sh).

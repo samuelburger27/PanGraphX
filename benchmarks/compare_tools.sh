@@ -12,8 +12,13 @@
 # Usage:
 #   benchmarks/compare_tools.sh [DATASET ...]
 # With no arguments the default datasets below are used. A DATASET is the base
-# filename (without extension) of a graph present under
-# pangraphx-core/tests/test_files/{gfa,vg,og}/.
+# filename (without extension) of a GFA graph present under
+# pangraphx-core/tests/test_files/gfa/.
+#
+# Only GFA files are used as the input dataset. For each target format the
+# forward conversion (GFA -> target) is benchmarked first; the target file
+# produced by the *original* tool (vg/odgi, not PanGraphX) is then reused as the
+# input for the reverse benchmark (target -> GFA).
 
 set -euo pipefail
 
@@ -31,7 +36,7 @@ RUNS="${RUNS:-10}"
 if [[ $# -gt 0 ]]; then
     DATASETS=("$@")
 else
-    DATASETS=(escherichia_phage_lambda mycoplasma_genitalium merged)
+    DATASETS=(escherichia_phage_lambda mycoplasma_genitalium merged ecoli50 chr22.hprc-v1.1-mc-grch38)
 fi
 
 mkdir -p "$RESULTS"
@@ -94,40 +99,43 @@ run_compare() {
 # --- Per-dataset comparisons -------------------------------------------------
 for ds in "${DATASETS[@]}"; do
     gfa="$TESTDIR/gfa/$ds.gfa"
-    vg="$TESTDIR/vg/$ds.vg"
-    og="$TESTDIR/og/$ds.og"
 
     echo
     echo "############################################################"
     echo "# Dataset: $ds"
     echo "############################################################"
 
+    if [[ ! -f "$gfa" ]]; then
+        echo "SKIP: no GFA input at $gfa" >&2
+        continue
+    fi
+
     # GFA <-> VG  vs. vg convert
     if $HAVE_VG; then
-        if [[ -f "$gfa" ]]; then
-            run_compare "GFA -> VG ($ds)" "gfa_to_vg_$ds" \
-                "pangraphx::$PANGRAPHX convert -i $gfa -o $WORK/${ds}_px.vg" \
-                "vg::vg convert --gfa-in --vg-out $gfa > $WORK/${ds}_vg.vg"
-        fi
-        if [[ -f "$vg" ]]; then
-            run_compare "VG -> GFA ($ds)" "vg_to_gfa_$ds" \
-                "pangraphx::$PANGRAPHX convert -i $vg -o $WORK/${ds}_px.gfa" \
-                "vg::vg convert --gfa-out $vg > $WORK/${ds}_vg.gfa"
-        fi
+        # Forward: GFA -> VG. The VG produced by vg is reused below as input.
+        vg_input="$WORK/${ds}_vg.vg"
+        run_compare "GFA -> VG ($ds)" "gfa_to_vg_$ds" \
+            "pangraphx::$PANGRAPHX convert -i $gfa -o $WORK/${ds}_px.vg" \
+            "vg::vg convert --gfa-in --vg-out $gfa > $vg_input"
+
+        # Reverse: VG -> GFA, reusing the vg-produced VG file.
+        run_compare "VG -> GFA ($ds)" "vg_to_gfa_$ds" \
+            "pangraphx::$PANGRAPHX convert -i $vg_input -o $WORK/${ds}_px.gfa" \
+            "vg::vg convert --gfa-out $vg_input > $WORK/${ds}_vg.gfa"
     fi
 
     # GFA <-> OG  vs. odgi build / odgi view
     if $HAVE_ODGI; then
-        if [[ -f "$gfa" ]]; then
-            run_compare "GFA -> OG ($ds)" "gfa_to_og_$ds" \
-                "pangraphx::$PANGRAPHX convert -i $gfa -o $WORK/${ds}_px.og" \
-                "odgi::odgi build -g $gfa -o $WORK/${ds}_odgi.og"
-        fi
-        if [[ -f "$og" ]]; then
-            run_compare "OG -> GFA ($ds)" "og_to_gfa_$ds" \
-                "pangraphx::$PANGRAPHX convert -i $og -o $WORK/${ds}_px.gfa" \
-                "odgi::odgi view -i $og -g > $WORK/${ds}_odgi.gfa"
-        fi
+        # Forward: GFA -> OG. The OG produced by odgi is reused below as input.
+        og_input="$WORK/${ds}_odgi.og"
+        run_compare "GFA -> OG ($ds)" "gfa_to_og_$ds" \
+            "pangraphx::$PANGRAPHX convert -i $gfa -o $WORK/${ds}_px.og" \
+            "odgi::odgi build -g $gfa -o $og_input"
+
+        # Reverse: OG -> GFA, reusing the odgi-produced OG file.
+        run_compare "OG -> GFA ($ds)" "og_to_gfa_$ds" \
+            "pangraphx::$PANGRAPHX convert -i $og_input -o $WORK/${ds}_px.gfa" \
+            "odgi::odgi view -i $og_input -g > $WORK/${ds}_odgi.gfa"
     fi
 done
 
