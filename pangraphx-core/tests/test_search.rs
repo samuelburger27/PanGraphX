@@ -33,5 +33,5 @@ fn test_search_reverse_match() {
 fn test_search_no_match() {
     let graph = load_tiny_graph();
     let hits = graph.search(b"GGGGGG", 3).unwrap();
-    assert!(hits.is_empty());
+    assert_eq!(hits, [] as [pangraphx_core::SearchHit; 0]);
 }

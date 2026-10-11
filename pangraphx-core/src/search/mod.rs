@@ -257,7 +257,7 @@ mod tests {
     fn test_no_match() {
         let graph = single_node_graph(b"GATTACA");
         let hits = graph.search(b"GGGG", 3).unwrap();
-        assert!(hits.is_empty());
+        assert_eq!(hits, [] as [SearchHit; 0]);
     }
 
     #[test]
