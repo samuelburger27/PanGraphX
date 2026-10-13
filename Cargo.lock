@@ -249,6 +249,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50a649af8a827553c29fb0cb4bd4a6f1a0dd695bd3232b9bc98bd9c8a3ffbb8b"
 dependencies = [
  "find-msvc-tools",
+ "jobserver",
+ "libc",
  "shlex",
 ]
 
@@ -739,12 +741,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "gbwt"
-version = "0.3.1"
+name = "gbz"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4efd8b15caf54c966260927715a7589c119f6aff4f21df7628888102a65747e"
+checksum = "91dd93e32aef4fda062b04f62ed4d7eefff6269b71141da4bfca08e347c5dc5c"
 dependencies = [
- "simple-sds-sbwt",
+ "simple-sds",
+ "zstd",
 ]
 
 [[package]]
@@ -1016,6 +1019,16 @@ dependencies = [
  "proc-macro2 1.0.107",
  "quote 1.0.47",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "jobserver"
+version = "0.1.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
 ]
 
 [[package]]
@@ -1298,14 +1311,14 @@ version = "0.1.2"
 dependencies = [
  "bio",
  "criterion",
- "gbwt",
+ "gbz",
  "gfa",
  "log",
  "odgi-ffi",
  "prost",
  "prost-build",
  "rayon",
- "simple-sds-sbwt",
+ "simple-sds",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -1343,6 +1356,12 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "pkg-config"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "plotters"
@@ -1739,10 +1758,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "simple-sds-sbwt"
-version = "0.3.4"
+name = "simple-sds"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e425e8db69ebd48cc773db971e483699d04dcaf2a5faab3427ef4acc064888d"
+checksum = "25fa1a8728aab8812ee2b16a46f7caa026eb4c12b2ccf9d64d7a503509fc5e84"
 dependencies = [
  "libc",
 ]
@@ -2287,3 +2306,31 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zstd"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64d80649ab6db9d9f6f9c80a40becd948eda4714a0a5ac8c4d157a32231c7882"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.1.1+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aeec9eaf2dffbbd09201e23bd0ffcbaa33bb8e9266a10734fd7ed90a85eca078"
+dependencies = [
+ "cc",
+ "pkg-config",
+]
