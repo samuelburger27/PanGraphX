@@ -1,4 +1,7 @@
 # PanGraphX
+[![CI](https://github.com/samuelburger27/PanGraphX/actions/workflows/ci.yml/badge.svg)](https://github.com/samuelburger27/PanGraphX/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+---
 
 A fast and efficient Rust library and command-line tool for working with pangenome graphs. PanGraphX provides seamless conversion between multiple genome graph formats and includes tools for de Bruijn graph construction and genome graph analysis.
 
