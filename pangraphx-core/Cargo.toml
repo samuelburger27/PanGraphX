@@ -23,7 +23,7 @@ odgi = ["dep:odgi-ffi"]
 
 [dependencies]
 bio = "3.0.0"
-gbz = "0.7.0"
+gbz = { git = "https://github.com/samuelburger27/gbwt-rs", branch = "gbz_construction" }
 gfa = "0.10.1"
 log = "0.4.28"
 odgi-ffi = { version = "1.1.3", optional = true }

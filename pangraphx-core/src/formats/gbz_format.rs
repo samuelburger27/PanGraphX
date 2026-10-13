@@ -2,18 +2,35 @@ use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
-use gbz::{GBZ, GENERIC_SAMPLE, Metadata, Orientation as GbzOrientation, support};
+use gbz::sequences::Sequences;
+use gbz::{
+    FullPathName, GBWTBuilder, GBZ, GENERIC_SAMPLE, GraphBuilder, Metadata,
+    Orientation as GbzOrientation, Tags, support,
+};
 use simple_sds::serialize::Serialize;
 use std::collections::HashMap;
-use std::io::{Read, Seek};
+use std::io::{Read, Seek, Write};
 
 pub struct GBZCodec;
+
+/// Total length (in nodes) of a batch of paths fed to the GBWT builder.
+/// The builder grows this automatically if a single path exceeds it.
+const GBWT_BUFFER_SIZE: usize = 1 << 20;
 
 impl From<GbzOrientation> for Orientation {
     fn from(o: GbzOrientation) -> Self {
         match o {
             GbzOrientation::Forward => Self::Forward,
             GbzOrientation::Reverse => Self::Reverse,
+        }
+    }
+}
+
+impl From<Orientation> for GbzOrientation {
+    fn from(o: Orientation) -> Self {
+        match o {
+            Orientation::Forward => Self::Forward,
+            Orientation::Reverse => Self::Reverse,
         }
     }
 }
@@ -70,12 +87,6 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
             paths,
             node_name_map,
         })
-    }
-}
-
-impl GraphSerializer for GBZCodec {
-    fn serialize(&self, _graph: &CoreGraphDTO, _writer: &mut dyn std::io::Write) -> PanResult<()> {
-        todo!("GBZ format serializer not implemented yet")
     }
 }
 
@@ -208,4 +219,62 @@ fn collect_paths(
     }
 
     Ok(paths)
+}
+
+impl GraphSerializer for GBZCodec {
+    fn serialize(&self, graph: &CoreGraphDTO, mut writer: &mut dyn Write) -> PanResult<()> {
+        let gbz = build_gbz(graph)?;
+        gbz.serialize(&mut writer)?;
+        Ok(())
+    }
+}
+
+/// Assembles a [`GBZ`] structure from a [`CoreGraphDTO`] using the construction
+/// primitives provided by the `gbz` crate.
+///
+/// When a node name map is present, the graph nodes are treated as segments and
+/// written without further splitting (`max_length = 0`). Otherwise, nodes are
+/// written with 1-based identifiers derived from their dense index.
+fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
+    let mut graph_builder = GraphBuilder::new();
+
+    if let Some(name_map) = &graph.node_name_map {
+        for node in graph.nodes.iter() {
+            let name = name_map.get(&node.id).ok_or_else(|| {
+                PanGraphXError::Serialize(format!("Missing name for node {}", node.id))
+            })?;
+            let name = std::str::from_utf8(name).map_err(|e| {
+                PanGraphXError::Serialize(format!("Invalid UTF-8 segment name: {e}"))
+            })?;
+            graph_builder
+                .translate_segment(name, &node.sequence, 0)
+                .map_err(PanGraphXError::Serialize)?;
+        }
+    } else {
+        for node in graph.nodes.iter() {
+            graph_builder
+                .add_node(node.id + 1, &node.sequence)
+                .map_err(PanGraphXError::Serialize)?;
+        }
+    }
+
+    let mut gbwt_builder = GBWTBuilder::new(true, true, GBWT_BUFFER_SIZE);
+    let mut encoded_path = Vec::new();
+    for path in &graph.paths {
+        let contig_name = std::str::from_utf8(&path.name)
+            .map_err(|e| PanGraphXError::Serialize(format!("Invalid UTF-8 path name: {e}")))?;
+        encoded_path.clear();
+        for step in &path.steps {
+            encoded_path.push(support::encode_node(step.node_id + 1, step.orientation.into()));
+        }
+        gbwt_builder
+            .insert(&encoded_path, Some(FullPathName::generic(contig_name)))
+            .map_err(PanGraphXError::Serialize)?;
+    }
+    let gbwt = gbwt_builder.build().map_err(PanGraphXError::Serialize)?;
+
+    let sequences =
+        Sequences::from_graph(&gbwt, &graph_builder).map_err(PanGraphXError::Serialize)?;
+
+    GBZ::from_parts(gbwt, sequences, Tags::new()).map_err(PanGraphXError::Serialize)
 }

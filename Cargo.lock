@@ -743,8 +743,7 @@ dependencies = [
 [[package]]
 name = "gbz"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91dd93e32aef4fda062b04f62ed4d7eefff6269b71141da4bfca08e347c5dc5c"
+source = "git+https://github.com/samuelburger27/gbwt-rs?branch=gbz_construction#5d9d5e1f8acafd79f1fd081f0b035254a0e107f2"
 dependencies = [
  "simple-sds",
  "zstd",

@@ -13,14 +13,13 @@ fn test_gbz_format() {
         let graph = CoreGraphDTO::load_from_file(path_string, format).unwrap();
         //let graph = graph.unwrap();
         let temp_file = NamedTempFile::new().unwrap();
-        // Save to GFA format, since GBZ serialization is currently not supported
         graph
-            .save_to_file(temp_file.path().to_str().unwrap(), GraphFormat::GFA)
+            .save_to_file(temp_file.path().to_str().unwrap(), GraphFormat::GBZ)
             .unwrap();
         assert!(temp_file.path().exists());
 
         let reloaded_graph =
-            CoreGraphDTO::load_from_file(temp_file.path().to_str().unwrap(), GraphFormat::GFA)
+            CoreGraphDTO::load_from_file(temp_file.path().to_str().unwrap(), GraphFormat::GBZ)
                 .unwrap();
 
         assert!(
