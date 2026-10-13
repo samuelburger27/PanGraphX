@@ -265,7 +265,10 @@ fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
             .map_err(|e| PanGraphXError::Serialize(format!("Invalid UTF-8 path name: {e}")))?;
         encoded_path.clear();
         for step in &path.steps {
-            encoded_path.push(support::encode_node(step.node_id + 1, step.orientation.into()));
+            encoded_path.push(support::encode_node(
+                step.node_id + 1,
+                step.orientation.into(),
+            ));
         }
         gbwt_builder
             .insert(&encoded_path, Some(FullPathName::generic(contig_name)))

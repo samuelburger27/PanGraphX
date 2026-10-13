@@ -191,9 +191,7 @@ impl GraphFormat {
             Self::VG => {
                 "VG Protobuf: A serialized binary format used by the vg toolkit; supports rich metadata but can be storage-intensive."
             }
-            Self::GBZ => {
-                "GBZ: A highly compressed format for large pangenomes."
-            }
+            Self::GBZ => "GBZ: A highly compressed format for large pangenomes.",
             Self::FASTG => {
                 "FASTG: A text-based format designed to capture assembly ambiguities; largely superseded by GFA in modern workflows."
             }
