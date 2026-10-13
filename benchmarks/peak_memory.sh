@@ -10,6 +10,10 @@
 # Output: benchmarks/results/peak_memory.md (Markdown table, RSS in MiB).
 #
 # Usage: benchmarks/peak_memory.sh [DATASET ...]
+#
+# By default PanGraphX is expected at target/release/pangraphx-cli. To measure
+# a pre-built executable instead, set PANGRAPHX_BIN to its path:
+#   PANGRAPHX_BIN=/path/to/pangraphx-cli benchmarks/peak_memory.sh
 
 set -euo pipefail
 
@@ -45,7 +49,14 @@ fi
 HAVE_VG=false; have vg && HAVE_VG=true || echo "WARNING: 'vg' not found — skipping." >&2
 HAVE_ODGI=false; have odgi && HAVE_ODGI=true || echo "WARNING: 'odgi' not found — skipping." >&2
 
-if [[ ! -x "$PANGRAPHX" ]]; then
+if [[ -n "${PANGRAPHX_BIN:-}" ]]; then
+    PANGRAPHX="$PANGRAPHX_BIN"
+    if [[ ! -x "$PANGRAPHX" ]]; then
+        echo "ERROR: PANGRAPHX_BIN is set but not executable: $PANGRAPHX" >&2
+        exit 1
+    fi
+    echo ">>> Using pre-built PanGraphX: $PANGRAPHX"
+elif [[ ! -x "$PANGRAPHX" ]]; then
     echo "ERROR: PanGraphX binary not found at $PANGRAPHX (build it first)." >&2
     exit 1
 fi

@@ -15,6 +15,10 @@
 # filename (without extension) of a GFA graph present under
 # pangraphx-core/tests/test_files/gfa/.
 #
+# By default PanGraphX is built from source with `cargo build --release`. To
+# benchmark a pre-built executable instead, set PANGRAPHX_BIN to its path:
+#   PANGRAPHX_BIN=/path/to/pangraphx-cli benchmarks/compare_tools.sh
+#
 # Only GFA files are used as the input dataset. For each target format the
 # forward conversion (GFA -> target) is benchmarked first; the target file
 # produced by the *original* tool (vg/odgi, not PanGraphX) is then reused as the
@@ -60,18 +64,30 @@ HAVE_ODGI=false
 have vg && HAVE_VG=true || echo "WARNING: 'vg' not found — skipping vg comparisons." >&2
 have odgi && HAVE_ODGI=true || echo "WARNING: 'odgi' not found — skipping odgi comparisons." >&2
 
-# --- Build PanGraphX (release, with odgi so .og conversions work) ------------
-if $HAVE_ODGI; then
-    echo ">>> Building PanGraphX (release, --features odgi)..."
-    cargo build --release --features odgi --manifest-path "$REPO_ROOT/Cargo.toml"
+# --- Build (or reuse) PanGraphX -----------------------------------------------
+# PANGRAPHX_BIN lets you benchmark a pre-built executable instead of building
+# from source (which requires `cargo`). It must support the `convert` subcommand.
+if [[ -n "${PANGRAPHX_BIN:-}" ]]; then
+    PANGRAPHX="$PANGRAPHX_BIN"
+    if [[ ! -x "$PANGRAPHX" ]]; then
+        echo "ERROR: PANGRAPHX_BIN is set but not executable: $PANGRAPHX" >&2
+        exit 1
+    fi
+    echo ">>> Using pre-built PanGraphX: $PANGRAPHX"
 else
-    echo ">>> Building PanGraphX (release)..."
-    cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml"
-fi
+    # Build PanGraphX (release, with odgi so .og conversions work)
+    if $HAVE_ODGI; then
+        echo ">>> Building PanGraphX (release, --features odgi)..."
+        cargo build --release --features odgi --manifest-path "$REPO_ROOT/Cargo.toml"
+    else
+        echo ">>> Building PanGraphX (release)..."
+        cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml"
+    fi
 
-if [[ ! -x "$PANGRAPHX" ]]; then
-    echo "ERROR: PanGraphX binary not found at $PANGRAPHX" >&2
-    exit 1
+    if [[ ! -x "$PANGRAPHX" ]]; then
+        echo "ERROR: PanGraphX binary not found at $PANGRAPHX" >&2
+        exit 1
+    fi
 fi
 
 # --- Comparison helper -------------------------------------------------------
