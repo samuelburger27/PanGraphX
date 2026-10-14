@@ -49,11 +49,10 @@ fn bench_parse(c: &mut Criterion) {
     group.finish();
 }
 
-/// Group `serialize`: encode a parsed graph back to bytes (GFA and VG only;
-/// GBZ is load-only).
+/// Group `serialize`: encode a parsed graph back to bytes (GFA, VG, and GBZ).
 fn bench_serialize(c: &mut Criterion) {
     let mut group = c.benchmark_group("serialize");
-    for inputs in [GFA_INPUTS, VG_INPUTS] {
+    for inputs in [GFA_INPUTS, VG_INPUTS, GBZ_INPUTS] {
         for input in inputs {
             let bytes = read_bytes(input.rel_path);
             let dto = parse_bytes(&bytes, input.format);

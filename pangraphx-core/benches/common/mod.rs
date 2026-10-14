@@ -65,7 +65,7 @@ pub const VG_INPUTS: &[BenchInput] = &[
     input("merged", "vg/merged.vg", GraphFormat::VG, true),
 ];
 
-/// GBZ inputs (load-only format, parse benchmarks only).
+/// GBZ inputs, smallest to largest.
 pub const GBZ_INPUTS: &[BenchInput] = &[
     input("tiny", "gbz/tiny.gbz", GraphFormat::GBZ, false),
     input("random", "gbz/random.gbz", GraphFormat::GBZ, false),
