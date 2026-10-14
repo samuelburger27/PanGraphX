@@ -70,9 +70,7 @@ jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [publish-crates-io, build]
-    # Ensure release runs as long as build succeeds, regardless of crates.io publish status
-    if: needs.build.result == 'success'
+    needs: [build]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7
