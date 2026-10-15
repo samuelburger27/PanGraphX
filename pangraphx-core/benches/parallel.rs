@@ -7,13 +7,17 @@
 //!
 //! The fixture is the largest GFA available: the curated `merged.gfa` by
 //! default, or the biggest file in `PANGRAPHX_BENCH_DATA_DIR` when set. Huge
-//! inputs are streamed from disk; DBG construction is skipped for them because
-//! the in-memory de Bruijn graph would be impractically large.
+//! inputs are streamed from disk; DBG construction is skipped for inputs at or
+//! above [`DBG_MAX_BYTES`] because the in-memory de Bruijn graph would be
+//! impractically large.
 #![allow(clippy::missing_panics_doc)]
 
 mod common;
 
-use common::{largest_input, parse_bytes, parse_file, parse_input, read_bytes};
+use common::{
+    DBG_MAX_BYTES, MIN_SAMPLE_SIZE, largest_input, parse_bytes, parse_file, parse_input,
+    read_bytes, set_timing,
+};
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use pangraphx_core::{DeBruijn, GraphFormat};
 use rayon::ThreadPool;
@@ -41,10 +45,12 @@ fn build_pool(n: usize) -> ThreadPool {
 /// Group `parallel_dbg`: de Bruijn construction scaled across thread counts.
 fn bench_parallel_dbg(c: &mut Criterion) {
     let input = largest_input();
-    if input.is_huge() {
+    if input.size >= DBG_MAX_BYTES {
         eprintln!(
-            "skipping parallel_dbg: fixture {} ({} bytes) is too large for in-memory DBG construction",
-            input.label, input.size
+            "skipping parallel_dbg: fixture {} ({} bytes) is at or above the {} MiB de Bruijn cap",
+            input.label,
+            input.size,
+            DBG_MAX_BYTES / (1024 * 1024)
         );
         return;
     }
@@ -77,7 +83,8 @@ fn bench_parallel_parse(c: &mut Criterion) {
     };
 
     let mut group = c.benchmark_group("parallel_parse");
-    group.sample_size(if input.is_huge() { 3 } else { 20 });
+    set_timing(&mut group, &input);
+    group.sample_size(if input.is_huge() { MIN_SAMPLE_SIZE } else { 20 });
     for n in thread_counts() {
         let pool = build_pool(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
@@ -102,7 +109,8 @@ fn bench_parallel_serialize(c: &mut Criterion) {
     let out_len = probe.len();
 
     let mut group = c.benchmark_group("parallel_serialize");
-    group.sample_size(if input.is_huge() { 3 } else { 20 });
+    set_timing(&mut group, &input);
+    group.sample_size(if input.is_huge() { MIN_SAMPLE_SIZE } else { 20 });
     for n in thread_counts() {
         let pool = build_pool(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
