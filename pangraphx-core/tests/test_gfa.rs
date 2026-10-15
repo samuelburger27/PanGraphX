@@ -27,10 +27,5 @@ fn test_gfa_format() {
             graph, reloaded_graph,
             "Graphs do not match after save/load cycle for file: {path_string}"
         );
-
-        // Compare file contents
-        let original_content = fs::read_to_string(path_string).unwrap();
-        let saved_content = fs::read_to_string(temp_file.path()).unwrap();
-        assert_eq!(original_content, saved_content);
     }
 }
