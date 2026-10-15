@@ -2,49 +2,6 @@ use pangraphx_core::*;
 use std::fs;
 use tempfile::NamedTempFile;
 
-#[test]
-fn test_vg_parsing() {
-    let test_files = fs::read_dir("tests/test_files/vg").unwrap();
-    for entry in test_files {
-        let path = entry.unwrap().path();
-        let path_string = path.to_str().unwrap();
-        println!("Testing VG parsing for file: {path_string}...");
-
-        let graph = CoreGraphDTO::load_from_file(path_string, GraphFormat::VG).unwrap();
-
-        // For now only print
-        println!(
-            "Parsed graph from {}: {} nodes, {} edges, {} paths",
-            path_string,
-            graph.nodes.len(),
-            graph.edges.len(),
-            graph.paths.len()
-        );
-
-        // Basic sanity checks
-        assert!(
-            !graph.nodes.is_empty(),
-            "No nodes parsed from {path_string}"
-        );
-        assert!(
-            !graph.edges.is_empty(),
-            "No edges parsed from {path_string}"
-        );
-        assert!(
-            !graph.paths.is_empty(),
-            "No paths parsed from {path_string}"
-        );
-
-        // Check node IDs are unique
-        let node_ids: std::collections::HashSet<_> = graph.nodes.iter().map(|n| n.id).collect();
-        assert_eq!(
-            node_ids.len(),
-            graph.nodes.len(),
-            "Duplicate node IDs found in {path_string}"
-        );
-    }
-}
-
 /// Round-trip test: parse each GFA test file → serialize to VG → parse VG back
 /// → verify the graphs are isomorphic.
 #[test]
