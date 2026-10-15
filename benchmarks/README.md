@@ -57,8 +57,24 @@ are benchmarked. To benchmark your own GFA files instead, point
 PANGRAPHX_BENCH_DATA_DIR=/path/to/graphs cargo bench -p pangraphx-core --bench formats
 ```
 
-Every `*.gfa` in that directory is benchmarked (sorted by size); files at or
-above 512 KiB get a reduced sample size automatically.
+Every `*.gfa` in that directory is benchmarked (sorted by size). Inputs are
+bucketed by size and given progressively smaller criterion sample sizes:
+
+| Size class | Threshold  | sample size                    |
+|------------|------------|--------------------------------|
+| small      | < 1 MiB    | 100                            |
+| medium     | 1–64 MiB   | 20                             |
+| large      | 64–256 MiB | 10                             |
+| huge       | ≥ 256 MiB  | 3 (1 for `convert`)            |
+
+Huge inputs (e.g. a ~0.5 GB chr22 pangenome) are streamed from disk through a
+buffered reader instead of being pre-read into a `Vec<u8>`, and their derived
+VG/GBZ buffers are materialized one at a time, so peak memory stays around
+`parsed graph + one buffer` rather than `raw GFA + parsed graph + VG + GBZ`.
+The `parallel` and `de_bruijn` benches pin the largest GFA from
+`PANGRAPHX_BENCH_DATA_DIR` (falling back to `merged.gfa`); DBG construction and
+the full-topology mode are skipped for huge inputs, as they are impractically
+expensive.
 
 ## 2. External-tool comparison (Linux)
 

@@ -20,17 +20,65 @@ use std::path::{Path, PathBuf};
 /// in-repo fixtures.
 pub const DATASET_DIR_ENV: &str = "PANGRAPHX_BENCH_DATA_DIR";
 
-/// Inputs at or above this size (bytes) are benchmarked with a reduced sample
-/// size, mirroring the `large` flag on the curated fixtures.
-const LARGE_THRESHOLD: u64 = 512 * 1024;
+// Size-class thresholds (bytes). Inputs above these are benchmarked with a
+// progressively smaller criterion sample size to keep wall-clock sane.
+const MEDIUM_THRESHOLD: u64 = 1024 * 1024; //    1 MiB
+const LARGE_THRESHOLD: u64 = 64 * 1024 * 1024; //  64 MiB
+const HUGE_THRESHOLD: u64 = 256 * 1024 * 1024; // 256 MiB
+
+/// How large an input is, driving the criterion sample size and whether the
+/// file is parsed in-memory or streamed from disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SizeClass {
+    Small,
+    Medium,
+    Large,
+    Huge,
+}
 
 /// A single benchmark input: a human-readable label, an absolute path to a GFA
-/// file, and whether it is large enough to warrant a reduced sample size.
+/// file, and its size in bytes.
 pub struct BenchInput {
     pub label: String,
     pub path: PathBuf,
-    /// Large inputs get a reduced criterion sample size to keep wall-clock sane.
-    pub large: bool,
+    pub size: u64,
+}
+
+impl BenchInput {
+    #[must_use]
+    pub const fn size_class(&self) -> SizeClass {
+        classify(self.size)
+    }
+
+    /// Huge inputs are streamed from disk rather than held fully in memory.
+    #[must_use]
+    pub fn is_huge(&self) -> bool {
+        self.size_class() == SizeClass::Huge
+    }
+}
+
+#[must_use]
+const fn classify(size: u64) -> SizeClass {
+    if size >= HUGE_THRESHOLD {
+        SizeClass::Huge
+    } else if size >= LARGE_THRESHOLD {
+        SizeClass::Large
+    } else if size >= MEDIUM_THRESHOLD {
+        SizeClass::Medium
+    } else {
+        SizeClass::Small
+    }
+}
+
+/// Criterion sample size for an input, derived from its size class.
+#[must_use]
+pub const fn sample_size(input: &BenchInput) -> usize {
+    match input.size_class() {
+        SizeClass::Small => 100,
+        SizeClass::Medium => 20,
+        SizeClass::Large => 10,
+        SizeClass::Huge => 3,
+    }
 }
 
 /// Returns the GFA datasets to benchmark.
@@ -45,22 +93,37 @@ pub fn gfa_inputs() -> Vec<BenchInput> {
         .map_or_else(curated_inputs, |dir| discover_inputs(&dir))
 }
 
+/// The single largest GFA dataset. Used by the parallel and de Bruijn benches,
+/// which pin one fixture (the curated `merged` by default, or the biggest file
+/// in `PANGRAPHX_BENCH_DATA_DIR` when set).
+pub fn largest_input() -> BenchInput {
+    let mut inputs = gfa_inputs();
+    inputs.sort_by_key(|i| i.size);
+    inputs.pop().expect("no GFA inputs available")
+}
+
 /// The curated in-repo fixtures, smallest to largest. GFA carries paths, so
 /// these double as the de Bruijn benchmark inputs.
 fn curated_inputs() -> Vec<BenchInput> {
     [
-        ("tiny", "gfa/tiny.gfa", false),
-        ("random", "gfa/random.gfa", false),
-        ("phix", "gfa/phix.gfa", false),
-        ("lambda", "gfa/escherichia_phage_lambda.gfa", false),
-        ("mycoplasma", "gfa/mycoplasma_genitalium.gfa", true),
-        ("merged", "gfa/merged.gfa", true),
+        ("tiny", "gfa/tiny.gfa"),
+        ("random", "gfa/random.gfa"),
+        ("phix", "gfa/phix.gfa"),
+        ("lambda", "gfa/escherichia_phage_lambda.gfa"),
+        ("mycoplasma", "gfa/mycoplasma_genitalium.gfa"),
+        ("merged", "gfa/merged.gfa"),
     ]
     .into_iter()
-    .map(|(label, rel, large)| BenchInput {
-        label: label.to_string(),
-        path: test_file(rel),
-        large,
+    .map(|(label, rel)| {
+        let path = test_file(rel);
+        let size = std::fs::metadata(&path)
+            .unwrap_or_else(|e| panic!("failed to stat {}: {e}", path.display()))
+            .len();
+        BenchInput {
+            label: label.to_string(),
+            path,
+            size,
+        }
     })
     .collect()
 }
@@ -98,11 +161,7 @@ fn discover_inputs(dir: &Path) -> Vec<BenchInput> {
                 .and_then(|stem| stem.to_str())
                 .unwrap_or("gfa")
                 .to_string();
-            BenchInput {
-                label,
-                large: size >= LARGE_THRESHOLD,
-                path,
-            }
+            BenchInput { label, path, size }
         })
         .collect()
 }
@@ -134,6 +193,31 @@ pub fn parse_bytes(bytes: &[u8], format: GraphFormat) -> CoreGraphDTO {
     let mut cursor = Cursor::new(bytes);
     CoreGraphDTO::load(&mut cursor, format)
         .unwrap_or_else(|e| panic!("failed to parse {format} input: {e}"))
+}
+
+/// Parses a file on disk into a [`CoreGraphDTO`], streaming through a buffered
+/// reader so the raw bytes are never fully materialized by the harness. Used for
+/// huge inputs; the first read primes the page cache, so subsequent iterations
+/// measure mostly CPU work.
+pub fn parse_file(path: impl AsRef<Path>, format: GraphFormat) -> CoreGraphDTO {
+    let path = path.as_ref();
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        test_file(path.to_string_lossy().as_ref())
+    };
+    CoreGraphDTO::load_from_file(&resolved.to_string_lossy(), format)
+        .unwrap_or_else(|e| panic!("failed to parse {format} from {}: {e}", resolved.display()))
+}
+
+/// Parses a [`BenchInput`] as GFA, choosing the streaming path for huge files
+/// and the in-memory path otherwise.
+pub fn parse_input(input: &BenchInput) -> CoreGraphDTO {
+    if input.is_huge() {
+        parse_file(&input.path, GraphFormat::GFA)
+    } else {
+        parse_bytes(&read_bytes(&input.path), GraphFormat::GFA)
+    }
 }
 
 /// Serializes a [`CoreGraphDTO`] into an in-memory buffer in the given format.
