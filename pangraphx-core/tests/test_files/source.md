@@ -1,7 +1,5 @@
 HPRC chr22, human genome graph:
 
-
-
 https://zenodo.org/records/17173731?preview_file=chr22.zip
 
 

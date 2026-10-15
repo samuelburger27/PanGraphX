@@ -115,11 +115,18 @@ pub fn test_file(rel_path: &str) -> PathBuf {
 }
 
 /// Reads a test input fully into memory so benchmarks can parse from a `Cursor`
-/// and exclude disk I/O from the measurement.
+/// and exclude disk I/O from the measurement. Relative paths are resolved
+/// against `tests/test_files/`; absolute paths (e.g. from `PANGRAPHX_BENCH_DATA_DIR`)
+/// are used as-is.
 pub fn read_bytes(path: impl AsRef<Path>) -> Vec<u8> {
     let path = path.as_ref();
-    std::fs::read(path)
-        .unwrap_or_else(|e| panic!("failed to read bench input {}: {e}", path.display()))
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        test_file(path.to_string_lossy().as_ref())
+    };
+    std::fs::read(&resolved)
+        .unwrap_or_else(|e| panic!("failed to read bench input {}: {e}", resolved.display()))
 }
 
 /// Parses an in-memory buffer into a [`CoreGraphDTO`], panicking on error.
