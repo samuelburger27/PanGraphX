@@ -1,34 +1,27 @@
 //! Format I/O benchmarks: parsing, serialization, and end-to-end conversion.
 //!
 //! All measurements parse from / serialize to in-memory buffers so that disk
-//! I/O is excluded and the numbers reflect the CPU cost of the codecs. Each
-//! group reports throughput in bytes, so criterion derives MB/s automatically.
+//! I/O is excluded and the numbers reflect the CPU cost of the codecs, with one
+//! exception: inputs at or above 256 MiB are streamed from disk via a buffered
+//! reader instead of being pre-read, because materializing the raw bytes plus
+//! the parsed graph plus derived VG/GBZ buffers would exhaust memory. Each group
+//! reports throughput in bytes, so criterion derives MB/s automatically.
 //!
 //! The only on-disk inputs are GFA files (the in-repo fixtures by default, or a
 //! directory pointed to by `PANGRAPHX_BENCH_DATA_DIR`); the VG and GBZ inputs
-//! are derived from them in-memory by the harness (outside the timed region), so
-//! no generated fixtures need to be checked in or created beforehand.
+//! are derived from them by the harness (outside the timed region), so no
+//! generated fixtures need to be checked in or created beforehand.
 #![allow(clippy::missing_panics_doc, clippy::must_use_candidate)]
 
 mod common;
 
-use common::{BenchInput, gfa_inputs, parse_bytes, read_bytes, serialize_bytes};
+use common::{
+    BenchInput, gfa_inputs, parse_bytes, parse_file, read_bytes, sample_size, serialize_bytes,
+};
 use criterion::{
     BatchSize, BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main,
 };
 use pangraphx_core::{CoreGraphDTO, GraphFormat};
-
-/// Sample size for large inputs; criterion's default (100) for everything else.
-const LARGE_SAMPLE_SIZE: usize = 10;
-const DEFAULT_SAMPLE_SIZE: usize = 100;
-
-const fn sample_size(input: &BenchInput) -> usize {
-    if input.large {
-        LARGE_SAMPLE_SIZE
-    } else {
-        DEFAULT_SAMPLE_SIZE
-    }
-}
 
 fn as_u64(len: usize) -> u64 {
     u64::try_from(len).expect("byte length fits in u64")
@@ -46,24 +39,56 @@ fn load_gfa(input: &BenchInput) -> (Vec<u8>, CoreGraphDTO) {
 fn bench_parse(c: &mut Criterion) {
     let mut group = c.benchmark_group("parse");
     for input in gfa_inputs() {
-        let (gfa_bytes, dto) = load_gfa(&input);
-        let vg_bytes = serialize_bytes(&dto, GraphFormat::VG);
-        let gbz_bytes = serialize_bytes(&dto, GraphFormat::GBZ);
+        if input.is_huge() {
+            // Stream the GFA from disk and derive VG/GBZ one at a time so peak
+            // memory is `DTO + one buffer` instead of `raw GFA + DTO + VG + GBZ`.
+            let dto = parse_file(&input.path, GraphFormat::GFA);
 
-        for (format, bytes) in [
-            (GraphFormat::GFA, &gfa_bytes),
-            (GraphFormat::VG, &vg_bytes),
-            (GraphFormat::GBZ, &gbz_bytes),
-        ] {
-            group.throughput(Throughput::Bytes(as_u64(bytes.len())));
+            group.throughput(Throughput::Bytes(input.size));
             group.sample_size(sample_size(&input));
             group.bench_with_input(
-                BenchmarkId::new(format.to_string(), input.label.as_str()),
-                bytes,
-                |b, bytes| {
-                    b.iter(|| parse_bytes(black_box(bytes), format));
-                },
+                BenchmarkId::new(GraphFormat::GFA.to_string(), input.label.as_str()),
+                &input.path,
+                |b, path| b.iter(|| parse_file(black_box(path), GraphFormat::GFA)),
             );
+
+            let vg_bytes = serialize_bytes(&dto, GraphFormat::VG);
+            group.throughput(Throughput::Bytes(as_u64(vg_bytes.len())));
+            group.sample_size(sample_size(&input));
+            group.bench_with_input(
+                BenchmarkId::new(GraphFormat::VG.to_string(), input.label.as_str()),
+                &vg_bytes,
+                |b, bytes| b.iter(|| parse_bytes(black_box(bytes), GraphFormat::VG)),
+            );
+            drop(vg_bytes);
+
+            let gbz_bytes = serialize_bytes(&dto, GraphFormat::GBZ);
+            group.throughput(Throughput::Bytes(as_u64(gbz_bytes.len())));
+            group.sample_size(sample_size(&input));
+            group.bench_with_input(
+                BenchmarkId::new(GraphFormat::GBZ.to_string(), input.label.as_str()),
+                &gbz_bytes,
+                |b, bytes| b.iter(|| parse_bytes(black_box(bytes), GraphFormat::GBZ)),
+            );
+            drop(gbz_bytes);
+        } else {
+            let (gfa_bytes, dto) = load_gfa(&input);
+            let vg_bytes = serialize_bytes(&dto, GraphFormat::VG);
+            let gbz_bytes = serialize_bytes(&dto, GraphFormat::GBZ);
+
+            for (format, bytes) in [
+                (GraphFormat::GFA, &gfa_bytes),
+                (GraphFormat::VG, &vg_bytes),
+                (GraphFormat::GBZ, &gbz_bytes),
+            ] {
+                group.throughput(Throughput::Bytes(as_u64(bytes.len())));
+                group.sample_size(sample_size(&input));
+                group.bench_with_input(
+                    BenchmarkId::new(format.to_string(), input.label.as_str()),
+                    bytes,
+                    |b, bytes| b.iter(|| parse_bytes(black_box(bytes), format)),
+                );
+            }
         }
     }
     group.finish();
@@ -73,7 +98,11 @@ fn bench_parse(c: &mut Criterion) {
 fn bench_serialize(c: &mut Criterion) {
     let mut group = c.benchmark_group("serialize");
     for input in gfa_inputs() {
-        let (_, dto) = load_gfa(&input);
+        let dto = if input.is_huge() {
+            parse_file(&input.path, GraphFormat::GFA)
+        } else {
+            load_gfa(&input).1
+        };
 
         for format in [GraphFormat::GFA, GraphFormat::VG, GraphFormat::GBZ] {
             // Serialize once to learn the output size (for throughput + buffer
@@ -108,54 +137,96 @@ fn bench_serialize(c: &mut Criterion) {
 ///
 /// Only the real pangenome fixtures are used (the trivial `tiny` and the
 /// synthetic `random` are skipped). The VG side of each pair is generated from
-/// the GFA in-memory.
+/// the GFA by the harness.
 fn bench_convert(c: &mut Criterion) {
     let mut group = c.benchmark_group("convert");
     for input in gfa_inputs()
         .iter()
         .filter(|i| !matches!(i.label.as_str(), "tiny" | "random"))
     {
-        let size = if input.large {
-            LARGE_SAMPLE_SIZE
+        // Huge inputs are the heaviest: a full parse + serialize per iteration,
+        // so they get a single sample.
+        let size = if input.is_huge() {
+            1
         } else {
-            DEFAULT_SAMPLE_SIZE
+            sample_size(input)
         };
-        let (gfa_bytes, dto) = load_gfa(input);
-        let vg_bytes = serialize_bytes(&dto, GraphFormat::VG);
 
-        // GFA -> VG
-        group.throughput(Throughput::Bytes(as_u64(gfa_bytes.len())));
-        group.sample_size(size);
-        group.bench_with_input(
-            BenchmarkId::new("gfa_to_vg", input.label.as_str()),
-            &gfa_bytes,
-            |b, bytes| {
-                b.iter(|| {
-                    let dto = parse_bytes(bytes, GraphFormat::GFA);
-                    let mut out = Vec::new();
-                    dto.save(&mut out, GraphFormat::VG)
-                        .expect("GFA->VG serialization failed");
-                    out
-                });
-            },
-        );
+        if input.is_huge() {
+            // Stream the GFA for the forward conversion; derive the VG in-memory
+            // once for the reverse conversion, then drop the setup DTO.
+            let vg_bytes =
+                serialize_bytes(&parse_file(&input.path, GraphFormat::GFA), GraphFormat::VG);
 
-        // VG -> GFA
-        group.throughput(Throughput::Bytes(as_u64(vg_bytes.len())));
-        group.sample_size(size);
-        group.bench_with_input(
-            BenchmarkId::new("vg_to_gfa", input.label.as_str()),
-            &vg_bytes,
-            |b, bytes| {
-                b.iter(|| {
-                    let dto = parse_bytes(bytes, GraphFormat::VG);
-                    let mut out = Vec::new();
-                    dto.save(&mut out, GraphFormat::GFA)
-                        .expect("VG->GFA serialization failed");
-                    out
-                });
-            },
-        );
+            group.throughput(Throughput::Bytes(input.size));
+            group.sample_size(size);
+            group.bench_with_input(
+                BenchmarkId::new("gfa_to_vg", input.label.as_str()),
+                &input.path,
+                |b, path| {
+                    b.iter(|| {
+                        let dto = parse_file(black_box(path), GraphFormat::GFA);
+                        let mut out = Vec::new();
+                        dto.save(&mut out, GraphFormat::VG)
+                            .expect("GFA->VG serialization failed");
+                        out
+                    });
+                },
+            );
+
+            group.throughput(Throughput::Bytes(as_u64(vg_bytes.len())));
+            group.sample_size(size);
+            group.bench_with_input(
+                BenchmarkId::new("vg_to_gfa", input.label.as_str()),
+                &vg_bytes,
+                |b, bytes| {
+                    b.iter(|| {
+                        let dto = parse_bytes(black_box(bytes), GraphFormat::VG);
+                        let mut out = Vec::new();
+                        dto.save(&mut out, GraphFormat::GFA)
+                            .expect("VG->GFA serialization failed");
+                        out
+                    });
+                },
+            );
+        } else {
+            let (gfa_bytes, dto) = load_gfa(input);
+            let vg_bytes = serialize_bytes(&dto, GraphFormat::VG);
+
+            // GFA -> VG
+            group.throughput(Throughput::Bytes(as_u64(gfa_bytes.len())));
+            group.sample_size(size);
+            group.bench_with_input(
+                BenchmarkId::new("gfa_to_vg", input.label.as_str()),
+                &gfa_bytes,
+                |b, bytes| {
+                    b.iter(|| {
+                        let dto = parse_bytes(bytes, GraphFormat::GFA);
+                        let mut out = Vec::new();
+                        dto.save(&mut out, GraphFormat::VG)
+                            .expect("GFA->VG serialization failed");
+                        out
+                    });
+                },
+            );
+
+            // VG -> GFA
+            group.throughput(Throughput::Bytes(as_u64(vg_bytes.len())));
+            group.sample_size(size);
+            group.bench_with_input(
+                BenchmarkId::new("vg_to_gfa", input.label.as_str()),
+                &vg_bytes,
+                |b, bytes| {
+                    b.iter(|| {
+                        let dto = parse_bytes(bytes, GraphFormat::VG);
+                        let mut out = Vec::new();
+                        dto.save(&mut out, GraphFormat::GFA)
+                            .expect("VG->GFA serialization failed");
+                        out
+                    });
+                },
+            );
+        }
     }
     group.finish();
 }
