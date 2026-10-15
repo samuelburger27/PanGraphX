@@ -37,17 +37,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate synthetic GFA file for testing.")
     parser.add_argument(
-        "--file", default="test_files/random.gfa", help="Output GFA filename")
-    parser.add_argument("--segments", type=int, default=100,
+        "--file", default="random_medium.gfa", help="Output GFA filename")
+    parser.add_argument("--segments", type=int, default=50_000,
                         help="Number of segments (nodes)")
-    parser.add_argument("--avg-len", type=int, default=50,
+    parser.add_argument("--avg-len", type=int, default=1_000,
                         help="Average sequence length")
-    parser.add_argument("--link-prob", type=float, default=0.8,
+    parser.add_argument("--link-prob", type=float, default=0.6,
                         help="Probability of link creation between segments")
 
     parser.add_argument("--seed", type=int, default=69,
                         help="Random seed for reproducibility")
-    parser.add_argument("--num-paths", type=int, default=2,
+    parser.add_argument("--num-paths", type=int, default=25,
                         help="Number of paths to include in the GFA")
     args = parser.parse_args()
     random.seed(args.seed)

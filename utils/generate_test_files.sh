@@ -126,10 +126,13 @@ for gfa in "${GFA_FILES[@]}"; do
         convert_px "$gfa" "$vg_out" vg
     fi
 
-    # GBZ (no standalone external tool; PanGraphX only)
+    # GBZ (vg `gbwt` builds it in --external mode)
     gbz_out="$TEST_FILES_DIR/gbz/$base.gbz"
     if already_done "$gbz_out"; then
         echo "  skip (exists): $gbz_out"
+    elif [[ "$MODE" == "external" ]] && $HAVE_VG; then
+        vg gbwt -G "$gfa" -g "$gbz_out"
+        echo "  wrote (vg): $gbz_out"
     else
         convert_px "$gfa" "$gbz_out" gbz
     fi

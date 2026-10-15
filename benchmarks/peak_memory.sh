@@ -91,7 +91,7 @@ row() {
 } >"$OUT"
 
 for ds in "${DATASETS[@]}"; do
-    gfa="$TESTDIR/gfa/$ds.gfa"; vg="$TESTDIR/vg/$ds.vg"; og="$TESTDIR/og/$ds.og"
+    gfa="$TESTDIR/gfa/$ds.gfa"; vg="$TESTDIR/vg/$ds.vg"; gbz="$TESTDIR/gbz/$ds.gbz"; og="$TESTDIR/og/$ds.og"
     echo ">>> Dataset: $ds"
 
     if $HAVE_VG; then
@@ -101,6 +101,12 @@ for ds in "${DATASETS[@]}"; do
         [[ -f "$vg" ]] && row "$ds" "VG->GFA" \
             "$PANGRAPHX convert -i $vg -o $WORK/px.gfa" \
             "vg" "vg convert --gfa-out $vg > $WORK/vg.gfa"
+        [[ -f "$gfa" ]] && row "$ds" "GFA->GBZ" \
+            "$PANGRAPHX convert -i $gfa -o $WORK/px.gbz" \
+            "vg" "vg gbwt -G $gfa -g $WORK/vg.gbz"
+        [[ -f "$gbz" ]] && row "$ds" "GBZ->GFA" \
+            "$PANGRAPHX convert -i $gbz -o $WORK/px.gfa" \
+            "vg" "vg convert --gfa-out $gbz > $WORK/vg.gfa"
     fi
     if $HAVE_ODGI; then
         [[ -f "$gfa" ]] && row "$ds" "GFA->OG" \

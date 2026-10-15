@@ -17,6 +17,7 @@ mod common;
 
 use common::{
     BenchInput, gfa_inputs, parse_bytes, parse_file, read_bytes, sample_size, serialize_bytes,
+    set_timing,
 };
 use criterion::{
     BatchSize, BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main,
@@ -39,6 +40,7 @@ fn load_gfa(input: &BenchInput) -> (Vec<u8>, CoreGraphDTO) {
 fn bench_parse(c: &mut Criterion) {
     let mut group = c.benchmark_group("parse");
     for input in gfa_inputs() {
+        set_timing(&mut group, &input);
         if input.is_huge() {
             // Stream the GFA from disk and derive VG/GBZ one at a time so peak
             // memory is `DTO + one buffer` instead of `raw GFA + DTO + VG + GBZ`.
@@ -98,6 +100,7 @@ fn bench_parse(c: &mut Criterion) {
 fn bench_serialize(c: &mut Criterion) {
     let mut group = c.benchmark_group("serialize");
     for input in gfa_inputs() {
+        set_timing(&mut group, &input);
         let dto = if input.is_huge() {
             parse_file(&input.path, GraphFormat::GFA)
         } else {
@@ -144,13 +147,10 @@ fn bench_convert(c: &mut Criterion) {
         .iter()
         .filter(|i| !matches!(i.label.as_str(), "tiny" | "random"))
     {
-        // Huge inputs are the heaviest: a full parse + serialize per iteration,
-        // so they get a single sample.
-        let size = if input.is_huge() {
-            1
-        } else {
-            sample_size(input)
-        };
+        // Huge inputs get the minimum sample size (Criterion rejects anything
+        // below 10) plus a reduced measurement time via `set_timing`.
+        let size = sample_size(input);
+        set_timing(&mut group, input);
 
         if input.is_huge() {
             // Stream the GFA for the forward conversion; derive the VG in-memory

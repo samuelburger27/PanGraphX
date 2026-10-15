@@ -11,9 +11,12 @@
     clippy::missing_errors_doc
 )]
 
+use criterion::BenchmarkGroup;
+use criterion::measurement::Measurement;
 use pangraphx_core::{CoreGraphDTO, GraphFormat};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// Environment variable that overrides the directory scanned for GFA datasets.
 /// Set it to a directory of `.gfa` files to benchmark those instead of the
@@ -70,14 +73,36 @@ const fn classify(size: u64) -> SizeClass {
     }
 }
 
+/// Criterion's hard minimum for `sample_size`; its setter asserts `n >= 10`.
+pub const MIN_SAMPLE_SIZE: usize = 10;
+
 /// Criterion sample size for an input, derived from its size class.
+///
+/// Criterion rejects `sample_size` below [`MIN_SAMPLE_SIZE`], so huge inputs use
+/// the minimum instead of a smaller count (see [`set_timing`] for how their
+/// wall-clock time is kept in check).
 #[must_use]
 pub const fn sample_size(input: &BenchInput) -> usize {
     match input.size_class() {
         SizeClass::Small => 100,
         SizeClass::Medium => 20,
         SizeClass::Large => 10,
-        SizeClass::Huge => 3,
+        SizeClass::Huge => MIN_SAMPLE_SIZE,
+    }
+}
+
+/// Reduced measurement/warm-up times for huge inputs. Criterion requires at
+/// least 10 samples, so shortening each measurement is how huge benchmarks stay
+/// tractable rather than by dropping below the sample-size floor.
+const HUGE_MEASUREMENT_TIME: Duration = Duration::from_secs(1);
+const HUGE_WARM_UP_TIME: Duration = Duration::from_secs(1);
+
+/// Applies size-class-aware timing to a benchmark group. Huge inputs get a
+/// reduced measurement/warm-up time to offset the mandatory 10-sample minimum.
+pub fn set_timing<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchInput) {
+    if input.is_huge() {
+        group.measurement_time(HUGE_MEASUREMENT_TIME);
+        group.warm_up_time(HUGE_WARM_UP_TIME);
     }
 }
 
@@ -93,13 +118,29 @@ pub fn gfa_inputs() -> Vec<BenchInput> {
         .map_or_else(curated_inputs, |dir| discover_inputs(&dir))
 }
 
-/// The single largest GFA dataset. Used by the parallel and de Bruijn benches,
-/// which pin one fixture (the curated `merged` by default, or the biggest file
-/// in `PANGRAPHX_BENCH_DATA_DIR` when set).
+/// The single largest GFA dataset. Used by the parallel benches, which pin one
+/// fixture (the curated `merged` by default, or the biggest file in
+/// `PANGRAPHX_BENCH_DATA_DIR` when set).
 pub fn largest_input() -> BenchInput {
     let mut inputs = gfa_inputs();
     inputs.sort_by_key(|i| i.size);
     inputs.pop().expect("no GFA inputs available")
+}
+
+/// File-size cap for in-memory de Bruijn graph construction. DBG construction
+/// scales with *total path bases* (the intermediate k-mer vectors are ~32 bytes
+/// per base plus `HashSet` overhead), so it becomes memory-prohibitive well
+/// before the general "huge" (256 MiB) threshold. The de Bruijn benches skip
+/// inputs at or above this size.
+pub const DBG_MAX_BYTES: u64 = 64 * 1024 * 1024; // 64 MiB
+
+/// The single largest GFA dataset that is still feasible for in-memory de
+/// Bruijn graph construction (strictly below [`DBG_MAX_BYTES`]), or `None` when
+/// every input exceeds the cap.
+pub fn largest_dbg_input() -> Option<BenchInput> {
+    let mut inputs = gfa_inputs();
+    inputs.retain(|i| i.size < DBG_MAX_BYTES);
+    inputs.into_iter().max_by_key(|i| i.size)
 }
 
 /// The curated in-repo fixtures, smallest to largest. GFA carries paths, so

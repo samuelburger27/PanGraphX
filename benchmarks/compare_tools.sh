@@ -139,6 +139,18 @@ for ds in "${DATASETS[@]}"; do
         run_compare "VG -> GFA ($ds)" "vg_to_gfa_$ds" \
             "pangraphx::$PANGRAPHX convert -i $vg_input -o $WORK/${ds}_px.gfa" \
             "vg::vg convert --gfa-out $vg_input > $WORK/${ds}_vg.gfa"
+
+        # GFA <-> GBZ  vs. vg gbwt (build) / vg convert (view)
+        # Forward: GFA -> GBZ. The GBZ produced by vg is reused below as input.
+        gbz_input="$WORK/${ds}_vg.gbz"
+        run_compare "GFA -> GBZ ($ds)" "gfa_to_gbz_$ds" \
+            "pangraphx::$PANGRAPHX convert -i $gfa -o $WORK/${ds}_px.gbz" \
+            "vg::vg gbwt -G $gfa -g $gbz_input"
+
+        # Reverse: GBZ -> GFA, reusing the vg-produced GBZ file.
+        run_compare "GBZ -> GFA ($ds)" "gbz_to_gfa_$ds" \
+            "pangraphx::$PANGRAPHX convert -i $gbz_input -o $WORK/${ds}_px.gfa" \
+            "vg::vg convert --gfa-out $gbz_input > $WORK/${ds}_vg.gfa"
     fi
 
     # GFA <-> OG  vs. odgi build / odgi view

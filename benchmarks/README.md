@@ -58,23 +58,36 @@ PANGRAPHX_BENCH_DATA_DIR=/path/to/graphs cargo bench -p pangraphx-core --bench f
 ```
 
 Every `*.gfa` in that directory is benchmarked (sorted by size). Inputs are
-bucketed by size and given progressively smaller criterion sample sizes:
+bucketed by size and given progressively smaller criterion sample sizes, down to
+a floor of 10 (Criterion's hard minimum — its `sample_size` setter panics below
+10):
 
-| Size class | Threshold  | sample size                    |
-|------------|------------|--------------------------------|
-| small      | < 1 MiB    | 100                            |
-| medium     | 1–64 MiB   | 20                             |
-| large      | 64–256 MiB | 10                             |
-| huge       | ≥ 256 MiB  | 3 (1 for `convert`)            |
+| Size class | Threshold  | sample size |
+|------------|------------|-------------|
+| small      | < 1 MiB    | 100         |
+| medium     | 1–64 MiB   | 20          |
+| large      | 64–256 MiB | 10          |
+| huge       | ≥ 256 MiB  | 10          |
+
+Huge inputs use the 10-sample minimum, so to stay tractable they also get a
+reduced measurement/warm-up time (1 s each) instead of a smaller sample count.
 
 Huge inputs (e.g. a ~0.5 GB chr22 pangenome) are streamed from disk through a
 buffered reader instead of being pre-read into a `Vec<u8>`, and their derived
 VG/GBZ buffers are materialized one at a time, so peak memory stays around
 `parsed graph + one buffer` rather than `raw GFA + parsed graph + VG + GBZ`.
-The `parallel` and `de_bruijn` benches pin the largest GFA from
-`PANGRAPHX_BENCH_DATA_DIR` (falling back to `merged.gfa`); DBG construction and
-the full-topology mode are skipped for huge inputs, as they are impractically
-expensive.
+
+De Bruijn graph construction is a special case. It scales with *total path
+bases* — the intermediate k-mer vectors are ~32 bytes per base, plus set
+overhead — so it is memory-prohibitive well before the 256 MiB "huge" boundary.
+It is therefore gated behind a separate 64 MiB cap (`DBG_MAX_BYTES`):
+
+- The `de_bruijn` bench pins the largest GFA **under** 64 MiB (falling back to
+  the curated fixtures) and skips entirely if every file in
+  `PANGRAPHX_BENCH_DATA_DIR` exceeds the cap.
+- The `parallel` bench still pins the true largest GFA for `parallel_parse` and
+  `parallel_serialize` (which stream), but its `parallel_dbg` group skips inputs
+  at or above 64 MiB.
 
 ## 2. External-tool comparison (Linux)
 
