@@ -36,15 +36,29 @@ Suites:
 
 | Bench file    | Groups                                   | Measures |
 |---------------|------------------------------------------|----------|
-| `formats`     | `parse`, `serialize`, `convert`          | Per-format parse (GFA/VG/GBZ), serialize (GFA/VG), end-to-end GFA↔VG. Throughput in MB/s. |
+| `formats`     | `parse`, `serialize`, `convert`          | Per-format parse (GFA/VG/GBZ), serialize (GFA/VG/GBZ), end-to-end GFA↔VG. Throughput in MB/s. |
 | `de_bruijn`   | `dbg_vs_k`, `dbg_modes`                   | DBG construction as a function of *k*; standard vs. full-topology vs. colored. |
 | `parallel`    | `parallel_dbg`, `parallel_parse`, `parallel_serialize` | Rayon thread-scaling (1 → all cores) for DBG, GFA parse, GFA serialize. |
 
 Notes:
-- GBZ is a load-only format, so it appears only under `parse`.
 - DBG construction consumes its input, so benches clone a parsed fixture per
   sample (`iter_batched` / `BatchSize::LargeInput`); cloning is not measured.
 - *k* is capped at 63 (k-mers are 2-bit packed into a `u128`).
+
+The criterion benches read only GFA files; VG and GBZ inputs are derived from
+them in-memory by the harness, so no generated files (or
+`utils/generate_test_files.sh`) are needed beforehand.
+
+By default the curated fixtures under `pangraphx-core/tests/test_files/gfa/`
+are benchmarked. To benchmark your own GFA files instead, point
+`PANGRAPHX_BENCH_DATA_DIR` at a directory of `.gfa` files:
+
+```bash
+PANGRAPHX_BENCH_DATA_DIR=/path/to/graphs cargo bench -p pangraphx-core --bench formats
+```
+
+Every `*.gfa` in that directory is benchmarked (sorted by size); files at or
+above 512 KiB get a reduced sample size automatically.
 
 ## 2. External-tool comparison (Linux)
 

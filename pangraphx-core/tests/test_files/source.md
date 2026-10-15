@@ -19,3 +19,10 @@ https://cortexassembler.sourceforge.net
 
 
 Download them with [`utils/download_gfa.sh`](../../../utils/download_gfa.sh).
+
+Only the `gfa/` files are checked into the repository. The `vg/`, `gbz/`,
+`fastg/` and `og/` fixtures are generated from the GFA files with
+[`utils/generate_test_files.sh`](../../../utils/generate_test_files.sh) (or the
+external `vg`/`odgi` tools for cross-validation) and are gitignored. The
+hand-authored `fastg/assembly_graph.fastg` is the one exception and stays
+in-repo.

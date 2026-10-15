@@ -28,3 +28,12 @@ pangraphx-core/merged.rs
 # giant gfa files are downloaded with a script and are not needed in the repo
 ecoli50.gfa
 chr22.hprc-v1.1-mc-grch38.gfa
+
+# Derived test fixtures (VG/GBZ/FASTG/OG) are generated from the committed GFA
+# files by utils/generate_test_files.sh; only GFA is checked in.
+pangraphx-core/tests/test_files/vg/
+pangraphx-core/tests/test_files/gbz/
+pangraphx-core/tests/test_files/og/
+pangraphx-core/tests/test_files/fastg/*.fastg
+# Hand-authored FASTG source fixture (not derived from GFA) stays in-repo.
+!pangraphx-core/tests/test_files/fastg/assembly_graph.fastg

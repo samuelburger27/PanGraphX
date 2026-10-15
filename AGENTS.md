@@ -69,6 +69,7 @@ PanGraphX is a Rust workspace consisting of a core library (`pangraphx-core`) an
 
 - **External Tools**:
   - `utils/generate_gfa.py`: Helper script to generate GFA files for testing.
+  - `utils/generate_test_files.sh`: Derives the VG/GBZ/FASTG/OG test fixtures from the committed GFA files (gitignored). Use `--external` to build reference files with `vg`/`odgi` for cross-validation.
   - The project interacts with standard bioinformatics formats (GFA v1.0, GFA v1.1 locally supported extensions, GBZ, VG).
 
 ## Core Data Types
