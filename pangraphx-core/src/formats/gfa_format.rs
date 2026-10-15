@@ -1,14 +1,17 @@
-use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
+use crate::core::core_types::{Edge, NodeId, NodeName, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
+use bstr::io::BufReadExt;
 use gfa::cigar::CIGAR;
+use gfa::gfa::GFA;
 use gfa::gfa::orientation::Orientation as GFAOrientation;
-use gfa::parser::{GFAParser, GFAParserBuilder};
+use gfa::parser::GFAParserBuilder;
+use gfa::parser::error::ParserTolerance;
 use log::debug;
 use rayon::prelude::*;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Seek, Write};
+use std::io::{BufReader, Read, Seek, Write};
 
 pub struct GFACodec;
 
@@ -48,35 +51,52 @@ fn parse_overlap(cigar_str: &[u8]) -> u32 {
 /// Uses gfa crate to parse GFA files and converts to `CoreGraph`
 impl<R: Read + Seek> GraphParser<R> for GFACodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
+        // Containments are parsed but never used, so skip them entirely.
+        let parser = GFAParserBuilder {
+            segments: true,
+            links: true,
+            containments: false,
+            paths: true,
+            tolerance: ParserTolerance::default(),
+        }
+        .build::<Vec<u8>, ()>();
+
+        // Stream lines into the gfa crate's `GFA` struct instead of collecting
+        // the whole file into a `Vec<String>` first. `byte_lines` yields owned
+        // buffers per line (no UTF-8 validation, handles `\r\n`), so the raw
+        // file text is never fully resident in memory.
         let buf_reader = BufReader::new(reader);
-        let lines: Vec<String> = buf_reader.lines().collect::<Result<Vec<_>, _>>()?;
-        let lines_iter = lines.iter().map(std::string::String::as_bytes);
-        let parser: GFAParser<Vec<u8>, ()> = GFAParserBuilder::all().build();
-        let gfa = parser.parse_lines(lines_iter)?;
+        let mut gfa: GFA<Vec<u8>, ()> = GFA::new();
+        for line in buf_reader.byte_lines() {
+            let line = line?;
+            match parser.parse_gfa_line(&line) {
+                Ok(parsed) => gfa.insert_line(parsed),
+                Err(err) if err.can_safely_continue(&ParserTolerance::Safe) => {}
+                Err(err) => return Err(err.into()),
+            }
+        }
 
-        // Phase 1: Create nodes sequentially (maintaining order)
-        let mut mapping = HashMap::new();
+        // Phase 1: Create nodes sequentially (maintaining order) and build the
+        // name -> id lookup, moving names and sequences out of the segments
+        // instead of cloning them.
+        let mut name_to_id: HashMap<NodeName, NodeId> = HashMap::with_capacity(gfa.segments.len());
         let mut nodes = Nodes::new();
-        for (i, node) in gfa.segments.iter().enumerate() {
-            mapping.insert(i, node.name.clone());
-            nodes.push(node.sequence.clone());
-        }
-        let mut reverse_mapping: HashMap<&[u8], usize> = HashMap::new();
-        for (k, v) in &mapping {
-            reverse_mapping.insert(v, *k);
+        for (i, segment) in gfa.segments.into_iter().enumerate() {
+            name_to_id.insert(segment.name, i);
+            nodes.push(segment.sequence);
         }
 
-        // Phase 2: Parallelize edge creation from links
+        // Phase 2: Parallelize edge creation from links.
         let edges = gfa
             .links
             .into_par_iter()
             .map(|link| {
                 PanResult::Ok(Edge {
-                    from_node: *reverse_mapping.get(&link.from_segment[..]).ok_or_else(|| {
+                    from_node: *name_to_id.get(&link.from_segment[..]).ok_or_else(|| {
                         PanGraphXError::Parse("Failed to map from_segment to node ID".into())
                     })?,
                     from_orient: link.from_orient.into(),
-                    to_node: *reverse_mapping.get(&link.to_segment[..]).ok_or_else(|| {
+                    to_node: *name_to_id.get(&link.to_segment[..]).ok_or_else(|| {
                         PanGraphXError::Parse("Failed to map to_segment to node ID".into())
                     })?,
                     to_orient: link.to_orient.into(),
@@ -85,7 +105,7 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
             })
             .collect::<PanResult<Vec<Edge>>>()?;
 
-        // Phase 3: Parallelize path creation from paths
+        // Phase 3: Parallelize path creation from paths.
         let paths: Vec<Path> = gfa
             .paths
             .into_par_iter()
@@ -94,7 +114,7 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
                     .iter()
                     .map(|(id, orient)| {
                         let a: &[u8] = id.iter().as_slice();
-                        let o = *reverse_mapping.get(a).ok_or_else(|| {
+                        let o = *name_to_id.get(a).ok_or_else(|| {
                             PanGraphXError::Parse("Failed to map segment ID to node ID".into())
                         })?;
                         PanResult::Ok(Step {
@@ -117,11 +137,17 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
             })
             .collect::<PanResult<Vec<Path>>>()?;
 
+        // Invert the name -> id lookup into the id -> name map the DTO stores.
+        let node_name_map = name_to_id
+            .into_iter()
+            .map(|(name, id)| (id, name))
+            .collect();
+
         Ok(CoreGraphDTO {
             nodes,
             edges,
             paths,
-            node_name_map: Some(mapping),
+            node_name_map: Some(node_name_map),
         })
     }
 }
