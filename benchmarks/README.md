@@ -68,15 +68,16 @@ DBG_MEMORY_K="31" DBG_MEMORY_THREADS="1 8" PANGRAPHX_BENCH_DATA_DIR=auto \
     cargo bench -p pangraphx-core --bench dbg_memory
 ```
 
-This bench swaps in a peak-tracking global allocator. Each configuration runs
-one at a time and reports heap bytes:
+This bench swaps in a peak-tracking global allocator. Modes are `standard`,
+`colored`, `full_topology`, `compact` and `colored_compact` (the last two use
+unitig output). Each configuration runs one at a time and reports heap bytes:
 
 | Column | Meaning |
 |--------|---------|
 | input | the parsed input graph |
 | build peak | peak during construction |
 | retained | heap the finished DBG holds |
-| total peak | peak including conversion to a `CoreGraphDTO` |
+| total peak | peak including conversion to a `CoreGraphDTO` (or compaction) |
 | B/bp | total peak per path base |
 
 Heap bytes don't depend on the OS or the allocator's page reuse, which makes
@@ -135,7 +136,7 @@ A missing external tool is skipped with a warning. A failing step is written to
 
 ```bash
 benchmarks/dbg.sh mycoplasma_genitalium merged
-K_VALUES="31" THREADS="1 2 4 8" MODES="standard colored" benchmarks/dbg.sh ecoli50
+K_VALUES="31" THREADS="1 2 4 8" MODES="standard colored compact" benchmarks/dbg.sh ecoli50
 ```
 
 This runs `pangraphx-cli ddb` for each dataset × mode × *k* × thread count
@@ -144,62 +145,72 @@ time, both to `dbg.csv` and to `dbg.md`.
 
 ### DBG memory: why it's guarded
 
-DBG construction memory grows with total **path bases**, and **with thread
-count**. Measured at k = 31 on a 10 MB synthetic GFA with 32 Mbp of paths:
+DBG memory scales with the number of **distinct k-mers**, which is about the
+total node sequence length of the input, and not with the thread count.
+Uncompacted output (one node per k-mer) dominates the peak; `--compact`
+(unitigs) is far smaller. Heap measured with `dbg_memory` at k = 31 on an
+8-path, 16 Mbp-of-paths subset of `random_medium.gfa` (5.2 M distinct
+k-mers), before and after the construction rework:
 
-| Threads | Construction heap | per path base |
-|--------:|------------------:|--------------:|
-| 1 | 5.7 GiB | 188 B |
-| 2 | 6.8 GiB | 222 B |
-| 4 | 11.4 GiB | 376 B |
-| 8 | 14.5 GiB | 478 B |
+| Mode | Before, 1 thread | Before, 8 threads | After, 1 thread | After, 8 threads |
+|------|-----------------:|------------------:|----------------:|-----------------:|
+| standard: construction peak | 2.8 GiB | 7.0 GiB | 189 MiB | 189 MiB |
+| standard: incl. DTO, per path base | 188 B | 470 B | 31 B | 31 B |
+| colored: incl. DTO, per path base | 238 B | 527 B | 45 B | 48 B |
+| `--compact`: total, per path base | — | — | 12 B | 12 B |
+| colored `--compact`: total, per path base | — | — | 14 B | 14 B |
 
-The CLI end-to-end adds the DTO conversion and the output write, about
-280 B/bp RSS on one thread. So:
+(The old numbers were also *wrong*: the old extraction restarted the k-mer
+window at every node, so it found 4.8 M instead of 5.2 M k-mers here, and only
+36 K of mycoplasma's 573 K.)
+
+End-to-end via the CLI, the GFA serializer formats all output lines at once,
+which adds ~140 B per uncompacted k-mer on top of the DTO. So:
 
 - **Never run DBG benchmarks in parallel** with each other or with other
   benchmarks. `dbg.sh` runs one configuration at a time.
-- **Pre-flight estimate.** `pangraphx-cli stats` gives the total path bp. The
-  estimate is `3 × file + bp × DBG_BYTES_PER_BP × (1 + 0.25 × (threads − 1))`,
-  with a default of 300 B/bp. Configurations whose estimate exceeds
-  `DBG_MEM_BUDGET_MIB` (default 60 % of RAM) are recorded as
-  `skipped-estimate`.
+- **Pre-flight estimate.** `pangraphx-cli stats` gives the node and path
+  lengths. The estimate is
+  `64 MiB + 3 × file + node_bp × per_node + path_bp × per_step`, where
+  `per_node` is `DBG_BYTES_PER_NODE_BP` (default 240) or, for the compact
+  modes, `DBG_COMPACT_BYTES_PER_NODE_BP` (default 60). `per_step` is
+  `DBG_BYTES_PER_STEP_BP` (default 32) for uncompacted colored output and 0
+  otherwise. Configurations whose estimate exceeds `DBG_MEM_BUDGET_MIB`
+  (default 60 % of RAM) are recorded as `skipped-estimate`.
 - **Watchdog.** Every run is polled every 0.2 s:
   - A run whose RSS goes over the budget is killed and recorded as `oom-guard`.
     The larger thread counts of that mode and *k* are then skipped.
   - A run that exceeds `DBG_TIMEOUT_S` (default 1800) is recorded as `timeout`.
   - Polling lets a fast allocation burst overshoot a little, so keep the budget
     well below physical RAM.
-- **Full topology.** It enumerates graph walks and can blow up independently
-  of path length. It is skipped above `DBG_FULL_TOPOLOGY_MAX_BP` (default
-  5 Mbp) unless `DBG_ALLOW_FULL_TOPOLOGY=1` is set.
+- **Full topology.** It follows every walk for k bases from every oriented
+  node, so dense regions can still branch heavily. It is skipped above
+  `DBG_FULL_TOPOLOGY_MAX_BP` (default 5 Mbp) unless `DBG_ALLOW_FULL_TOPOLOGY=1`
+  is set.
 
-### Ideas for reducing DBG memory (future work)
+### How DBG construction keeps memory down
 
-1. Store `k` once per graph instead of in every `Kmer`. That makes `Kmer` 16 B
-   (`u128`) instead of 32 B, or 8 B (`u64`) when k ≤ 32. `OrientedKmer` and
-   `DbgEdge` shrink with it.
-2. Stream path k-mers straight into the sets instead of first collecting
-   `HashMap<&Path, Vec<OrientedKmer>>` for **all** paths. That vector alone is
-   ~48 B per path base.
-3. Replace the overlapping per-split `fold`/`reduce` sets with one sharded
-   concurrent set, or partition k-mers by hash across threads. This removes
-   the growth with thread count shown above.
-4. Pack the orientation into a spare bit of the code.
-5. Use sort + dedup on `Vec`s (or a radix sort) instead of `HashSet`s, to avoid
-   the hash-table overhead.
-6. In `From<DeBruijn> for CoreGraphDTO`, build the node sequences in place
-   instead of going through a `HashMap<Kmer, Node>` and cloning every sequence.
+1. k-mers are bare 2-bit words: `u64` for k ≤ 31, `u128` up to k = 63, with k
+   stored once per graph. An edge is its canonical (k+1)-mer, a single word,
+   so an edge and its reverse-complement twin are one entry.
+2. Paths are streamed. A rolling window keeps the forward and
+   reverse-complement codes in O(1) per base and feeds the sets directly. No
+   per-path k-mer vectors exist. Long paths are split into ~1 Mbp chunks for
+   parallelism.
+3. All threads insert into one sharded set (256 locked shards with per-thread
+   insert buffers), so memory does not grow with the thread count.
+4. The sets are drained into sorted vectors, so the node id is the k-mer's
+   rank and a lookup is a binary search: no id hash map and deterministic
+   output.
+5. Colored paths are recorded in a second pass as packed 4-byte steps.
+6. `--compact` turns the edges into a 1-byte successor mask per k-mer, drops
+   the edge table, and walks precomputed joins into unitigs.
+
+Remaining headroom: the GFA serializer could stream lines instead of
+formatting all of them first, which matters most for uncompacted output.
 
 `cargo bench --bench dbg_memory` and `dbg.sh` before and after a change show
 the effect.
-
-> **Caveat (as of this writing).** Path-based extraction
-> (`extract_kmers_from_path`) restarts the k-mer window at every node, so no
-> k-mer spans a node boundary. Graphs with short nodes therefore produce few
-> or no k-mers: phage λ's nodes average 32 bp, and at k = 63 its DBG is empty.
-> Their path-mode memory numbers are too low. Expect them to rise once
-> extraction spans nodes.
 
 ## Results layout
 

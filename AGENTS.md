@@ -33,6 +33,7 @@ Every change implement in a separate branch describing the request,  commit your
   - `formats/`: Format-specific logic (GFA, GBZ, VG, FastG).
     - Each format has a codec struct (e.g., `GBZCodec`, `GFACodec`) implementing generic traits.
   - `de_bruijn_conversion/`: Algorithms for de Bruijn graph construction and k-mer processing.
+    - `word.rs` (2-bit `u64`/`u128` words, `RollingWindow`), `extraction.rs` (streaming path / bidirected topology walkers), `kmer_set.rs` (sharded concurrent set), `compaction.rs` (unitigs). `DeBruijn` stores sorted k-mer and canonical (k+1)-mer tables; node id = rank. Keep per-k-mer state to a few bytes and never materialize per-path k-mer vectors.
   - `traits/`: Defines `GraphParser` and `GraphSerializer`.
 - **`pangraphx-cli`**: The command-line interface.
   - `cli/args_parser.rs`: `clap` definitions for subcommands (`Convert`, `DBG`, `Info`, `Validate`, `Formats`).
@@ -72,7 +73,7 @@ Every change implement in a separate branch describing the request,  commit your
 - **External Tools**:
   - `utils/generate_gfa.py`: Helper script to generate GFA files for testing.
   - `utils/download_gfa.sh`: Fetches the large benchmark graphs into `benchmarks/data/`.
-  - `benchmarks/`: `compare_tools.sh` (time vs vg/odgi), `peak_memory.sh` (RSS), `dbg.sh` (memory-guarded DBG sweep); shared helpers in `lib.sh`/`ops.sh`. See `benchmarks/README.md`. Never run DBG benchmarks in parallel — memory grows with path bases and thread count.
+  - `benchmarks/`: `compare_tools.sh` (time vs vg/odgi), `peak_memory.sh` (RSS), `dbg.sh` (memory-guarded DBG sweep); shared helpers in `lib.sh`/`ops.sh`. See `benchmarks/README.md`. Never run DBG benchmarks in parallel — memory grows with the number of distinct k-mers (≈ node sequence length), and uncompacted output dominates.
   - `utils/generate_test_files.sh`: Derives the VG/GBZ/FASTG/OG test fixtures from the committed GFA files (gitignored). Use `--external` to build reference files with `vg`/`odgi` for cross-validation.
   - The project interacts with standard bioinformatics formats (GFA v1.0, GFA v1.1 locally supported extensions, GBZ, VG).
 
