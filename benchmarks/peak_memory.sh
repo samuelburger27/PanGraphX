@@ -1,122 +1,99 @@
 #!/usr/bin/env bash
 #
 # peak_memory.sh — peak resident-set-size (RSS) comparison of PanGraphX against
-# `vg` and `odgi`. hyperfine measures time only, so this companion uses GNU
-# `/usr/bin/time -v` to capture max memory per conversion.
+# `vg` and `odgi`, for the same operations and inputs as compare_tools.sh
+# (hyperfine measures time only).
 #
-# Linux only (relies on GNU time's "Maximum resident set size" line). Missing
-# external tools are skipped.
+# Usage:
+#   benchmarks/peak_memory.sh [DATASET ...]
 #
-# Output: benchmarks/results/peak_memory.md (Markdown table, RSS in MiB).
+# Peak RSS comes from GNU time (`-v`) on Linux or the built-in BSD time (`-l`)
+# on macOS. Each command is run MEM_REPS times and the median is reported.
+# Commands run one at a time, so measurements never compete for memory.
 #
-# Usage: benchmarks/peak_memory.sh [DATASET ...]
+# Environment:
+#   PANGRAPHX_BIN, SKIP_BUILD, OPS, WORK, RESULTS_DIR — as in compare_tools.sh
+#   MEM_REPS       repetitions per command (default 3)
 #
-# By default PanGraphX is expected at target/release/pangraphx-cli. To measure
-# a pre-built executable instead, set PANGRAPHX_BIN to its path:
-#   PANGRAPHX_BIN=/path/to/pangraphx-cli benchmarks/peak_memory.sh
+# Output (in results/peak_memory/<run>/): peak_memory.md (table, MiB),
+# peak_memory.csv (one row per tool and operation), env.txt.
 
 set -euo pipefail
+# shellcheck source=lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=ops.sh
+source "$BENCH_DIR/ops.sh"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TESTDIR="$REPO_ROOT/pangraphx-core/tests/test_files"
-RESULTS="$SCRIPT_DIR/results"
-PANGRAPHX="$REPO_ROOT/target/release/pangraphx-cli"
-OUT="$RESULTS/peak_memory.md"
+MEM_REPS="${MEM_REPS:-3}"
 
-if [[ $# -gt 0 ]]; then
-    DATASETS=("$@")
-else
-    DATASETS=(escherichia_phage_lambda mycoplasma_genitalium merged)
+detect_time
+discover_tools
+ensure_pangraphx
+select_datasets "$@"
+init_run_dir peak_memory
+
+if [[ -z "${WORK:-}" ]]; then
+    WORK="$(mktemp -d)"
+    trap 'rm -rf "$WORK"' EXIT
 fi
+read -r -a OPS_SELECTED <<<"${OPS:-${ALL_OPS[*]}}"
 
-mkdir -p "$RESULTS"
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
-
-have() { command -v "$1" >/dev/null 2>&1; }
-
-# Pick a GNU-time binary (named 'time' on most Linux distros; 'gtime' via brew).
-TIME_BIN=""
-for t in /usr/bin/time gtime; do
-    if "$t" -v true >/dev/null 2>&1; then TIME_BIN="$t"; break; fi
-done
-if [[ -z "$TIME_BIN" ]]; then
-    echo "ERROR: GNU 'time' (supporting -v) not found. On Debian/Ubuntu: apt install time." >&2
-    exit 1
-fi
-
-HAVE_VG=false; have vg && HAVE_VG=true || echo "WARNING: 'vg' not found — skipping." >&2
-HAVE_ODGI=false; have odgi && HAVE_ODGI=true || echo "WARNING: 'odgi' not found — skipping." >&2
-
-if [[ -n "${PANGRAPHX_BIN:-}" ]]; then
-    PANGRAPHX="$PANGRAPHX_BIN"
-    if [[ ! -x "$PANGRAPHX" ]]; then
-        echo "ERROR: PANGRAPHX_BIN is set but not executable: $PANGRAPHX" >&2
-        exit 1
-    fi
-    echo ">>> Using pre-built PanGraphX: $PANGRAPHX"
-elif [[ ! -x "$PANGRAPHX" ]]; then
-    echo "ERROR: PanGraphX binary not found at $PANGRAPHX (build it first)." >&2
-    exit 1
-fi
-
-# measure_rss <cmd> -> peak RSS in MiB (one decimal), or "ERR".
-measure_rss() {
-    local cmd="$1" tmp kb
-    tmp="$(mktemp)"
-    if ! "$TIME_BIN" -v sh -c "$cmd" >/dev/null 2>"$tmp"; then
-        cat "$tmp" >&2; rm -f "$tmp"; echo "ERR"; return
-    fi
-    kb="$(grep -i 'Maximum resident set size' "$tmp" | grep -oE '[0-9]+' | tail -1)"
-    rm -f "$tmp"
-    if [[ -z "$kb" ]]; then echo "ERR"; else awk "BEGIN{printf \"%.1f\", $kb/1024}"; fi
-}
-
-# row <dataset> <operation> <pangraphx-cmd> <other-tool> <other-cmd>
-row() {
-    local ds="$1" op="$2" pxcmd="$3" tool="$4" toolcmd="$5"
-    local px other
-    px="$(measure_rss "$pxcmd")"
-    other="$(measure_rss "$toolcmd")"
-    echo "| $ds | $op | $px | $tool | $other |" >>"$OUT"
-    echo "  $ds $op: pangraphx=${px} MiB, ${tool}=${other} MiB"
-}
-
+MD="$RUN_DIR/peak_memory.md"
+CSV="$RUN_DIR/peak_memory.csv"
 {
-    echo "# Peak memory comparison (RSS, MiB)"
+    echo "# Peak memory (RSS, MiB, median of $MEM_REPS runs)"
     echo
     echo "| Dataset | Operation | PanGraphX | Tool | Tool RSS |"
-    echo "|---------|-----------|-----------|------|----------|"
-} >"$OUT"
+    echo "|---------|-----------|----------:|------|---------:|"
+} >"$MD"
+echo "dataset,operation,tool,rss_mib,wall_s,status" >"$CSV"
+
+# median_of <cmd> <label> — runs <cmd> MEM_REPS times and sets MED_RSS / MED_WALL
+# to the medians, or MED_RSS / MED_STATUS to the failure status on error.
+median_of() {
+    local cmd="$1" label="$2" i rss_samples=() wall_samples=()
+    for (( i = 0; i < MEM_REPS; i++ )); do
+        measure "$cmd"
+        if [[ "$M_STATUS" != ok ]]; then
+            MED_RSS="$M_STATUS"; MED_STATUS="$M_STATUS"
+            record_failure "$label" "$M_STATUS: $cmd"
+            return
+        fi
+        rss_samples+=("$M_RSS_MIB")
+        wall_samples+=("$M_WALL_S")
+    done
+    MED_STATUS=ok
+    MED_RSS="$(median "${rss_samples[@]}")"
+    MED_WALL="$(median "${wall_samples[@]}")"
+}
 
 for ds in "${DATASETS[@]}"; do
-    gfa="$TESTDIR/gfa/$ds.gfa"; vg="$TESTDIR/vg/$ds.vg"; gbz="$TESTDIR/gbz/$ds.gbz"; og="$TESTDIR/og/$ds.og"
-    echo ">>> Dataset: $ds"
+    if ! gfa="$(resolve_dataset "$ds")"; then skip_banner "$ds"; continue; fi
+    name="$(dataset_name "$ds")"
+    dir="$WORK/$name"
+    dataset_banner "$name ($gfa)"
+    prepare_inputs "$dir" "$gfa"
 
-    if $HAVE_VG; then
-        [[ -f "$gfa" ]] && row "$ds" "GFA->VG" \
-            "$PANGRAPHX convert -i $gfa -o $WORK/px.vg" \
-            "vg" "vg convert --gfa-in --vg-out $gfa > $WORK/vg.vg"
-        [[ -f "$vg" ]] && row "$ds" "VG->GFA" \
-            "$PANGRAPHX convert -i $vg -o $WORK/px.gfa" \
-            "vg" "vg convert --gfa-out $vg > $WORK/vg.gfa"
-        [[ -f "$gfa" ]] && row "$ds" "GFA->GBZ" \
-            "$PANGRAPHX convert -i $gfa -o $WORK/px.gbz" \
-            "vg" "vg gbwt -G $gfa -g $WORK/vg.gbz"
-        [[ -f "$gbz" ]] && row "$ds" "GBZ->GFA" \
-            "$PANGRAPHX convert -i $gbz -o $WORK/px.gfa" \
-            "vg" "vg convert --gfa-out $gbz > $WORK/vg.gfa"
-    fi
-    if $HAVE_ODGI; then
-        [[ -f "$gfa" ]] && row "$ds" "GFA->OG" \
-            "$PANGRAPHX convert -i $gfa -o $WORK/px.og" \
-            "odgi" "odgi build -g $gfa -o $WORK/odgi.og"
-        [[ -f "$og" ]] && row "$ds" "OG->GFA" \
-            "$PANGRAPHX convert -i $og -o $WORK/px.gfa" \
-            "odgi" "odgi view -i $og -g > $WORK/odgi.gfa"
-    fi
+    for op in "${OPS_SELECTED[@]}"; do
+        if ! op_available "$op"; then continue; fi
+        if ! op_ready "$op" "$dir" "$gfa"; then
+            record_failure "$op $name" "missing input $(op_input "$op" "$dir" "$gfa")"
+            continue
+        fi
+        tool="$(op_tool "$op")"
+
+        MED_WALL=NA
+        median_of "$(op_px_cmd "$op" "$dir" "$gfa")" "$op $name pangraphx"
+        px_rss="$MED_RSS"; px_wall="$MED_WALL"; px_status="$MED_STATUS"
+        MED_WALL=NA
+        median_of "$(op_tool_cmd "$op" "$dir" "$gfa")" "$op $name $tool"
+        tool_rss="$MED_RSS"; tool_wall="$MED_WALL"; tool_status="$MED_STATUS"
+
+        echo "| $name | $(op_title "$op") | $px_rss | $tool | $tool_rss |" >>"$MD"
+        echo "$name,$op,pangraphx,$px_rss,$px_wall,$px_status" >>"$CSV"
+        echo "$name,$op,$tool,$tool_rss,$tool_wall,$tool_status" >>"$CSV"
+        echo "  $(op_title "$op"): pangraphx=${px_rss} MiB, ${tool}=${tool_rss} MiB"
+    done
 done
 
-echo
-echo ">>> Wrote $OUT"
+finish_run

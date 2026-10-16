@@ -16,7 +16,9 @@ zstd -d ecoli50.gfa.zst
 https://cortexassembler.sourceforge.net
 
 
-Download them with [`utils/download_gfa.sh`](../../../utils/download_gfa.sh).
+Download them with [`utils/download_gfa.sh`](../../../utils/download_gfa.sh),
+which puts them in `benchmarks/data/` (they are benchmark inputs, not test
+fixtures).
 
 Only the `gfa/` files are checked into the repository. The `vg/`, `gbz/`,
 `fastg/` and `og/` fixtures are generated from the GFA files with
