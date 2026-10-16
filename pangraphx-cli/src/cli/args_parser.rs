@@ -66,8 +66,13 @@ pub struct StatsArgs {
 
 #[derive(Args, Debug)]
 pub struct DeBruijnArgs {
-    /// k-mer size
-    #[arg(short = 'k', long, default_value_t = 31)]
+    /// k-mer size (1-63)
+    #[arg(
+        short = 'k',
+        long,
+        default_value_t = 31,
+        value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..=63)
+    )]
     pub kmer_size: usize,
 
     /// Colored DBG

@@ -31,7 +31,7 @@
 mod common;
 
 use common::{DbgInput, dbg_inputs, workspace_root};
-use pangraphx_core::{ColoredDBG, CoreGraphDTO, DeBruijn};
+use pangraphx_core::{ColoredDBG, CoreGraphDTO, DeBruijn, PanResult};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -150,12 +150,13 @@ fn measure(dto: &CoreGraphDTO, mode: Mode, k: usize) -> Sample {
     PeakAlloc::reset_peak();
 
     let (build_peak, retained, out) = match mode {
-        Mode::Standard => after_build(base, DeBruijn::from_directed_graph(graph, k)),
+        Mode::Standard => after_build(base, standard(graph, k), CoreGraphDTO::try_from),
         Mode::FullTopology => after_build(
             base,
-            DeBruijn::from_directed_graph_full_topography(graph, k),
+            DeBruijn::from_directed_graph_full_topology(graph, k).expect("valid k"),
+            CoreGraphDTO::try_from,
         ),
-        Mode::Colored => after_build(base, ColoredDBG::from_directed_graph(graph, k)),
+        Mode::Colored => after_build(base, colored(graph, k), CoreGraphDTO::try_from),
     };
     Sample {
         input,
@@ -167,11 +168,23 @@ fn measure(dto: &CoreGraphDTO, mode: Mode, k: usize) -> Sample {
     }
 }
 
+fn standard(graph: CoreGraphDTO, k: usize) -> DeBruijn {
+    DeBruijn::from_directed_graph(graph, k).expect("valid k")
+}
+
+fn colored(graph: CoreGraphDTO, k: usize) -> ColoredDBG {
+    ColoredDBG::from_directed_graph(graph, k).expect("valid k")
+}
+
 /// Records the construction peak and retained size, then converts to a DTO.
-fn after_build(base: usize, dbg: impl Into<CoreGraphDTO>) -> (usize, usize, CoreGraphDTO) {
+fn after_build<D>(
+    base: usize,
+    dbg: D,
+    to_dto: impl FnOnce(D) -> PanResult<CoreGraphDTO>,
+) -> (usize, usize, CoreGraphDTO) {
     let build_peak = PeakAlloc::peak().saturating_sub(base);
     let retained = PeakAlloc::current().saturating_sub(base);
-    (build_peak, retained, dbg.into())
+    (build_peak, retained, to_dto(dbg).expect("DTO conversion"))
 }
 
 fn env_list(name: &str, default: &[usize]) -> Vec<usize> {

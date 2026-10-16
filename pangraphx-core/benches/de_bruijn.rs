@@ -76,7 +76,7 @@ fn bench_dbg_modes(c: &mut Criterion) {
             |b| {
                 b.iter_batched(
                     || dto.clone(),
-                    |graph| DeBruijn::from_directed_graph_full_topography(graph, MODE_K),
+                    |graph| DeBruijn::from_directed_graph_full_topology(graph, MODE_K),
                     BatchSize::LargeInput,
                 );
             },

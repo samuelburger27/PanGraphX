@@ -46,8 +46,8 @@
 //!     let parser = GraphFormat::VG.get_parser();
 //!     let graph: CoreGraphDTO = parser.parse(&mut input)?;
 //!
-//!     let dbg = DeBruijn::from_directed_graph(graph, 31);
-//!     let _as_core: CoreGraphDTO = dbg.into();
+//!     let dbg = DeBruijn::from_directed_graph(graph, 31)?;
+//!     let _as_core = CoreGraphDTO::try_from(dbg)?;
 //!     Ok(())
 //! }
 //! ```
