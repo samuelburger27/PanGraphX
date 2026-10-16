@@ -51,3 +51,7 @@ harness = false
 [[bench]]
 name = "parallel"
 harness = false
+
+[[bench]]
+name = "dbg_memory"
+harness = false

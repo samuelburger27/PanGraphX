@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Download large GFA test files and extract them into the GFA test file folder.
+# Download the large benchmark GFA graphs into benchmarks/data/, where the
+# benchmark scripts and `PANGRAPHX_BENCH_DATA_DIR=auto` look for them.
 # Sources: pangraphx-core/tests/test_files/source.md
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GFA_DIR="$(cd "${SCRIPT_DIR}/../pangraphx-core/tests/test_files/gfa" && pwd)"
+GFA_DIR="${SCRIPT_DIR}/../benchmarks/data"
+mkdir -p "${GFA_DIR}"
+GFA_DIR="$(cd "${GFA_DIR}" && pwd)"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT

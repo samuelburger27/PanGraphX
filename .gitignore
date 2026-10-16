@@ -28,6 +28,10 @@ pangraphx-core/merged.rs
 # giant gfa files are downloaded with a script and are not needed in the repo
 ecoli50.gfa
 chr22.hprc-v1.1-mc-grch38.gfa
+benchmarks/data/
+
+# benchmark runs (one timestamped directory per run, see benchmarks/README.md)
+benchmarks/results/
 
 # Derived test fixtures (VG/GBZ/FASTG/OG) are generated from the committed GFA
 # files by utils/generate_test_files.sh; only GFA is checked in.

@@ -1,10 +1,12 @@
-# PanGraphX Copilot Instructions
-
+# PanGraphX 
 ## Project Guidelines
 
 PanGraphX is a Rust workspace consisting of a core library (`pangraphx-core`) and a CLI tool (`pangraphx-cli`) for converting, inspecting, and manipulating Pangenome Graph formats.
 
 - **Key Crates**: `anyhow` (CLI error handling), `thiserror` (Library error definitions), `clap` (CLI argument parsing), `log` (logging).
+
+## Rules
+Every change implement in a separate branch describing the request,  commit your work with short descriptive commit messages, **do not push your changes**
 
 ## Code Style
 
@@ -69,6 +71,8 @@ PanGraphX is a Rust workspace consisting of a core library (`pangraphx-core`) an
 
 - **External Tools**:
   - `utils/generate_gfa.py`: Helper script to generate GFA files for testing.
+  - `utils/download_gfa.sh`: Fetches the large benchmark graphs into `benchmarks/data/`.
+  - `benchmarks/`: `compare_tools.sh` (time vs vg/odgi), `peak_memory.sh` (RSS), `dbg.sh` (memory-guarded DBG sweep); shared helpers in `lib.sh`/`ops.sh`. See `benchmarks/README.md`. Never run DBG benchmarks in parallel — memory grows with path bases and thread count.
   - `utils/generate_test_files.sh`: Derives the VG/GBZ/FASTG/OG test fixtures from the committed GFA files (gitignored). Use `--external` to build reference files with `vg`/`odgi` for cross-validation.
   - The project interacts with standard bioinformatics formats (GFA v1.0, GFA v1.1 locally supported extensions, GBZ, VG).
 

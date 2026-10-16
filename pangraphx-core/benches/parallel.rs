@@ -5,19 +5,16 @@
 //! `ThreadPoolBuilder::install`, with `n = 1` serving as the sequential
 //! baseline, so criterion plots a speedup curve over thread count.
 //!
-//! The fixture is the largest GFA available: the curated `merged.gfa` by
-//! default, or the biggest file in `PANGRAPHX_BENCH_DATA_DIR` when set. Huge
-//! inputs are streamed from disk; DBG construction is skipped for inputs at or
-//! above [`DBG_MAX_BYTES`] because the in-memory de Bruijn graph would be
-//! impractically large.
+//! Parse and serialize use the largest GFA available (the curated `merged.gfa`
+//! by default, or the biggest file in `PANGRAPHX_BENCH_DATA_DIR` when set);
+//! huge inputs are streamed from disk. DBG construction uses the largest input
+//! under the de Bruijn path-base cap instead, since its memory grows with both
+//! path bases and thread count (`dbg_memory` measures exactly that).
 #![allow(clippy::missing_panics_doc)]
 
 mod common;
 
-use common::{
-    DBG_MAX_BYTES, MIN_SAMPLE_SIZE, largest_input, parse_bytes, parse_file, parse_input,
-    read_bytes, set_timing,
-};
+use common::{Source, configure, dbg_inputs, largest_input, serialize_bytes};
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use pangraphx_core::{DeBruijn, GraphFormat};
 use rayon::ThreadPool;
@@ -44,25 +41,18 @@ fn build_pool(n: usize) -> ThreadPool {
 
 /// Group `parallel_dbg`: de Bruijn construction scaled across thread counts.
 fn bench_parallel_dbg(c: &mut Criterion) {
-    let input = largest_input();
-    if input.size >= DBG_MAX_BYTES {
-        eprintln!(
-            "skipping parallel_dbg: fixture {} ({} bytes) is at or above the {} MiB de Bruijn cap",
-            input.label,
-            input.size,
-            DBG_MAX_BYTES / (1024 * 1024)
-        );
+    let Some(input) = dbg_inputs(&["merged"]).pop() else {
+        eprintln!("skipping parallel_dbg: no input under the de Bruijn path-base cap");
         return;
-    }
+    };
 
-    let dto = parse_input(&input);
     let mut group = c.benchmark_group("parallel_dbg");
-    group.sample_size(10);
+    group.sample_size(common::MIN_SAMPLE_SIZE);
     for n in thread_counts() {
         let pool = build_pool(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
             b.iter_batched(
-                || dto.clone(),
+                || input.dto.clone(),
                 |graph| pool.install(|| DeBruijn::from_directed_graph(graph, DBG_K)),
                 BatchSize::LargeInput,
             );
@@ -74,26 +64,14 @@ fn bench_parallel_dbg(c: &mut Criterion) {
 /// Group `parallel_parse`: GFA parsing (edge/path construction uses `par_iter`).
 fn bench_parallel_parse(c: &mut Criterion) {
     let input = largest_input();
-    // Huge inputs are streamed from disk; everything else is pre-read once so
-    // the measurement stays CPU-only.
-    let bytes = if input.is_huge() {
-        None
-    } else {
-        Some(read_bytes(&input.path))
-    };
+    let source = Source::for_input(&input);
 
     let mut group = c.benchmark_group("parallel_parse");
-    set_timing(&mut group, &input);
-    group.sample_size(if input.is_huge() { MIN_SAMPLE_SIZE } else { 20 });
+    configure(&mut group, &input, None);
     for n in thread_counts() {
         let pool = build_pool(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
-            b.iter(|| {
-                pool.install(|| match bytes.as_deref() {
-                    Some(bytes) => parse_bytes(bytes, GraphFormat::GFA),
-                    None => parse_file(&input.path, GraphFormat::GFA),
-                })
-            });
+            b.iter(|| pool.install(|| source.parse(GraphFormat::GFA)));
         });
     }
     group.finish();
@@ -102,15 +80,11 @@ fn bench_parallel_parse(c: &mut Criterion) {
 /// Group `parallel_serialize`: GFA serialization (formats records with `par_iter`).
 fn bench_parallel_serialize(c: &mut Criterion) {
     let input = largest_input();
-    let dto = parse_input(&input);
-    let mut probe = Vec::new();
-    dto.save(&mut probe, GraphFormat::GFA)
-        .expect("probe serialization failed");
-    let out_len = probe.len();
+    let dto = input.parse();
+    let out_len = serialize_bytes(&dto, GraphFormat::GFA).len();
 
     let mut group = c.benchmark_group("parallel_serialize");
-    set_timing(&mut group, &input);
-    group.sample_size(if input.is_huge() { MIN_SAMPLE_SIZE } else { 20 });
+    configure(&mut group, &input, None);
     for n in thread_counts() {
         let pool = build_pool(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {

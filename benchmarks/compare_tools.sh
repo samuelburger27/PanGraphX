@@ -1,172 +1,86 @@
 #!/usr/bin/env bash
 #
 # compare_tools.sh — wall-clock comparison of PanGraphX against `vg` and `odgi`
-# for equivalent format-conversion operations, using hyperfine.
-#
-# Designed for Linux (odgi is effectively Linux-only). Any external tool that is
-# not installed is skipped with a warning, so the script degrades gracefully.
-#
-# Results are written to benchmarks/results/ as both Markdown (for the thesis)
-# and JSON (for further plotting).
+# for equivalent format conversions, using hyperfine.
 #
 # Usage:
 #   benchmarks/compare_tools.sh [DATASET ...]
-# With no arguments the default datasets below are used. A DATASET is the base
-# filename (without extension) of a GFA graph present under
-# pangraphx-core/tests/test_files/gfa/.
 #
-# By default PanGraphX is built from source with `cargo build --release`. To
-# benchmark a pre-built executable instead, set PANGRAPHX_BIN to its path:
-#   PANGRAPHX_BIN=/path/to/pangraphx-cli benchmarks/compare_tools.sh
+# A DATASET is a GFA base name looked up in benchmarks/data/ and then
+# pangraphx-core/tests/test_files/gfa/, or a path to a .gfa file. Without
+# arguments DEFAULT_DATASETS from lib.sh is used; missing ones are skipped.
 #
-# Only GFA files are used as the input dataset. For each target format the
-# forward conversion (GFA -> target) is benchmarked first; the target file
-# produced by the *original* tool (vg/odgi, not PanGraphX) is then reused as the
-# input for the reverse benchmark (target -> GFA).
+# The operations are defined once in ops.sh. Reverse conversions (X -> GFA)
+# read the X file produced by the reference tool, built once per dataset before
+# timing starts. Missing tools are skipped with a warning; a failing comparison
+# is recorded in failures.txt and the run continues.
+#
+# Environment:
+#   PANGRAPHX_BIN  benchmark this pre-built binary instead of building
+#   SKIP_BUILD=1   reuse target/release/pangraphx-cli without rebuilding
+#   WARMUP, RUNS   fixed hyperfine sampling (default: scaled by input size)
+#   OPS            space-separated subset of operations (default: all)
+#   WORK           directory for intermediate files (default: temporary)
+#   RESULTS_DIR    output directory (default: results/compare_tools/<run>/)
+#
+# Output (in the run directory): <op>_<dataset>.{md,json} per comparison,
+# summary.md with every table, and env.txt describing the machine and versions.
 
 set -euo pipefail
+# shellcheck source=lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=ops.sh
+source "$BENCH_DIR/ops.sh"
 
-# --- Locations ---------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TESTDIR="$REPO_ROOT/pangraphx-core/tests/test_files"
-RESULTS="$SCRIPT_DIR/results"
-PANGRAPHX="$REPO_ROOT/target/release/pangraphx-cli"
+have hyperfine || die "hyperfine is required (e.g. 'cargo install hyperfine')."
+discover_tools
+ensure_pangraphx
+select_datasets "$@"
+init_run_dir compare_tools
 
-WARMUP="${WARMUP:-3}"
-RUNS="${RUNS:-10}"
-
-# Default datasets (base names). Override by passing names as arguments.
-if [[ $# -gt 0 ]]; then
-    DATASETS=("$@")
-else
-    # DATASETS=(escherichia_phage_lambda mycoplasma_genitalium merged ecoli50 chr22.hprc-v1.1-mc-grch38)
-    DATASETS=(escherichia_phage_lambda mycoplasma_genitalium merged)
+if [[ -z "${WORK:-}" ]]; then
+    WORK="$(mktemp -d)"
+    trap 'rm -rf "$WORK"' EXIT
 fi
+read -r -a OPS_SELECTED <<<"${OPS:-${ALL_OPS[*]}}"
 
-mkdir -p "$RESULTS"
+SUMMARY="$RUN_DIR/summary.md"
+echo "# PanGraphX vs. vg / odgi — wall-clock time" >"$SUMMARY"
 
-# Scratch dir for conversion outputs; cleaned up on exit.
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
-
-# --- Tool discovery ----------------------------------------------------------
-have() { command -v "$1" >/dev/null 2>&1; }
-
-if ! have hyperfine; then
-    echo "ERROR: hyperfine is required but not found on PATH." >&2
-    echo "       Install it (e.g. 'cargo install hyperfine' or via your package manager)." >&2
-    exit 1
-fi
-
-HAVE_VG=false
-HAVE_ODGI=false
-have vg && HAVE_VG=true || echo "WARNING: 'vg' not found — skipping vg comparisons." >&2
-have odgi && HAVE_ODGI=true || echo "WARNING: 'odgi' not found — skipping odgi comparisons." >&2
-
-# --- Build (or reuse) PanGraphX -----------------------------------------------
-# PANGRAPHX_BIN lets you benchmark a pre-built executable instead of building
-# from source (which requires `cargo`). It must support the `convert` subcommand.
-if [[ -n "${PANGRAPHX_BIN:-}" ]]; then
-    PANGRAPHX="$PANGRAPHX_BIN"
-    if [[ ! -x "$PANGRAPHX" ]]; then
-        echo "ERROR: PANGRAPHX_BIN is set but not executable: $PANGRAPHX" >&2
-        exit 1
-    fi
-    echo ">>> Using pre-built PanGraphX: $PANGRAPHX"
-else
-    # Build PanGraphX (release, with odgi so .og conversions work)
-    if $HAVE_ODGI; then
-        echo ">>> Building PanGraphX (release, --features odgi)..."
-        cargo build --release --features odgi --manifest-path "$REPO_ROOT/Cargo.toml"
-    else
-        echo ">>> Building PanGraphX (release)..."
-        cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml"
-    fi
-
-    if [[ ! -x "$PANGRAPHX" ]]; then
-        echo "ERROR: PanGraphX binary not found at $PANGRAPHX" >&2
-        exit 1
-    fi
-fi
-
-# --- Comparison helper -------------------------------------------------------
-# run_compare <title> <outbase> <name::cmd> [<name::cmd> ...]
-# Each command is a single string executed by hyperfine via 'sh -c', so shell
-# redirections inside the string work as written.
-run_compare() {
-    local title="$1"; shift
-    local outbase="$1"; shift
-    local hf_args=(
-        --warmup "$WARMUP" --runs "$RUNS"
-        --export-markdown "$RESULTS/$outbase.md"
-        --export-json "$RESULTS/$outbase.json"
-    )
-    local spec name cmd
-    for spec in "$@"; do
-        name="${spec%%::*}"
-        cmd="${spec#*::}"
-        hf_args+=(--command-name "$name" "$cmd")
-    done
-    echo
-    echo "=== $title ==="
-    hyperfine "${hf_args[@]}"
-}
-
-# --- Per-dataset comparisons -------------------------------------------------
 for ds in "${DATASETS[@]}"; do
-    gfa="$TESTDIR/gfa/$ds.gfa"
+    if ! gfa="$(resolve_dataset "$ds")"; then skip_banner "$ds"; continue; fi
+    name="$(dataset_name "$ds")"
+    dir="$WORK/$name"
+    dataset_banner "$name ($gfa)"
 
-    echo
-    echo "############################################################"
-    echo "# Dataset: $ds"
-    echo "############################################################"
+    sampling_for_size "$(file_size "$gfa")"
+    prepare_inputs "$dir" "$gfa"
+    printf '\n## %s (warmup %s, runs %s)\n' "$name" "$HF_WARMUP" "$HF_RUNS" >>"$SUMMARY"
 
-    if [[ ! -f "$gfa" ]]; then
-        echo "SKIP: no GFA input at $gfa" >&2
-        continue
-    fi
+    for op in "${OPS_SELECTED[@]}"; do
+        if ! op_available "$op"; then continue; fi
+        if ! op_ready "$op" "$dir" "$gfa"; then
+            record_failure "$op $name" "missing input $(op_input "$op" "$dir" "$gfa")"
+            continue
+        fi
+        tool="$(op_tool "$op")"
+        out="$RUN_DIR/${op}_$name"
 
-    # GFA <-> VG  vs. vg convert
-    if $HAVE_VG; then
-        # Forward: GFA -> VG. The VG produced by vg is reused below as input.
-        vg_input="$WORK/${ds}_vg.vg"
-        run_compare "GFA -> VG ($ds)" "gfa_to_vg_$ds" \
-            "pangraphx::$PANGRAPHX convert -i $gfa -o $WORK/${ds}_px.vg" \
-            "vg::vg convert --gfa-in --vg-out $gfa > $vg_input"
-
-        # Reverse: VG -> GFA, reusing the vg-produced VG file.
-        run_compare "VG -> GFA ($ds)" "vg_to_gfa_$ds" \
-            "pangraphx::$PANGRAPHX convert -i $vg_input -o $WORK/${ds}_px.gfa" \
-            "vg::vg convert --gfa-out $vg_input > $WORK/${ds}_vg.gfa"
-
-        # GFA <-> GBZ  vs. vg gbwt (build) / vg convert (view)
-        # Forward: GFA -> GBZ. The GBZ produced by vg is reused below as input.
-        gbz_input="$WORK/${ds}_vg.gbz"
-        run_compare "GFA -> GBZ ($ds)" "gfa_to_gbz_$ds" \
-            "pangraphx::$PANGRAPHX convert -i $gfa -o $WORK/${ds}_px.gbz" \
-            "vg::vg gbwt -G $gfa -g $gbz_input"
-
-        # Reverse: GBZ -> GFA, reusing the vg-produced GBZ file.
-        run_compare "GBZ -> GFA ($ds)" "gbz_to_gfa_$ds" \
-            "pangraphx::$PANGRAPHX convert -i $gbz_input -o $WORK/${ds}_px.gfa" \
-            "vg::vg convert --gfa-out $gbz_input > $WORK/${ds}_vg.gfa"
-    fi
-
-    # GFA <-> OG  vs. odgi build / odgi view
-    if $HAVE_ODGI; then
-        # Forward: GFA -> OG. The OG produced by odgi is reused below as input.
-        og_input="$WORK/${ds}_odgi.og"
-        run_compare "GFA -> OG ($ds)" "gfa_to_og_$ds" \
-            "pangraphx::$PANGRAPHX convert -i $gfa -o $WORK/${ds}_px.og" \
-            "odgi::odgi build -g $gfa -o $og_input"
-
-        # Reverse: OG -> GFA, reusing the odgi-produced OG file.
-        run_compare "OG -> GFA ($ds)" "og_to_gfa_$ds" \
-            "pangraphx::$PANGRAPHX convert -i $og_input -o $WORK/${ds}_px.gfa" \
-            "odgi::odgi view -i $og_input -g > $WORK/${ds}_odgi.gfa"
-    fi
+        echo
+        echo "=== $(op_title "$op") ($name) ==="
+        # An explicit --shell is required by hyperfine >= 2 for the '>' in
+        # the reference-tool commands.
+        if hyperfine --shell sh --warmup "$HF_WARMUP" --runs "$HF_RUNS" \
+            --export-markdown "$out.md" --export-json "$out.json" \
+            --command-name pangraphx "$(op_px_cmd "$op" "$dir" "$gfa")" \
+            --command-name "$tool" "$(op_tool_cmd "$op" "$dir" "$gfa")"; then
+            printf '\n### %s\n\n' "$(op_title "$op")" >>"$SUMMARY"
+            cat "$out.md" >>"$SUMMARY"
+        else
+            rm -f "$out.md" "$out.json"
+            record_failure "$op $name" "hyperfine exited non-zero"
+        fi
+    done
 done
 
-echo
-echo ">>> Done. Markdown + JSON results in: $RESULTS"
+finish_run
