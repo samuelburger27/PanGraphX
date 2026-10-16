@@ -1,3 +1,4 @@
+use super::compaction::{self, Unitigs};
 use super::extraction::DbgSets;
 use super::k_mers::{OrientedKmer, validate_k};
 use super::word::{KmerWord, MAX_SMALL_K, decode_word, edge_ends};
@@ -208,6 +209,43 @@ impl DeBruijn {
             })
             .collect())
     }
+
+    /// Converts to a graph whose nodes are the unitigs (maximal non-branching
+    /// chains of k-mers) instead of single k-mers.
+    ///
+    /// # Errors
+    /// Returns an error if the graph is too large for 32-bit unitig ids.
+    pub fn into_compacted_dto(self) -> PanResult<CoreGraphDTO> {
+        let k = self.k;
+        let unitigs = with_core!(self.tables, core => compaction::compact(core, k, &[])?);
+        unitigs_to_dto(unitigs, k, Vec::new())
+    }
+}
+
+/// Builds the DTO of a compacted graph.
+pub(crate) fn unitigs_to_dto(
+    unitigs: Unitigs,
+    k: usize,
+    paths: Vec<crate::Path>,
+) -> PanResult<CoreGraphDTO> {
+    let overlap = edge_overlap(k)?;
+    let edges = unitigs
+        .edges
+        .into_iter()
+        .map(|e| Edge {
+            from_node: e.from.0,
+            from_orient: e.from.1,
+            to_node: e.to.0,
+            to_orient: e.to.1,
+            overlap,
+        })
+        .collect();
+    Ok(CoreGraphDTO {
+        nodes: Nodes::from_seq(unitigs.sequences),
+        edges,
+        paths,
+        node_name_map: None,
+    })
 }
 
 pub(crate) fn build_from_paths<W: KmerWord>(graph: &CoreGraph, k: usize) -> DbgCore<W> {

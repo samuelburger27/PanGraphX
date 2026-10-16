@@ -15,6 +15,9 @@
 //!   `pangraphx-cli ddb` does before writing the output);
 //! * `bytes_per_bp` — `total_peak` per path base, the figure to drive down.
 //!
+//! Modes: `standard`, `colored`, `full_topology`, and `compact` /
+//! `colored_compact` (the same constructions with unitig output).
+//!
 //! Configurations run one at a time. Inputs come from [`common::dbg_inputs`]
 //! and are capped by total path bases; `full_topology` additionally only runs
 //! on inputs under [`FULL_TOPOLOGY_MAX_BP`].
@@ -117,16 +120,28 @@ enum Mode {
     Standard,
     Colored,
     FullTopology,
+    /// Standard construction, output compacted into unitigs.
+    Compact,
+    /// Colored construction, output compacted into unitigs.
+    ColoredCompact,
 }
 
 impl Mode {
-    const ALL: [Self; 3] = [Self::Standard, Self::Colored, Self::FullTopology];
+    const ALL: [Self; 5] = [
+        Self::Standard,
+        Self::Colored,
+        Self::FullTopology,
+        Self::Compact,
+        Self::ColoredCompact,
+    ];
 
     const fn name(self) -> &'static str {
         match self {
             Self::Standard => "standard",
             Self::Colored => "colored",
             Self::FullTopology => "full_topology",
+            Self::Compact => "compact",
+            Self::ColoredCompact => "colored_compact",
         }
     }
 }
@@ -157,6 +172,10 @@ fn measure(dto: &CoreGraphDTO, mode: Mode, k: usize) -> Sample {
             CoreGraphDTO::try_from,
         ),
         Mode::Colored => after_build(base, colored(graph, k), CoreGraphDTO::try_from),
+        Mode::Compact => after_build(base, standard(graph, k), DeBruijn::into_compacted_dto),
+        Mode::ColoredCompact => {
+            after_build(base, colored(graph, k), ColoredDBG::into_compacted_dto)
+        }
     };
     Sample {
         input,

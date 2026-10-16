@@ -47,6 +47,7 @@
 //!     let graph: CoreGraphDTO = parser.parse(&mut input)?;
 //!
 //!     let dbg = DeBruijn::from_directed_graph(graph, 31)?;
+//!     // One node per k-mer, or `dbg.into_compacted_dto()?` for unitigs.
 //!     let _as_core = CoreGraphDTO::try_from(dbg)?;
 //!     Ok(())
 //! }

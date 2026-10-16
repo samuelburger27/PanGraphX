@@ -165,6 +165,15 @@ pub struct Spelled<W> {
 }
 
 impl<W: KmerWord> Spelled<W> {
+    /// Spells a canonical word in its canonical orientation.
+    #[inline]
+    pub fn from_canonical(code: W, bases: usize) -> Self {
+        Self {
+            fwd: code,
+            rc: rev_comp_word(code, bases),
+        }
+    }
+
     /// The canonical form: the smaller of the word and its reverse complement.
     #[inline]
     pub fn canonical(self) -> W {
@@ -181,6 +190,15 @@ impl<W: KmerWord> Spelled<W> {
     #[inline]
     pub fn orientation(self) -> Orientation {
         Orientation::from(self.is_reverse())
+    }
+
+    /// The same word read on the other strand.
+    #[inline]
+    pub const fn flip(self) -> Self {
+        Self {
+            fwd: self.rc,
+            rc: self.fwd,
+        }
     }
 }
 

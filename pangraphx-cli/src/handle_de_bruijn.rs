@@ -64,10 +64,22 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
     } else {
         println!("   {} {}", "Mode:".dimmed(), "Standard".yellow());
     }
+    if args.compact {
+        println!(
+            "   {} {}",
+            "Nodes:".dimmed(),
+            "Unitigs (compacted)".yellow()
+        );
+    }
 
-    let final_graph =
-        create_converted_dbg_graph(graph, args.kmer_size, args.full_topology, args.colored)
-            .context("failed to build the de Bruijn graph")?;
+    let final_graph = create_converted_dbg_graph(
+        graph,
+        args.kmer_size,
+        args.full_topology,
+        args.colored,
+        args.compact,
+    )
+    .context("failed to build the de Bruijn graph")?;
     println!(
         "{} {}",
         "✓".green().bold(),
@@ -104,12 +116,13 @@ pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
 }
 
 /// Converts a directed graph into a de Bruijn graph with the specified k-mer size,
-/// optionally using full topology and/or coloring.
+/// optionally using full topology and/or coloring, and optionally compacted into unitigs.
 fn create_converted_dbg_graph(
     graph: CoreGraphDTO,
     kmer_size: usize,
     full_topology: bool,
     colored: bool,
+    compact: bool,
 ) -> Result<CoreGraphDTO> {
     // Colored only makes sense with specified Paths
     if colored {
@@ -118,7 +131,12 @@ fn create_converted_dbg_graph(
                 "Colored de Bruijn graph with full topology is not supported. Ignoring full topology flag."
             );
         }
-        return Ok(ColoredDBG::from_directed_graph(graph, kmer_size)?.try_into()?);
+        let dbg = ColoredDBG::from_directed_graph(graph, kmer_size)?;
+        return Ok(if compact {
+            dbg.into_compacted_dto()?
+        } else {
+            dbg.try_into()?
+        });
     }
     let dbg = if full_topology {
         DeBruijn::from_directed_graph_full_topology(graph, kmer_size)?
@@ -130,5 +148,9 @@ fn create_converted_dbg_graph(
         dbg.node_count(),
         dbg.edge_count()
     );
-    Ok(dbg.try_into()?)
+    Ok(if compact {
+        dbg.into_compacted_dto()?
+    } else {
+        dbg.try_into()?
+    })
 }
