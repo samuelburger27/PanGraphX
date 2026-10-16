@@ -124,22 +124,31 @@ pangraphx-cli validate graph.gfa
 
 #### De Bruijn Graph Construction
 
-Convert a variation graph to a de Bruijn graph with k-mer size 31:
+Convert a variation graph to a de Bruijn graph with k-mer size 31 (1-63).
+Nodes are the canonical k-mers of the sequences spelled by the paths:
 
 ```bash
-pangraphx-cli dbg -i graph.vg -k 31 -o dbg_graph.gfa
+pangraphx-cli ddb -i graph.vg -k 31 -o dbg_graph.gfa
 ```
 
-Generate a colored de Bruijn graph (for multi-sample analysis):
+Generate a colored de Bruijn graph (for multi-sample analysis); every input
+path is kept as a walk through the k-mers:
 
 ```bash
-pangraphx-cli dbg -i graph.vg -k 31 -c -o colored_dbg.gfa
+pangraphx-cli ddb -i graph.vg -k 31 -c -o colored_dbg.gfa
 ```
 
 Use full topology (all topological walks instead of just haplotype paths):
 
 ```bash
-pangraphx-cli dbg -i graph.vg -k 31 --full-topology -o full_dbg.gfa
+pangraphx-cli ddb -i graph.vg -k 31 --full-topology -o full_dbg.gfa
+```
+
+Add `--compact` to any of these to merge non-branching k-mer chains into
+unitig nodes, which makes the output graph much smaller:
+
+```bash
+pangraphx-cli ddb -i graph.vg -k 31 -c --compact -o colored_unitigs.gfa
 ```
 
 ### Library Usage
@@ -191,17 +200,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #### Work with De Bruijn Graphs
 
 ```rust
-use pangraphx_core::de_bruijn_conversion::DeBruijn;
+use pangraphx_core::{CoreGraphDTO, DeBruijn, GraphFormat};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut file = std::fs::File::open("graph.vg")?;
-    let parser = GraphFormat::VG.get_parser();
-    let graph = parser.parse(&mut file)?;
-    
+    let graph = CoreGraphDTO::load_from_file("graph.vg", GraphFormat::VG)?;
+
     // Create de Bruijn graph with k=31
-    let dbg = DeBruijn::from_vg(&graph, 31)?;
-    
-    println!("De Bruijn graph created with {} nodes", dbg.num_nodes());
+    let dbg = DeBruijn::from_directed_graph(graph, 31)?;
+    println!("De Bruijn graph created with {} nodes", dbg.node_count());
+
+    // One node per k-mer, or `dbg.into_compacted_dto()?` for unitigs
+    let dto = CoreGraphDTO::try_from(dbg)?;
+    dto.save_to_file("dbg.gfa", GraphFormat::GFA)?;
     Ok(())
 }
 ```

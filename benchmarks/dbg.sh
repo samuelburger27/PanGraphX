@@ -6,28 +6,33 @@
 # Usage:
 #   benchmarks/dbg.sh [DATASET ...]
 #
-# DBG construction can use many times more memory than the input graph: the
-# intermediate per-path k-mer vectors and per-thread k-mer/edge sets scale with
-# total *path bases* and grow with the thread count. So this script:
+# DBG memory scales with the number of distinct k-mers (about the total node
+# sequence length of the input); colored output adds one step per path base.
+# The uncompacted output graph (one node per k-mer) dominates, `--compact`
+# output is far smaller. Thread count barely matters. So this script:
 #   * runs exactly one construction at a time — never run it alongside other
 #     benchmarks, and never run several instances in parallel;
-#   * estimates each configuration's memory up front from the dataset's total
-#     path length and skips configurations over the budget;
+#   * estimates each configuration's memory up front from the dataset's node
+#     and path lengths and skips configurations over the budget;
 #   * watches every run and kills it once its RSS exceeds the budget (recorded
 #     as `oom-guard`), or once it exceeds the time limit (`timeout`);
 #   * after a memory-guard hit, skips the larger thread counts of that mode and
-#     k, since they would use even more memory (a timeout does not, because
+#     k, since they would not use less memory (a timeout does not, because
 #     more threads finish sooner).
 #
 # Environment:
 #   K_VALUES            k-mer sizes (default "21 31 63"; max 63)
-#   MODES               subset of "standard colored full_topology" (default all)
+#   MODES               subset of "standard colored full_topology compact
+#                       colored_compact" (default all); the *compact modes add
+#                       `--compact` (unitig output)
 #   THREADS             RAYON_NUM_THREADS values; "max" = all cores
 #                       (default "1 2 4 max")
 #   DBG_MEM_BUDGET_MIB  memory limit per run (default 60% of physical RAM)
 #   DBG_TIMEOUT_S       time limit per run (default 1800)
-#   DBG_BYTES_PER_BP    cost model for the pre-flight estimate (default 300;
-#                       calibrate against dbg.csv or the dbg_memory bench)
+#   DBG_BYTES_PER_NODE_BP, DBG_COMPACT_BYTES_PER_NODE_BP, DBG_BYTES_PER_STEP_BP
+#                       cost model for the pre-flight estimate (defaults 240,
+#                       60 and 32; calibrate against dbg.csv or the dbg_memory
+#                       bench)
 #   DBG_FULL_TOPOLOGY_MAX_BP
 #                       skip full_topology above this many path bases, since its
 #                       walk enumeration can blow up (default 5000000);
@@ -42,12 +47,14 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 read -r -a K_LIST <<<"${K_VALUES:-21 31 63}"
-read -r -a MODE_LIST <<<"${MODES:-standard colored full_topology}"
+read -r -a MODE_LIST <<<"${MODES:-standard colored full_topology compact colored_compact}"
 read -r -a THREAD_LIST <<<"${THREADS:-1 2 4 max}"
 RAM_MIB="$(total_ram_mib)"
 BUDGET_MIB="${DBG_MEM_BUDGET_MIB:-$(( RAM_MIB * 60 / 100 ))}"
 TIMEOUT_S="${DBG_TIMEOUT_S:-1800}"
-BYTES_PER_BP="${DBG_BYTES_PER_BP:-300}"
+BYTES_PER_NODE_BP="${DBG_BYTES_PER_NODE_BP:-240}"
+COMPACT_BYTES_PER_NODE_BP="${DBG_COMPACT_BYTES_PER_NODE_BP:-60}"
+BYTES_PER_STEP_BP="${DBG_BYTES_PER_STEP_BP:-32}"
 FULL_TOPOLOGY_MAX_BP="${DBG_FULL_TOPOLOGY_MAX_BP:-5000000}"
 CPUS="$(cpu_count)"
 
@@ -82,14 +89,27 @@ path_bp() {
         sed -n 's/.*(total \([0-9,]*\) bp).*/\1/p' | tr -d ',' | head -1
 }
 
-# estimate_mib <path_bp> <threads> <gfa_bytes> -> rough peak MiB: the parsed
-# input (~3x its file size) plus the k-mer data. The per-thread partial sets
-# overlap, so each extra thread adds ~25% of the single-thread cost. Measured at
-# k=31: ~280 B/bp end-to-end via the CLI on 1 thread; the dbg_memory bench shows
-# the construction alone going from ~190 B/bp (1 thread) to ~480 B/bp (8).
+# node_bp <gfa> -> total node sequence length (via `pangraphx-cli stats`).
+node_bp() {
+    NO_COLOR=1 "$PANGRAPHX" stats "$1" 2>/dev/null |
+        sed -n 's/^ *Total length: *\([0-9,]*\) bp.*/\1/p' | tr -d ',' | head -1
+}
+
+# estimate_mib <mode> <node_bp> <path_bp> <gfa_bytes> -> rough peak MiB: a fixed
+# 64 MiB, the parsed input (~3x its file size), plus per node base (≈ per
+# distinct k-mer) the k-mer tables and the output graph, plus for uncompacted
+# colored output one path step per path base. Uncompacted, the output dominates:
+# ~90 B per k-mer for the DTO node + edge and ~140 B for their GFA lines, which
+# the serializer formats all at once. The dbg_memory bench puts construction
+# alone at ~36 B per k-mer and compaction at ~26 B more.
 estimate_mib() {
-    awk -v bp="$1" -v t="$2" -v f="$3" -v c="$BYTES_PER_BP" \
-        'BEGIN { printf "%d", (3 * f + bp * c * (1 + 0.25 * (t - 1))) / 1048576 }'
+    local per_node="$BYTES_PER_NODE_BP" per_step=0
+    case "$1" in
+        compact | colored_compact) per_node="$COMPACT_BYTES_PER_NODE_BP" ;;
+    esac
+    [[ "$1" == colored ]] && per_step="$BYTES_PER_STEP_BP"
+    awk -v n="$2" -v p="$3" -v f="$4" -v c="$per_node" -v s="$per_step" \
+        'BEGIN { printf "%d", 64 + (3 * f + n * c + p * s) / 1048576 }'
 }
 
 mode_flag() {
@@ -97,7 +117,9 @@ mode_flag() {
         standard)      echo "" ;;
         colored)       echo "-c" ;;
         full_topology) echo "-f" ;;
-        *)             die "unknown mode '$1' (expected standard, colored, full_topology)" ;;
+        compact)       echo "--compact" ;;
+        colored_compact) echo "-c --compact" ;;
+        *)             die "unknown mode '$1' (expected standard, colored, full_topology, compact, colored_compact)" ;;
     esac
 }
 
@@ -121,7 +143,8 @@ for ds in "${DATASETS[@]}"; do
         continue
     fi
     gfa_bytes="$(file_size "$gfa")"
-    log "Total path length: $bp bp"
+    nbp="$(node_bp "$gfa")"
+    log "Total path length: $bp bp, node length: ${nbp:-?} bp"
 
     for mode in "${MODE_LIST[@]}"; do
         flag="$(mode_flag "$mode")"
@@ -136,7 +159,7 @@ for ds in "${DATASETS[@]}"; do
             guard_hit=false
             for t in "${THREAD_LIST[@]}"; do
                 [[ "$t" == max ]] && t="$CPUS"
-                est="$(estimate_mib "$bp" "$t" "$gfa_bytes")"
+                est="$(estimate_mib "$mode" "${nbp:-$bp}" "$bp" "$gfa_bytes")"
                 if $guard_hit; then
                     row "$name" "$bp" "$mode" "$k" "$t" "$est" NA NA "skipped-after-guard"
                     continue
