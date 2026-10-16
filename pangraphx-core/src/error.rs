@@ -11,6 +11,9 @@ pub enum PanGraphXError {
     #[error("Serialization Error: {0}")]
     Serialize(String),
 
+    #[error("de Bruijn Error: {0}")]
+    DeBruijn(String),
+
     #[error("Format not supported")]
     UnsupportedFormat,
 
