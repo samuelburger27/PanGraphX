@@ -83,6 +83,10 @@ pub struct DeBruijnArgs {
     #[arg(short = 'f', long = "full-topology", default_value_t = false)]
     pub full_topology: bool,
 
+    /// Merge non-branching chains of k-mers into unitig nodes
+    #[arg(long, default_value_t = false)]
+    pub compact: bool,
+
     /// Input file path (format inferred from suffix)
     #[arg(short = 'i', long)]
     pub input: String,

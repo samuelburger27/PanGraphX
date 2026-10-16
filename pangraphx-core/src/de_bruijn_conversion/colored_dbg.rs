@@ -1,4 +1,7 @@
-use super::de_bruijn_graph::{DbgCore, DbgTables, DeBruijn, build_from_paths, with_core};
+use super::compaction::{self, SegmentEnds};
+use super::de_bruijn_graph::{
+    DbgCore, DbgTables, DeBruijn, build_from_paths, unitigs_to_dto, with_core,
+};
 use super::extraction::WindowSink;
 use super::word::{KmerWord, MAX_SMALL_K, Spelled};
 use crate::core::core_types::{NodeId, Orientation, Path, PathName, Step};
@@ -92,6 +95,38 @@ impl ColoredDBG {
             dbg: DeBruijn::finish(k, tables),
             paths,
         })
+    }
+
+    /// Converts to a graph of unitigs, with every path translated to a walk
+    /// over them. Path segments always start and end at unitig ends, so each
+    /// walk spells exactly the sequence of its segment.
+    ///
+    /// # Errors
+    /// Returns an error if the graph is too large for 32-bit unitig ids.
+    pub fn into_compacted_dto(self) -> PanResult<CoreGraphDTO> {
+        let segments: Vec<SegmentEnds> = self
+            .paths
+            .iter()
+            .filter_map(|p| {
+                Some(SegmentEnds {
+                    first: unpack(*p.steps.first()?),
+                    last: unpack(*p.steps.last()?),
+                })
+            })
+            .collect();
+        let k = self.dbg.k;
+        let unitigs = with_core!(self.dbg.tables, core => compaction::compact(core, k, &segments)?);
+        drop(segments);
+        let paths = self
+            .paths
+            .into_par_iter()
+            .map(|p| Path {
+                steps: unitigs.translate_path(p.raw_steps()),
+                name: p.name,
+                overlaps: Vec::new(),
+            })
+            .collect();
+        unitigs_to_dto(unitigs, k, paths)
     }
 }
 
@@ -244,7 +279,7 @@ impl TryFrom<ColoredDBG> for CoreGraphDTO {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::de_bruijn_conversion::de_bruijn_graph::tests::graph;
+    use crate::de_bruijn_conversion::de_bruijn_graph::tests::{canon, graph};
     use crate::{Kmer, Orientation};
 
     fn oriented(seq: &[u8], o: Orientation) -> Vec<u8> {
@@ -263,6 +298,14 @@ mod tests {
             out.extend_from_slice(if i == 0 { &seq } else { &seq[k - 1..] });
         }
         out
+    }
+
+    /// The sequence an input path spells.
+    fn input_spell(g: &CoreGraphDTO, path: &Path) -> Vec<u8> {
+        path.steps
+            .iter()
+            .flat_map(|s| oriented(&g.nodes[s.node_id].sequence, s.orientation))
+            .collect()
     }
 
     #[test]
@@ -310,5 +353,83 @@ mod tests {
         let dto = CoreGraphDTO::try_from(colored).unwrap();
         assert_eq!(spell(&dto, &dto.paths[0], 3), b"ACGTA");
         assert_eq!(spell(&dto, &dto.paths[1], 3), b"CCGTA");
+    }
+
+    /// Haplotypes with shared sequence, a SNP, an indel, a reverse step and
+    /// a gap.
+    fn haplotype_graph() -> CoreGraphDTO {
+        graph(
+            &[
+                b"TTGACCAGTAGG",
+                b"A",
+                b"C",
+                b"CATGGATTCAGGCT",
+                b"GGTTNACG",
+                b"AGCCTGAATC",
+            ],
+            &[],
+            &[
+                ("h1", &[(0, false), (1, false), (3, false)]),
+                ("h2", &[(0, false), (2, false), (3, false), (4, false)]),
+                ("h3", &[(0, false), (3, false)]),
+                ("h4", &[(5, true), (0, false)]),
+            ],
+        )
+    }
+
+    #[test]
+    fn test_compacted_paths_spell_input() {
+        for k in [3, 4, 5, 7] {
+            let g = haplotype_graph();
+            let colored = ColoredDBG::from_directed_graph(g.clone(), k).unwrap();
+            let names: Vec<PathName> = colored.paths.iter().map(|p| p.name.clone()).collect();
+            let dto = colored.into_compacted_dto().unwrap();
+            assert!(dto.nodes.len() > 1);
+            for (path, name) in dto.paths.iter().zip(&names) {
+                assert_eq!(&path.name, name);
+                let base = name.split(|&b| b == b'.').next().unwrap();
+                let input = g.paths.iter().find(|p| p.name == base).unwrap();
+                let full = input_spell(&g, input);
+                // Each segment is one of the N-free pieces of the input.
+                let pieces: Vec<&[u8]> = full
+                    .split(|&b| b == b'N')
+                    .filter(|s| s.len() >= k)
+                    .collect();
+                let spelled = spell(&dto, path, k);
+                assert!(
+                    pieces.contains(&spelled.as_slice()),
+                    "k={k} path {}: {} not in {:?}",
+                    String::from_utf8_lossy(name),
+                    String::from_utf8_lossy(&spelled),
+                    pieces
+                        .iter()
+                        .map(|p| String::from_utf8_lossy(p))
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_compaction_shrinks_graph() {
+        let g = haplotype_graph();
+        let k = 5;
+        let plain =
+            CoreGraphDTO::try_from(ColoredDBG::from_directed_graph(g.clone(), k).unwrap()).unwrap();
+        let compact = ColoredDBG::from_directed_graph(g, k)
+            .unwrap()
+            .into_compacted_dto()
+            .unwrap();
+        assert!(compact.nodes.len() < plain.nodes.len());
+        // Every k-mer of the plain graph appears in some unitig.
+        let unitig_kmers: std::collections::HashSet<String> = compact
+            .nodes
+            .iter()
+            .flat_map(|n| n.sequence.windows(k).map(canon).collect::<Vec<_>>())
+            .collect();
+        for node in plain.nodes.iter() {
+            assert!(unitig_kmers.contains(&canon(&node.sequence)));
+        }
+        assert_eq!(unitig_kmers.len(), plain.nodes.len());
     }
 }
