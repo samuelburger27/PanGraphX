@@ -8,6 +8,13 @@
 # GFA, or a reverse conversion (X -> GFA) reading the X file produced by the
 # *reference* tool (vg/odgi, not PanGraphX) in prepare_inputs. Outputs go to
 # $WORK/<dataset>/ and are overwritten on each run.
+#
+# vg runs with all cores (VG_THREADS overrides): `vg convert -t` and, for GBZ
+# construction, `vg gbwt --num-jobs` (vg gbwt has no -t/--threads). GFA -> VG
+# writes vg's native PackedGraph (-p). The ref.vg input stays in the Protobuf
+# format (--vg-out), since that is the only VG encoding PanGraphX reads.
+
+VG_THREADS="${VG_THREADS:-$(cpu_count)}"
 
 ALL_OPS=(gfa_to_vg vg_to_gfa gfa_to_gbz gbz_to_gfa gfa_to_og og_to_gfa)
 
@@ -52,10 +59,10 @@ op_tool_cmd() {
     local op="$1" dir="$2" in
     in="$(op_input "$op" "$dir" "$3")"
     case "$op" in
-        gfa_to_vg)  echo "vg convert --gfa-in --vg-out $in > $dir/tool_out.vg" ;;
-        vg_to_gfa)  echo "vg convert --gfa-out $in > $dir/tool_out.gfa" ;;
-        gfa_to_gbz) echo "vg gbwt -G $in -g $dir/tool_out.gbz" ;;
-        gbz_to_gfa) echo "vg convert --gfa-out $in > $dir/tool_out.gfa" ;;
+        gfa_to_vg)  echo "vg convert -p $in -t $VG_THREADS > $dir/tool_out.vg" ;;
+        vg_to_gfa)  echo "vg convert --gfa-out $in -t $VG_THREADS > $dir/tool_out.gfa" ;;
+        gfa_to_gbz) echo "vg gbwt -G $in -g $dir/tool_out.gbz --num-jobs $VG_THREADS" ;;
+        gbz_to_gfa) echo "vg convert --gfa-out $in -t $VG_THREADS > $dir/tool_out.gfa" ;;
         gfa_to_og)  echo "odgi build -g $in -o $dir/tool_out.og" ;;
         og_to_gfa)  echo "odgi view -i $in -g > $dir/tool_out.gfa" ;;
     esac
@@ -71,8 +78,8 @@ prepare_inputs() {
     for fmt in vg gbz og; do
         [[ -s "$dir/ref.$fmt" ]] && continue
         case "$fmt" in
-            vg)  $HAVE_VG   || continue; cmd="vg convert --gfa-in --vg-out $gfa > $dir/ref.vg" ;;
-            gbz) $HAVE_VG   || continue; cmd="vg gbwt -G $gfa -g $dir/ref.gbz" ;;
+            vg)  $HAVE_VG   || continue; cmd="vg convert --gfa-in --vg-out $gfa -t $VG_THREADS > $dir/ref.vg" ;;
+            gbz) $HAVE_VG   || continue; cmd="vg gbwt -G $gfa -g $dir/ref.gbz --num-jobs $VG_THREADS" ;;
             og)  $HAVE_ODGI || continue; cmd="odgi build -g $gfa -o $dir/ref.og" ;;
         esac
         log "Preparing reference input ref.$fmt"

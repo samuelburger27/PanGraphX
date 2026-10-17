@@ -20,6 +20,7 @@
 #   SKIP_BUILD=1   reuse target/dist/pangraphx-cli without rebuilding
 #   WARMUP, RUNS   fixed hyperfine sampling (default: scaled by input size)
 #   OPS            space-separated subset of operations (default: all)
+#   VG_THREADS     threads given to vg (default: all cores)
 #   WORK           directory for intermediate files (default: temporary)
 #   RESULTS_DIR    output directory (default: results/compare_tools/<run>/)
 #

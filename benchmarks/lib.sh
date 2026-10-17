@@ -189,7 +189,7 @@ write_env() {
         for t in pangraphx rustc hyperfine vg odgi; do
             printf '%-10s %s\n' "$t:" "$(tool_version "$t" || true)"
         done
-        echo "env:       WARMUP=${WARMUP:-} RUNS=${RUNS:-} RAYON_NUM_THREADS=${RAYON_NUM_THREADS:-}"
+        echo "env:       WARMUP=${WARMUP:-} RUNS=${RUNS:-} RAYON_NUM_THREADS=${RAYON_NUM_THREADS:-} VG_THREADS=${VG_THREADS:-}"
     } >"$1"
 }
 

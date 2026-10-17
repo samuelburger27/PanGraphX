@@ -12,7 +12,7 @@
 # Commands run one at a time, so measurements never compete for memory.
 #
 # Environment:
-#   PANGRAPHX_BIN, SKIP_BUILD, OPS, WORK, RESULTS_DIR — as in compare_tools.sh
+#   PANGRAPHX_BIN, SKIP_BUILD, OPS, VG_THREADS, WORK, RESULTS_DIR — as in compare_tools.sh
 #   MEM_REPS       repetitions per command (default 3)
 #
 # Output (in results/peak_memory/<run>/): peak_memory.md (table, MiB),
