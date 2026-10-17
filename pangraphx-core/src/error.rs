@@ -14,6 +14,9 @@ pub enum PanGraphXError {
     #[error("de Bruijn Error: {0}")]
     DeBruijn(String),
 
+    #[error("Node ID {node_id} exceeds the maximum supported node ID {max}")]
+    NodeIdTooLarge { node_id: usize, max: usize },
+
     #[error("Format not supported")]
     UnsupportedFormat,
 

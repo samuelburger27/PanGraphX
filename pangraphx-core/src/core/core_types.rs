@@ -76,10 +76,10 @@ impl Step {
     /// Returns an error if `node_id` exceeds [`Step::MAX_NODE_ID`].
     pub fn new(node_id: NodeId, orientation: Orientation) -> PanResult<Self> {
         if node_id > Self::MAX_NODE_ID {
-            return Err(PanGraphXError::Other(format!(
-                "Node ID {node_id} exceeds the maximum supported node ID {}",
-                Self::MAX_NODE_ID
-            )));
+            return Err(PanGraphXError::NodeIdTooLarge {
+                node_id,
+                max: Self::MAX_NODE_ID,
+            });
         }
         #[allow(clippy::cast_possible_truncation)]
         let id = node_id as u32;
@@ -308,7 +308,10 @@ mod tests {
 
     #[test]
     fn step_rejects_too_large_node_id() {
-        assert!(Step::new(Step::MAX_NODE_ID + 1, Orientation::Forward).is_err());
+        assert!(matches!(
+            Step::new(Step::MAX_NODE_ID + 1, Orientation::Forward),
+            Err(PanGraphXError::NodeIdTooLarge { .. })
+        ));
         let step = Step::new(7, Orientation::Reverse).unwrap();
         assert!(step.with_node_id(Step::MAX_NODE_ID + 1).is_err());
         let moved = step.with_node_id(3).unwrap();
