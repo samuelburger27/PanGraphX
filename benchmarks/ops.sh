@@ -9,8 +9,9 @@
 # *reference* tool (vg/odgi, not PanGraphX) in prepare_inputs. Outputs go to
 # $WORK/<dataset>/ and are overwritten on each run.
 #
-# vg runs with all cores (VG_THREADS overrides): `vg convert -t` and, for GBZ
-# construction, `vg gbwt --num-jobs` (vg gbwt has no -t/--threads). VG files
+# `vg convert` gets no -t: it already defaults to all cores, and GFA <-> VG
+# conversion is single-threaded anyway. GBZ construction uses all cores via
+# `vg gbwt --num-jobs` (VG_THREADS overrides; vg gbwt has no -t/--threads). VG files
 # are written as Protobuf (--vg-out), the encoding PanGraphX reads and writes,
 # so both tools produce the same format. GBZ construction passes --max-node 0:
 # vg otherwise chops segments to 1024 bp, which PanGraphX does not do.
@@ -60,10 +61,10 @@ op_tool_cmd() {
     local op="$1" dir="$2" in
     in="$(op_input "$op" "$dir" "$3")"
     case "$op" in
-        gfa_to_vg)  echo "vg convert --gfa-in --vg-out $in -t $VG_THREADS > $dir/tool_out.vg" ;;
-        vg_to_gfa)  echo "vg convert --gfa-out $in -t $VG_THREADS > $dir/tool_out.gfa" ;;
+        gfa_to_vg)  echo "vg convert --gfa-in --vg-out $in > $dir/tool_out.vg" ;;
+        vg_to_gfa)  echo "vg convert --gfa-out $in > $dir/tool_out.gfa" ;;
         gfa_to_gbz) echo "vg gbwt -G $in -g $dir/tool_out.gbz --max-node 0 --num-jobs $VG_THREADS" ;;
-        gbz_to_gfa) echo "vg convert --gfa-out $in -t $VG_THREADS > $dir/tool_out.gfa" ;;
+        gbz_to_gfa) echo "vg convert --gfa-out $in > $dir/tool_out.gfa" ;;
         gfa_to_og)  echo "odgi build -g $in -o $dir/tool_out.og" ;;
         og_to_gfa)  echo "odgi view -i $in -g > $dir/tool_out.gfa" ;;
     esac
@@ -79,7 +80,7 @@ prepare_inputs() {
     for fmt in vg gbz og; do
         [[ -s "$dir/ref.$fmt" ]] && continue
         case "$fmt" in
-            vg)  $HAVE_VG   || continue; cmd="vg convert --gfa-in --vg-out $gfa -t $VG_THREADS > $dir/ref.vg" ;;
+            vg)  $HAVE_VG   || continue; cmd="vg convert --gfa-in --vg-out $gfa > $dir/ref.vg" ;;
             gbz) $HAVE_VG   || continue; cmd="vg gbwt -G $gfa -g $dir/ref.gbz --max-node 0 --num-jobs $VG_THREADS" ;;
             og)  $HAVE_ODGI || continue; cmd="odgi build -g $gfa -o $dir/ref.og" ;;
         esac

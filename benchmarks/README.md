@@ -88,10 +88,10 @@ this the number to track when optimizing memory. The CSV goes to
 
 | Operation | PanGraphX | Reference tool |
 |-----------|-----------|----------------|
-| GFA → VG | `convert -i g.gfa -o g.vg` | `vg convert --gfa-in --vg-out g.gfa -t N` |
-| VG → GFA | `convert -i g.vg -o g.gfa` | `vg convert --gfa-out g.vg -t N` |
+| GFA → VG | `convert -i g.gfa -o g.vg` | `vg convert --gfa-in --vg-out g.gfa` |
+| VG → GFA | `convert -i g.vg -o g.gfa` | `vg convert --gfa-out g.vg` |
 | GFA → GBZ | `convert -i g.gfa -o g.gbz` | `vg gbwt -G g.gfa -g g.gbz --max-node 0 --num-jobs N` |
-| GBZ → GFA | `convert -i g.gbz -o g.gfa` | `vg convert --gfa-out g.gbz -t N` |
+| GBZ → GFA | `convert -i g.gbz -o g.gfa` | `vg convert --gfa-out g.gbz` |
 | GFA → OG | `convert -i g.gfa -o g.og` | `odgi build` |
 | OG → GFA | `convert -i g.og -o g.gfa` | `odgi view -g` |
 
@@ -101,7 +101,9 @@ measuring a dataset, each script builds the reverse-direction inputs (`.vg`,
 the same files. Pass the same `WORK=/some/dir` to both scripts to reuse those
 inputs across them.
 
-vg gets all cores (`N`, override with `VG_THREADS`). `vg gbwt` has no
+`vg convert` gets no `-t`: it already defaults to all cores, and GFA ↔ VG
+conversion is single-threaded anyway.
+`vg gbwt` gets all cores (`N`, override with `VG_THREADS`): it has no
 `-t`/`--threads`; `--num-jobs` is its thread setting for GFA input, and `-g`
 (not `-o`, which writes a bare GBWT) produces the GBZ. `--max-node 0` stops
 vg from chopping segments into nodes of at most 1024 bp, so both tools build
