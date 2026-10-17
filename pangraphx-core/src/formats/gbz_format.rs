@@ -8,11 +8,17 @@ use gbz::{
     Orientation as GbzOrientation, Tags, support,
 };
 use rayon::prelude::*;
-use simple_sds::serialize::Serialize;
+use simple_sds::serialize::{Serialize, SerializeVersion};
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
 
 pub struct GBZCodec;
+
+/// GBZ format version written by the serializer.
+///
+/// Version 3 (zstd-compressed GBWT) is the `gbz` crate's default, but vg up to
+/// at least v1.73 only reads versions 1 and 2.
+const GBZ_SERIALIZE_VERSION: usize = 2;
 
 /// Total length (in nodes) of a batch of paths fed to the GBWT builder.
 /// The builder grows this automatically if a single path exceeds it.
@@ -72,17 +78,16 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
         let mut id_map = IdMap::default();
         let mut nodes = Nodes::new();
 
-        let node_name_map: Option<HashMap<usize, Vec<u8>>> = if let Some(iter) = gbz.segment_iter()
-        {
-            let mut names = HashMap::new();
+        let mut names: HashMap<usize, Vec<u8>> = HashMap::new();
+        if let Some(iter) = gbz.segment_iter() {
             for segment in iter {
                 let id = nodes.len();
                 id_map.insert(segment.id, id);
                 names.insert(id, segment.name.to_vec());
                 nodes.push(segment.sequence.to_vec());
             }
-            Some(names)
         } else {
+            // Without a translation, the GBZ node ids are the node names (as in vg).
             for gbz_node_id in gbz.node_iter() {
                 let sequence = gbz
                     .sequence(gbz_node_id)
@@ -94,10 +99,14 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                     .to_vec();
                 let id = nodes.len();
                 id_map.insert(gbz_node_id, id);
+                names.insert(
+                    id,
+                    itoa::Buffer::new().format(gbz_node_id).as_bytes().to_vec(),
+                );
                 nodes.push(sequence);
             }
-            None
-        };
+        }
+        let node_name_map = Some(names);
 
         let edges = collect_edges(&gbz, &id_map)?;
         let paths = collect_paths(&gbz, metadata, &id_map)?;
@@ -240,7 +249,7 @@ fn collect_path_steps(gbz: &GBZ, path_id: usize, id_map: &IdMap) -> PanResult<Ve
 impl GraphSerializer for GBZCodec {
     fn serialize(&self, graph: &CoreGraphDTO, mut writer: &mut dyn Write) -> PanResult<()> {
         let gbz = build_gbz(graph)?;
-        gbz.serialize(&mut writer)?;
+        gbz.serialize_version(&mut writer, GBZ_SERIALIZE_VERSION)?;
         Ok(())
     }
 }
@@ -296,4 +305,51 @@ fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
         Sequences::from_graph(&gbwt, &graph_builder).map_err(PanGraphXError::Serialize)?;
 
     GBZ::from_parts(gbwt, sequences, Tags::new()).map_err(PanGraphXError::Serialize)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    /// Two nodes, one edge and one path, without node names.
+    fn unnamed_graph() -> CoreGraphDTO {
+        CoreGraphDTO {
+            nodes: Nodes::from_seq(vec![b"ACGT".to_vec(), b"GGA".to_vec()]),
+            edges: vec![Edge {
+                from_node: 0,
+                from_orient: Orientation::Forward,
+                to_node: 1,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            }],
+            paths: vec![Path {
+                name: b"p".to_vec(),
+                steps: vec![
+                    Step::new(0, Orientation::Forward).unwrap(),
+                    Step::new(1, Orientation::Forward).unwrap(),
+                ],
+                overlaps: Vec::new(),
+            }],
+            node_name_map: None,
+        }
+    }
+
+    #[test]
+    fn writes_vg_compatible_version() {
+        let mut buf = Vec::new();
+        GBZCodec.serialize(&unnamed_graph(), &mut buf).unwrap();
+        let version = GBZ::determine_version(&mut Cursor::new(&buf)).unwrap();
+        assert_eq!(version, GBZ_SERIALIZE_VERSION);
+    }
+
+    #[test]
+    fn nodes_without_translation_are_named_by_gbz_id() {
+        // Without names the serializer writes GBZ node ids 1..=n and no translation.
+        let mut buf = Vec::new();
+        GBZCodec.serialize(&unnamed_graph(), &mut buf).unwrap();
+        let parsed = GBZCodec.parse(&mut Cursor::new(&buf)).unwrap();
+        assert_eq!(parsed.get_name_from_id(0), "1");
+        assert_eq!(parsed.get_name_from_id(1), "2");
+    }
 }
