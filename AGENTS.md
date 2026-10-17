@@ -78,6 +78,7 @@ Every change implement in a separate branch describing the request,  commit your
   - `utils/download_gfa.sh`: Fetches the large benchmark graphs into `benchmarks/data/`.
   - `benchmarks/`: `compare_tools.sh` (time vs vg/odgi), `peak_memory.sh` (RSS), `dbg.sh` (memory-guarded DBG sweep); shared helpers in `lib.sh`/`ops.sh`. See `benchmarks/README.md`. Never run DBG benchmarks in parallel — memory grows with the number of distinct k-mers (≈ node sequence length), and uncompacted output dominates.
   - `utils/generate_test_files.sh`: Derives the VG/GBZ/FASTG/OG test fixtures from the committed GFA files (gitignored). Use `--external` to build reference files with `vg`/`odgi` for cross-validation.
+  - ODGI (`odgi` feature) goes through `odgi_ffi::{gfa_to_odgi, odgi_to_gfa}` (shells out to `odgi`, temp files, full GFA text in memory on read). It is intentionally simple and slow; keep it that way and keep the README warning in sync.
   - The project interacts with standard bioinformatics formats (GFA v1.0, GFA v1.1 locally supported extensions, GBZ, VG).
 
 ## Core Data Types

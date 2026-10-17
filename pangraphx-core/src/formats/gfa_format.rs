@@ -37,6 +37,14 @@ fn node_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
         .collect()
 }
 
+/// Names every node by its 1-based id, ignoring `node_name_map`.
+fn one_based_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
+    (1..=graph.nodes.len())
+        .into_par_iter()
+        .map(|id| Cow::Owned(itoa::Buffer::new().format(id).as_bytes().to_vec()))
+        .collect()
+}
+
 #[inline]
 const fn orientation_byte(orientation: Orientation) -> u8 {
     match orientation {
@@ -133,24 +141,82 @@ impl GraphSerializer for GFACodec {
         if let Some(message) = graph.dangling_reference() {
             return Err(PanGraphXError::Serialize(message));
         }
-        let names = node_names(graph);
+        write_gfa(graph, &node_names(graph), writer)
+    }
+}
 
-        writer.write_all(b"H\tVN:Z:1.0\n")?;
-        write_records(
-            writer,
-            graph.nodes.as_slice(),
-            RECORDS_PER_CHUNK,
-            |node, buf| {
-                format_segment(&names, node, buf);
-            },
-        )?;
-        write_records(writer, &graph.edges, RECORDS_PER_CHUNK, |edge, buf| {
-            format_link(&names, edge, buf);
-        })?;
-        // A single path line can be hundreds of MB, so each path is its own task.
-        write_records(writer, &graph.paths, 1, |path, buf| {
-            format_path(&names, path, buf);
-        })?;
-        Ok(())
+/// Writes `graph` as GFA with segments named `1..=n` by node id.
+///
+/// Tools that need positive integer ids (e.g. `odgi build`) get a valid input
+/// regardless of the original node names.
+#[cfg_attr(not(feature = "odgi"), allow(dead_code))]
+pub(crate) fn serialize_with_one_based_ids(
+    graph: &CoreGraphDTO,
+    writer: &mut dyn Write,
+) -> PanResult<()> {
+    if let Some(message) = graph.dangling_reference() {
+        return Err(PanGraphXError::Serialize(message));
+    }
+    write_gfa(graph, &one_based_names(graph), writer)
+}
+
+fn write_gfa(
+    graph: &CoreGraphDTO,
+    names: &[Cow<'_, [u8]>],
+    writer: &mut dyn Write,
+) -> PanResult<()> {
+    writer.write_all(b"H\tVN:Z:1.0\n")?;
+    write_records(
+        writer,
+        graph.nodes.as_slice(),
+        RECORDS_PER_CHUNK,
+        |node, buf| {
+            format_segment(names, node, buf);
+        },
+    )?;
+    write_records(writer, &graph.edges, RECORDS_PER_CHUNK, |edge, buf| {
+        format_link(names, edge, buf);
+    })?;
+    // A single path line can be hundreds of MB, so each path is its own task.
+    write_records(writer, &graph.paths, 1, |path, buf| {
+        format_path(names, path, buf);
+    })?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::core_types::{Nodes, Step};
+    use std::collections::HashMap;
+
+    #[test]
+    fn one_based_ids_replace_node_names() {
+        let graph = CoreGraphDTO {
+            nodes: Nodes::from_seq(vec![b"ACGT".to_vec(), b"GGA".to_vec()]),
+            edges: vec![Edge {
+                from_node: 0,
+                from_orient: Orientation::Forward,
+                to_node: 1,
+                to_orient: Orientation::Reverse,
+                overlap: 0,
+            }],
+            paths: vec![Path {
+                name: b"p".to_vec(),
+                steps: vec![
+                    Step::new(0, Orientation::Forward).unwrap(),
+                    Step::new(1, Orientation::Reverse).unwrap(),
+                ],
+                overlaps: Vec::new(),
+            }],
+            node_name_map: Some(HashMap::from([(0, b"a".to_vec()), (1, b"b".to_vec())])),
+        };
+
+        let mut buf = Vec::new();
+        serialize_with_one_based_ids(&graph, &mut buf).unwrap();
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "H\tVN:Z:1.0\nS\t1\tACGT\nS\t2\tGGA\nL\t1\t+\t2\t-\t0M\nP\tp\t1+,2-\t*\n"
+        );
     }
 }
