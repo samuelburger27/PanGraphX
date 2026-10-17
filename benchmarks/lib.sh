@@ -35,7 +35,7 @@ DEFAULT_DATASETS=(
     chr22.hprc-v1.1-mc-grch38
 )
 
-PANGRAPHX="$REPO_ROOT/target/release/pangraphx-cli"
+PANGRAPHX="$REPO_ROOT/target/dist/pangraphx-cli"
 
 log()  { echo ">>> $*"; }
 warn() { echo "WARNING: $*" >&2; }
@@ -122,8 +122,9 @@ discover_tools() {
 # ensure_pangraphx — sets PANGRAPHX to an executable CLI binary.
 #
 # PANGRAPHX_BIN selects a pre-built executable; otherwise the CLI is built from
-# source in release mode (with the `odgi` feature when odgi is installed, so .og
-# conversions work). SKIP_BUILD=1 reuses target/release/pangraphx-cli as-is.
+# source with the fully optimized `dist` profile (with the `odgi` feature when odgi
+# is installed, so .og conversions work). SKIP_BUILD=1 reuses
+# target/dist/pangraphx-cli as-is.
 ensure_pangraphx() {
     if [[ -n "${PANGRAPHX_BIN:-}" ]]; then
         PANGRAPHX="$PANGRAPHX_BIN"
@@ -135,8 +136,8 @@ ensure_pangraphx() {
         have cargo || die "cargo not found; set PANGRAPHX_BIN to a pre-built binary."
         local features=()
         if have odgi; then features=(--features odgi); fi
-        log "Building PanGraphX (release${features[0]:+, ${features[*]}})..."
-        cargo build --release ${features[0]:+"${features[@]}"} --manifest-path "$REPO_ROOT/Cargo.toml"
+        log "Building PanGraphX (dist${features[0]:+, ${features[*]}})..."
+        cargo build --profile dist ${features[0]:+"${features[@]}"} --manifest-path "$REPO_ROOT/Cargo.toml"
     fi
     [[ -x "$PANGRAPHX" ]] || die "PanGraphX binary not found at $PANGRAPHX"
 }

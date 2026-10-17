@@ -128,7 +128,7 @@ A missing external tool is skipped with a warning. A failing step is written to
 | Variable | Effect |
 |----------|--------|
 | `PANGRAPHX_BIN` | benchmark a pre-built binary |
-| `SKIP_BUILD=1` | reuse `target/release/pangraphx-cli` |
+| `SKIP_BUILD=1` | reuse `target/dist/pangraphx-cli` (built with the `dist` profile) |
 | `RESULTS_DIR` | write results here instead of a new run directory |
 | `WORK` | keep intermediate files in this directory |
 
