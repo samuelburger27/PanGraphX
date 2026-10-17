@@ -88,12 +88,12 @@ this the number to track when optimizing memory. The CSV goes to
 
 | Operation | PanGraphX | Reference tool |
 |-----------|-----------|----------------|
-| GFA → VG | `convert -i g.gfa -o g.vg` | `vg convert --gfa-in --vg-out g.gfa` |
-| VG → GFA | `convert -i g.vg -o g.gfa` | `vg convert --gfa-out g.vg` |
-| GFA → GBZ | `convert -i g.gfa -o g.gbz` | `vg gbwt -G g.gfa -g g.gbz --max-node 0 --num-jobs N` |
-| GBZ → GFA | `convert -i g.gbz -o g.gfa` | `vg convert --gfa-out g.gbz` |
-| GFA → OG | `convert -i g.gfa -o g.og` | `odgi build` |
-| OG → GFA | `convert -i g.og -o g.gfa` | `odgi view -g` |
+| GFA → VG | `convert g.gfa -o g.vg` | `vg convert --gfa-in --vg-out g.gfa` |
+| VG → GFA | `convert g.vg -o g.gfa` | `vg convert --gfa-out g.vg` |
+| GFA → GBZ | `convert g.gfa -o g.gbz` | `vg gbwt -G g.gfa -g g.gbz --max-node 0 --num-jobs N` |
+| GBZ → GFA | `convert g.gbz -o g.gfa` | `vg convert --gfa-out g.gbz` |
+| GFA → OG | `convert g.gfa -o g.og` | `odgi build` |
+| OG → GFA | `convert g.og -o g.gfa` | `odgi view -g` |
 
 The table is defined once, in `ops.sh`, and both scripts use it. Before
 measuring a dataset, each script builds the reverse-direction inputs (`.vg`,

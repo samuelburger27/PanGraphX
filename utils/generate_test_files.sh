@@ -83,7 +83,7 @@ already_done() {
 # convert_px <src> <dst> <format> — convert via PanGraphX.
 convert_px() {
     local src="$1" dst="$2" fmt="$3"
-    "$BIN" convert -i "$src" -o "$dst" --from gfa --to "$fmt" >/dev/null
+    "$BIN" convert "$src" -o "$dst" --from gfa --to "$fmt" >/dev/null
     echo "  wrote: $dst"
 }
 

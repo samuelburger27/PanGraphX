@@ -171,7 +171,7 @@ for ds in "${DATASETS[@]}"; do
 
                 out="$WORK/${name}_dbg.gfa"
                 RAYON_NUM_THREADS="$t" GUARD_MEM_MIB="$BUDGET_MIB" GUARD_TIME_S="$TIMEOUT_S" \
-                    measure "$PANGRAPHX ddb -k $k $flag -i $gfa -o $out"
+                    measure "$PANGRAPHX ddb -k $k $flag $gfa -o $out"
                 rm -f "$out"
                 row "$name" "$bp" "$mode" "$k" "$t" "$est" "$M_RSS_MIB" "$M_WALL_S" "$M_STATUS"
                 case "$M_STATUS" in
