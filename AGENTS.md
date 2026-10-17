@@ -32,6 +32,8 @@ Every change implement in a separate branch describing the request,  commit your
   - `core/`: Internal graph representation (`CoreGraph`, `CoreGraphDTO`).
   - `formats/`: Format-specific logic (GFA, GBZ, VG, FastG).
     - Each format has a codec struct (e.g., `GBZCodec`, `GFACodec`) implementing generic traits.
+    - `gfa_parser.rs`: in-house streaming two-pass GFA parser (no external GFA crate); `id_map.rs`: shared external-integer-id → `NodeId` lookup (dense table or hash map) used by VG, GBZ and numeric GFA names.
+    - Serializers check `CoreGraphDTO::dangling_reference()` once, then index nodes directly.
   - `de_bruijn_conversion/`: Algorithms for de Bruijn graph construction and k-mer processing.
     - `word.rs` (2-bit `u64`/`u128` words, `RollingWindow`), `extraction.rs` (streaming path / bidirected topology walkers), `kmer_set.rs` (sharded concurrent set), `compaction.rs` (unitigs). `DeBruijn` stores sorted k-mer and canonical (k+1)-mer tables; node id = rank. Keep per-k-mer state to a few bytes and never materialize per-path k-mer vectors.
   - `traits/`: Defines `GraphParser` and `GraphSerializer`.
@@ -51,6 +53,7 @@ Every change implement in a separate branch describing the request,  commit your
   ```bash
   cargo build --workspace
   ```
+  Benchmarks use the `dist` profile (fat LTO, `panic = "abort"`): `cargo build --profile dist` → `target/dist/pangraphx-cli`. Optional `mimalloc` CLI feature trades peak RSS for speed.
 - **Test**:
   - Run all tests:
     ```bash
@@ -115,7 +118,7 @@ pub struct Path {
     pub overlaps: Vec<u32>,   // Overlaps between consecutive steps
 }
 ```
-**Step** (within a Path): A single step containing a `NodeId` and `Orientation` indicating how to traverse that node.
+**Step** (within a Path): A node traversed in an orientation, packed into a `u32` handle (`node_id << 1 | is_reverse`). Build with `Step::new(node_id, orientation)` (fails with `NodeIdTooLarge` above `Step::MAX_NODE_ID` = 2^31 − 1) and read with `node_id()`, `orientation()`, `is_reverse()`.
 
 ### Collections
 - **[`Nodes`](pangraphx-core/src/core/core_types.rs#L75-L76)**: A wrapper collection enforcing the invariant that node IDs correspond to their vector indices. Always use this instead of raw `Vec<Node>`.
