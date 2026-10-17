@@ -47,7 +47,22 @@ fn parse_with_block_size<R: Read + Seek>(
     let start = reader.stream_position()?;
     let segments = read_segments(&mut BlockReader::new(reader, block_size))?;
 
-    let index = SegmentIndex::new(&segments.names, &segments.lines)?;
+    let index = match SegmentIndex::new(&segments.names) {
+        Ok(index) => index,
+        Err(duplicate) => {
+            // Duplicates are rare, so their line number is found by reading again
+            // rather than storing the line of every segment.
+            reader.seek(SeekFrom::Start(start))?;
+            let line_no = segment_line(&mut BlockReader::new(reader, block_size), duplicate)?;
+            return Err(line_error(
+                line_no,
+                &format!(
+                    "duplicate segment name {}",
+                    lossy(&segments.names[duplicate])
+                ),
+            ));
+        }
+    };
     reader.seek(SeekFrom::Start(start))?;
     let (edges, paths) = read_links_and_paths(
         &mut BlockReader::new(reader, block_size),
@@ -230,8 +245,6 @@ struct Segments {
     nodes: Nodes,
     /// Segment names, indexed by node id.
     names: Vec<NodeName>,
-    /// Line number of each segment, for duplicate-name errors.
-    lines: Vec<usize>,
     link_count: usize,
     path_count: usize,
 }
@@ -240,7 +253,6 @@ fn read_segments<R: Read>(blocks: &mut BlockReader<'_, R>) -> PanResult<Segments
     let mut segments = Segments {
         nodes: Nodes::new(),
         names: Vec::new(),
-        lines: Vec::new(),
         link_count: 0,
         path_count: 0,
     };
@@ -264,10 +276,9 @@ fn read_segments<R: Read>(blocks: &mut BlockReader<'_, R>) -> PanResult<Segments
             .par_iter()
             .map(|&(n, line)| parse_segment(line).map_err(|e| line_error(n, &e)))
             .collect::<PanResult<Vec<_>>>()?;
-        for (&(n, _), (name, sequence)) in segment_lines.iter().zip(parsed) {
+        for (name, sequence) in parsed {
             segments.nodes.push(sequence.to_vec());
             segments.names.push(name.to_vec());
-            segments.lines.push(n);
         }
     }
 
@@ -279,6 +290,26 @@ fn read_segments<R: Read>(blocks: &mut BlockReader<'_, R>) -> PanResult<Segments
         )));
     }
     Ok(segments)
+}
+
+/// Returns the line number of the `S` record that defines node `id`.
+fn segment_line<R: Read>(blocks: &mut BlockReader<'_, R>, id: NodeId) -> PanResult<usize> {
+    let mut line_no = 0;
+    let mut segment = 0;
+    while let Some(block) = blocks.next_block()? {
+        for line in lines(block) {
+            line_no += 1;
+            if record_type(line) == b"S" {
+                if segment == id {
+                    return Ok(line_no);
+                }
+                segment += 1;
+            }
+        }
+    }
+    Err(PanGraphXError::Parse(format!(
+        "GFA changed while reading: segment {id} not found"
+    )))
 }
 
 /// Bytes allowed in a segment sequence (GFA 1.0: `\*|[A-Za-z=.]+`).
@@ -336,33 +367,27 @@ enum SegmentIndex<'a> {
 }
 
 impl<'a> SegmentIndex<'a> {
-    /// Indexes `names` (by node id); `lines` gives each segment's line number.
-    fn new(names: &'a [NodeName], lines: &[usize]) -> PanResult<Self> {
-        let duplicate = |id: NodeId| {
-            line_error(
-                lines.get(id).copied().unwrap_or_default(),
-                &format!("duplicate segment name {}", lossy(&names[id])),
-            )
-        };
-
+    /// Indexes `names` (by node id).
+    ///
+    /// # Errors
+    /// Returns the node id of the second segment with a name already used.
+    fn new(names: &'a [NodeName]) -> Result<Self, NodeId> {
         let numeric: Option<Vec<i64>> = names.iter().map(|n| parse_canonical_int(n)).collect();
         if let Some(ids) = numeric {
             return IdMap::from_ids(&ids).map(Self::Numeric).map_err(|dup| {
                 // `from_ids` stops at the second occurrence of the duplicate.
-                let second = ids
-                    .iter()
+                ids.iter()
                     .enumerate()
                     .filter(|&(_, &id)| id == dup)
                     .nth(1)
-                    .map_or(0, |(i, _)| i);
-                duplicate(second)
+                    .map_or(0, |(i, _)| i)
             });
         }
 
         let mut map = FxHashMap::with_capacity_and_hasher(names.len(), FxBuildHasher);
         for (id, name) in names.iter().enumerate() {
             if map.insert(name.as_slice(), id).is_some() {
-                return Err(duplicate(id));
+                return Err(id);
             }
         }
         Ok(Self::Named(map))
@@ -690,6 +715,14 @@ mod tests {
         let cases = [
             ("S\t1\tA\nS\t1\tC\n", "line 2: duplicate segment name 1"),
             ("S\ta\tA\nS\ta\tC\n", "line 2: duplicate segment name a"),
+            (
+                "S\ta\tA\nL\ta\t+\ta\t+\t0M\n\nS\tb\tC\nS\ta\tG\n",
+                "line 5: duplicate segment name a",
+            ),
+            (
+                "S\t1\tA\nS\t2\tA\nH\nS\t2\tC\n",
+                "line 4: duplicate segment name 2",
+            ),
             ("S\t1\tAC GT\n", "line 1: segment 1 has an invalid sequence"),
             ("S\t1\n", "line 1: segment 1 has no sequence field"),
             (
