@@ -5,7 +5,7 @@ mod handle_formats;
 mod handle_info;
 mod handle_stats;
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, Parser, error::ErrorKind};
 use cli::args_parser::{Cli, Commands};
 use colored::Colorize;
 use handle_convert::handle_conversion;
@@ -37,7 +37,7 @@ fn run() -> Result<()> {
     //     .init();
     env_logger::init();
 
-    let cli = Cli::parse();
+    let cli = parse_or_exit();
 
     match cli.command {
         Commands::Convert(args) => handle_conversion(&args),
@@ -47,6 +47,32 @@ fn run() -> Result<()> {
         Commands::Format => {
             handle_formats();
             Ok(())
+        }
+    }
+}
+
+/// Parse arguments; on a usage error print the message followed by the help of
+/// the subcommand the user was addressing, then exit with code 2.
+fn parse_or_exit() -> Cli {
+    match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => {
+            if matches!(
+                err.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) {
+                err.exit();
+            }
+            let _ = err.print();
+            let mut cmd = Cli::command();
+            cmd.build();
+            let name = std::env::args().skip(1).find(|a| !a.starts_with('-'));
+            let sub = name.and_then(|n| cmd.find_subcommand(&n).cloned());
+            let mut target = sub.unwrap_or(cmd);
+            eprintln!();
+            let _ = target.write_help(&mut std::io::stderr());
+            eprintln!();
+            std::process::exit(2);
         }
     }
 }
