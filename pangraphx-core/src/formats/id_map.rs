@@ -1,4 +1,4 @@
-//! Lookup from external integer node ids (VG ids, numeric GFA segment names)
+//! Lookup from external integer node ids (VG ids, GBZ ids, numeric GFA segment names)
 //! to dense internal [`NodeId`]s.
 
 use crate::core::core_types::NodeId;
