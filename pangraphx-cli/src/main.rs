@@ -14,6 +14,12 @@ use handle_formats::handle_formats;
 use handle_info::handle_info;
 use handle_stats::handle_stats;
 
+// Graph loading makes millions of small allocations (sequences, names, path
+// steps). mimalloc is faster for this but holds on to more memory, hence opt-in.
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() {
     if let Err(err) = run() {
         print_error(&err);

@@ -140,6 +140,12 @@ impl Nodes {
         self.0.get(node_id)
     }
 
+    /// Returns the nodes as a slice, indexed by `NodeId`.
+    #[must_use]
+    pub fn as_slice(&self) -> &[Node] {
+        &self.0
+    }
+
     /// Returns an iterator over the nodes in the collection.
     pub fn iter(&self) -> impl Iterator<Item = &Node> {
         self.0.iter()

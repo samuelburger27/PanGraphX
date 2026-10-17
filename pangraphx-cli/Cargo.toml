@@ -8,6 +8,12 @@ license = "MIT"
 [lints]
 workspace = true
 
+[features]
+default = []
+# mimalloc is ~10-20 % faster on large graphs but raises peak RSS by ~50 %
+# (1.27 -> 1.91 GiB loading chr22), so it is opt-in.
+mimalloc = ["dep:mimalloc"]
+
 [dependencies]
 anyhow = "1.0.100"
 clap = { version = "4.5.50", features = ["derive"] }
@@ -17,3 +23,4 @@ pangraphx-core = { path = "../pangraphx-core" }
 env_logger = "0.11.8"
 textwrap = "0.16.2"
 colored = "3.1.1"
+mimalloc = { version = "0.1.52", optional = true }

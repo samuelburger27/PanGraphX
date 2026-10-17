@@ -7,6 +7,7 @@ use gbz::{
     FullPathName, GBWTBuilder, GBZ, GENERIC_SAMPLE, GraphBuilder, Metadata,
     Orientation as GbzOrientation, Tags, support,
 };
+use rayon::prelude::*;
 use simple_sds::serialize::Serialize;
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
@@ -16,6 +17,26 @@ pub struct GBZCodec;
 /// Total length (in nodes) of a batch of paths fed to the GBWT builder.
 /// The builder grows this automatically if a single path exceeds it.
 const GBWT_BUFFER_SIZE: usize = 1 << 20;
+
+/// Maps GBZ identifiers (segment or node ids) to dense, 0-based node ids.
+///
+/// GBZ identifiers are small and nearly dense, so a flat table replaces hashing
+/// for the per-step lookups while extracting paths.
+#[derive(Default)]
+struct IdMap(Vec<usize>);
+
+impl IdMap {
+    fn insert(&mut self, key: usize, id: usize) {
+        if key >= self.0.len() {
+            self.0.resize(key + 1, usize::MAX);
+        }
+        self.0[key] = id;
+    }
+
+    fn get(&self, key: usize) -> Option<usize> {
+        self.0.get(key).copied().filter(|&id| id != usize::MAX)
+    }
+}
 
 impl From<GbzOrientation> for Orientation {
     fn from(o: GbzOrientation) -> Self {
@@ -48,7 +69,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
         // GBZ identifiers are 1-based and may contain gaps, so they are remapped
         // to dense, 0-based node ids. When a node-to-segment translation is present,
         // GFA segments (which may span several GBZ nodes) become the graph nodes.
-        let mut id_map: HashMap<usize, usize> = HashMap::new();
+        let mut id_map = IdMap::default();
         let mut nodes = Nodes::new();
 
         let node_name_map: Option<HashMap<usize, Vec<u8>>> = if let Some(iter) = gbz.segment_iter()
@@ -95,7 +116,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
 /// The GBZ graph is bidirected, so every undirected link is visited twice. Only the
 /// canonical representation of each link (as defined by [`support::edge_is_canonical`])
 /// is emitted, producing exactly one directed edge per undirected link.
-fn collect_edges(gbz: &GBZ, id_map: &HashMap<usize, usize>) -> PanResult<Vec<Edge>> {
+fn collect_edges(gbz: &GBZ, id_map: &IdMap) -> PanResult<Vec<Edge>> {
     let mut edges = Vec::new();
 
     if let Some(iter) = gbz.segment_iter() {
@@ -128,12 +149,12 @@ fn collect_edges(gbz: &GBZ, id_map: &HashMap<usize, usize>) -> PanResult<Vec<Edg
 /// `from_key` (segment ids when a translation is present, GBZ node ids otherwise).
 fn push_canonical_edges(
     edges: &mut Vec<Edge>,
-    id_map: &HashMap<usize, usize>,
+    id_map: &IdMap,
     from_key: usize,
     orientation: GbzOrientation,
     successors: impl Iterator<Item = (usize, GbzOrientation)>,
 ) -> PanResult<()> {
-    let from_node = *id_map.get(&from_key).ok_or_else(|| {
+    let from_node = id_map.get(from_key).ok_or_else(|| {
         PanGraphXError::Parse(format!("Identifier {from_key} is not a node in the graph"))
     })?;
 
@@ -141,7 +162,7 @@ fn push_canonical_edges(
         if !support::edge_is_canonical((from_key, orientation), (to_key, to_orient)) {
             continue;
         }
-        let to_node = *id_map.get(&to_key).ok_or_else(|| {
+        let to_node = id_map.get(to_key).ok_or_else(|| {
             PanGraphXError::Parse(format!("Identifier {to_key} is not a node in the graph"))
         })?;
         edges.push(Edge {
@@ -160,65 +181,66 @@ fn push_canonical_edges(
 ///
 /// Generic paths store their actual name in the contig field of the metadata, while
 /// haplotype paths are ignored.
-fn collect_paths(
-    gbz: &GBZ,
-    metadata: &Metadata,
-    id_map: &HashMap<usize, usize>,
-) -> PanResult<Vec<Path>> {
+fn collect_paths(gbz: &GBZ, metadata: &Metadata, id_map: &IdMap) -> PanResult<Vec<Path>> {
     let Some(generic_sample) = metadata.sample_id(GENERIC_SAMPLE) else {
         return Err(PanGraphXError::Parse(
             "GBZ file missing path names".to_string(),
         ));
     };
 
-    let mut paths = Vec::new();
-    for (path_id, path_name) in metadata.path_iter().enumerate() {
-        if path_name.sample() != generic_sample {
-            continue;
-        }
-        let contig_name = metadata
-            .contig(path_name.contig())
-            .ok_or_else(|| PanGraphXError::Parse("GBZ file missing contig name".to_string()))?;
+    let generic_paths: Vec<(usize, usize)> = metadata
+        .path_iter()
+        .enumerate()
+        .filter(|(_, path_name)| path_name.sample() == generic_sample)
+        .map(|(path_id, path_name)| (path_id, path_name.contig()))
+        .collect();
 
-        let steps = if let Some(iter) = gbz.segment_path(path_id, GbzOrientation::Forward) {
-            let mut steps = Vec::new();
-            for (segment, orientation) in iter {
-                let node_id = *id_map.get(&segment.id).ok_or_else(|| {
-                    PanGraphXError::Parse(format!("Segment {} not found in node map", segment.id))
-                })?;
-                steps.push(Step {
-                    node_id,
-                    orientation: orientation.into(),
-                });
-            }
-            steps
-        } else {
-            let iter = gbz
-                .path(path_id, GbzOrientation::Forward)
-                .ok_or_else(|| PanGraphXError::Parse("GBZ file missing path steps".to_string()))?;
-            let mut steps = Vec::new();
-            for (node_id, orientation) in iter {
-                let node_id = *id_map.get(&node_id).ok_or_else(|| {
-                    PanGraphXError::Parse(format!("Node {node_id} not found in node map"))
-                })?;
-                steps.push(Step {
-                    node_id,
-                    orientation: orientation.into(),
-                });
-            }
-            steps
-        };
+    // Paths are independent, so they are decompressed from the GBWT in parallel.
+    generic_paths
+        .into_par_iter()
+        .map(|(path_id, contig)| {
+            let contig_name = metadata
+                .contig(contig)
+                .ok_or_else(|| PanGraphXError::Parse("GBZ file missing contig name".to_string()))?;
+            let steps = collect_path_steps(gbz, path_id, id_map)?;
+            // GBZ does not store overlaps; an empty list means no overlaps.
+            Ok(Path {
+                name: contig_name.as_bytes().to_vec(),
+                steps,
+                overlaps: Vec::new(),
+            })
+        })
+        .collect()
+}
 
-        // GBZ does not store overlaps, default to 0
-        let overlaps = vec![0; steps.len().saturating_sub(1)];
-        paths.push(Path {
-            name: contig_name.as_bytes().to_vec(),
-            steps,
-            overlaps,
-        });
+/// Decodes the steps of one GBZ path, mapped to dense node ids.
+fn collect_path_steps(gbz: &GBZ, path_id: usize, id_map: &IdMap) -> PanResult<Vec<Step>> {
+    if let Some(iter) = gbz.segment_path(path_id, GbzOrientation::Forward) {
+        iter.map(|(segment, orientation)| {
+            let node_id = id_map.get(segment.id).ok_or_else(|| {
+                PanGraphXError::Parse(format!("Segment {} not found in node map", segment.id))
+            })?;
+            Ok(Step {
+                node_id,
+                orientation: orientation.into(),
+            })
+        })
+        .collect()
+    } else {
+        let iter = gbz
+            .path(path_id, GbzOrientation::Forward)
+            .ok_or_else(|| PanGraphXError::Parse("GBZ file missing path steps".to_string()))?;
+        iter.map(|(node_id, orientation)| {
+            let node_id = id_map.get(node_id).ok_or_else(|| {
+                PanGraphXError::Parse(format!("Node {node_id} not found in node map"))
+            })?;
+            Ok(Step {
+                node_id,
+                orientation: orientation.into(),
+            })
+        })
+        .collect()
     }
-
-    Ok(paths)
 }
 
 impl GraphSerializer for GBZCodec {

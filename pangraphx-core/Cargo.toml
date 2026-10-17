@@ -33,6 +33,7 @@ rayon = "1.7"
 simple-sds = "0.4"
 thiserror = "2.0.17"
 tempfile = "3"
+itoa = "1.0.18"
 
 [build-dependencies]
 prost-build = "0.13"
