@@ -10,9 +10,9 @@
 # $WORK/<dataset>/ and are overwritten on each run.
 #
 # vg runs with all cores (VG_THREADS overrides): `vg convert -t` and, for GBZ
-# construction, `vg gbwt --num-jobs` (vg gbwt has no -t/--threads). GFA -> VG
-# writes vg's native PackedGraph (-p). The ref.vg input stays in the Protobuf
-# format (--vg-out), since that is the only VG encoding PanGraphX reads.
+# construction, `vg gbwt --num-jobs` (vg gbwt has no -t/--threads). VG files
+# are written as Protobuf (--vg-out), the encoding PanGraphX reads and writes,
+# so both tools produce the same format.
 
 VG_THREADS="${VG_THREADS:-$(cpu_count)}"
 
@@ -59,7 +59,7 @@ op_tool_cmd() {
     local op="$1" dir="$2" in
     in="$(op_input "$op" "$dir" "$3")"
     case "$op" in
-        gfa_to_vg)  echo "vg convert -p $in -t $VG_THREADS > $dir/tool_out.vg" ;;
+        gfa_to_vg)  echo "vg convert --gfa-in --vg-out $in -t $VG_THREADS > $dir/tool_out.vg" ;;
         vg_to_gfa)  echo "vg convert --gfa-out $in -t $VG_THREADS > $dir/tool_out.gfa" ;;
         gfa_to_gbz) echo "vg gbwt -G $in -g $dir/tool_out.gbz --num-jobs $VG_THREADS" ;;
         gbz_to_gfa) echo "vg convert --gfa-out $in -t $VG_THREADS > $dir/tool_out.gfa" ;;

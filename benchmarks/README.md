@@ -88,7 +88,7 @@ this the number to track when optimizing memory. The CSV goes to
 
 | Operation | PanGraphX | Reference tool |
 |-----------|-----------|----------------|
-| GFA → VG | `convert -i g.gfa -o g.vg` | `vg convert -p g.gfa -t N` |
+| GFA → VG | `convert -i g.gfa -o g.vg` | `vg convert --gfa-in --vg-out g.gfa -t N` |
 | VG → GFA | `convert -i g.vg -o g.gfa` | `vg convert --gfa-out g.vg -t N` |
 | GFA → GBZ | `convert -i g.gfa -o g.gbz` | `vg gbwt -G g.gfa -g g.gbz --num-jobs N` |
 | GBZ → GFA | `convert -i g.gbz -o g.gfa` | `vg convert --gfa-out g.gbz -t N` |
@@ -103,10 +103,9 @@ inputs across them.
 
 vg gets all cores (`N`, override with `VG_THREADS`). `vg gbwt` has no
 `-t`/`--threads`; `--num-jobs` is its thread setting for GFA input, and `-g`
-(not `-o`, which writes a bare GBWT) produces the GBZ. GFA → VG writes vg's
-native PackedGraph (`-p`, its fastest output). The `.vg` reverse-direction input
-is still built as Protobuf (`--vg-out`), because that is the only VG encoding
-PanGraphX reads.
+(not `-o`, which writes a bare GBWT) produces the GBZ. vg writes `.vg` files
+as Protobuf (`--vg-out`), the encoding PanGraphX reads and writes, so GFA → VG
+compares the same output format.
 
 ```bash
 benchmarks/compare_tools.sh                         # default datasets (lib.sh)
