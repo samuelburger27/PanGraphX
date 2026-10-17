@@ -13,6 +13,15 @@ use tempfile::NamedTempFile;
 /// so parsing and serialization use temporary files as an interoperability bridge.
 pub struct ODGICodec;
 
+/// Converts an `odgi_ffi` orientation flag, which is `true` for forward, to an [`Orientation`].
+const fn orientation_from_is_forward(is_forward: bool) -> Orientation {
+    if is_forward {
+        Orientation::Forward
+    } else {
+        Orientation::Reverse
+    }
+}
+
 /// Converts an ODGI edge to the internal `Edge` representation.
 ///
 /// `from_id` is a 0-based index into the node vector, while `edge.to_node`
@@ -22,9 +31,9 @@ impl From<(usize, OdgiEdge)> for Edge {
     fn from((from_id, edge): (usize, OdgiEdge)) -> Self {
         Self {
             from_node: from_id,
-            from_orient: Orientation::from(edge.from_orientation),
+            from_orient: orientation_from_is_forward(edge.from_orientation),
             to_node: (edge.to_node - 1) as usize,
-            to_orient: Orientation::from(edge.to_orientation),
+            to_orient: orientation_from_is_forward(edge.to_orientation),
             overlap: 0, // ODGI edges do not have explicit overlap information
         }
     }
@@ -85,7 +94,7 @@ impl<R: Read + Seek> GraphParser<R> for ODGICodec {
                 })?;
                 steps.push(Step::new(
                     (path_pos.node_id - 1) as usize,
-                    Orientation::from(path_pos.is_forward),
+                    orientation_from_is_forward(path_pos.is_forward),
                 )?);
             }
             paths.push(Path {
@@ -124,5 +133,56 @@ impl GraphSerializer for ODGICodec {
         })?;
         copy(&mut output_file, writer)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn roundtrip_keeps_orientations() {
+        let original = CoreGraphDTO {
+            nodes: Nodes::from_seq(vec![b"ACGT".to_vec(), b"GGA".to_vec()]),
+            edges: vec![Edge {
+                from_node: 0,
+                from_orient: Orientation::Forward,
+                to_node: 1,
+                to_orient: Orientation::Reverse,
+                overlap: 0,
+            }],
+            paths: vec![Path {
+                name: b"p".to_vec(),
+                steps: vec![
+                    Step::new(0, Orientation::Forward).unwrap(),
+                    Step::new(1, Orientation::Reverse).unwrap(),
+                ],
+                overlaps: Vec::new(),
+            }],
+            node_name_map: None,
+        };
+
+        let mut buf = Vec::new();
+        ODGICodec.serialize(&original, &mut buf).unwrap();
+        let parsed = ODGICodec.parse(&mut Cursor::new(buf)).unwrap();
+
+        let steps: Vec<_> = parsed.paths[0]
+            .steps
+            .iter()
+            .map(|s| (s.node_id(), s.orientation()))
+            .collect();
+        assert_eq!(
+            steps,
+            vec![(0, Orientation::Forward), (1, Orientation::Reverse)]
+        );
+        // The link is reported from both of its ends: 1+ -> 2- and 2+ -> 1-.
+        let edges: Vec<_> = parsed
+            .edges
+            .iter()
+            .map(|e| (e.from_node, e.from_orient, e.to_node, e.to_orient))
+            .collect();
+        assert!(edges.contains(&(0, Orientation::Forward, 1, Orientation::Reverse)));
+        assert!(!edges.contains(&(0, Orientation::Reverse, 1, Orientation::Forward)));
     }
 }
