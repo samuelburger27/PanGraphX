@@ -53,7 +53,7 @@ op_input() {
 op_px_cmd() {
     local op="$1" dir="$2" in to="${1##*_to_}"
     in="$(op_input "$op" "$dir" "$3")"
-    echo "$PANGRAPHX convert -i $in -o $dir/px_out.$to"
+    echo "$PANGRAPHX convert $in -o $dir/px_out.$to"
 }
 
 # op_tool_cmd <op> <dataset-workdir> <gfa> -> reference tool command line.
