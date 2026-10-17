@@ -13,6 +13,7 @@ use handle_de_bruijn::handle_de_bruijn;
 use handle_formats::handle_formats;
 use handle_info::handle_info;
 use handle_stats::handle_stats;
+use std::io::IsTerminal;
 
 // Graph loading makes millions of small allocations (sequences, names, path
 // steps). mimalloc is faster for this but holds on to more memory, hence opt-in.
@@ -59,7 +60,9 @@ fn parse_or_exit() -> Cli {
         Err(err) => {
             if matches!(
                 err.kind(),
-                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+                ErrorKind::DisplayHelp
+                    | ErrorKind::DisplayVersion
+                    | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
             ) {
                 err.exit();
             }
@@ -69,9 +72,14 @@ fn parse_or_exit() -> Cli {
             let name = std::env::args().skip(1).find(|a| !a.starts_with('-'));
             let sub = name.and_then(|n| cmd.find_subcommand(&n).cloned());
             let mut target = sub.unwrap_or(cmd);
-            eprintln!();
-            let _ = target.write_help(&mut std::io::stderr());
-            eprintln!();
+            let help = target.render_help();
+            // Keep clap's bold/underline styling, as for `--help`, when stderr is a terminal.
+            let styled = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+            if styled {
+                eprintln!("\n{}", help.ansi());
+            } else {
+                eprintln!("\n{help}");
+            }
             std::process::exit(2);
         }
     }
