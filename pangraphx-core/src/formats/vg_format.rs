@@ -211,13 +211,24 @@ struct VgPath {
 }
 
 impl VgPath {
-    /// Orders the steps by rank when every mapping carries one.
+    /// Orders the steps by rank when every mapping carries a distinct one.
     ///
-    /// Rank 0 means "unset", in which case stream order is kept.
+    /// Rank 0 means "unset", and repeated ranks (e.g. restarting in every chunk)
+    /// do not define an order; in both cases stream order is kept.
     fn sort_by_rank(&mut self) {
-        if self.steps.iter().all(|s| s.rank > 0) && !self.steps.is_sorted_by_key(|s| s.rank) {
-            self.steps.sort_by_key(|s| s.rank);
+        if self.steps.iter().any(|s| s.rank <= 0) || self.steps.is_sorted_by_key(|s| s.rank) {
+            return;
         }
+        let mut ranks: Vec<i64> = self.steps.iter().map(|s| s.rank).collect();
+        ranks.sort_unstable();
+        if ranks.windows(2).any(|w| w[0] == w[1]) {
+            debug!(
+                "VG path {} has repeated mapping ranks, keeping stream order",
+                self.name
+            );
+            return;
+        }
+        self.steps.sort_unstable_by_key(|s| s.rank);
     }
 }
 
@@ -1061,5 +1072,42 @@ mod tests {
             node_name_map: parsed.node_name_map.clone(),
             ..original
         }));
+    }
+
+    fn ranked_path(ranks: &[i64]) -> VgPath {
+        VgPath {
+            name: "p".to_string(),
+            steps: ranks
+                .iter()
+                .zip(1..)
+                .map(|(&rank, node_id)| VgStep {
+                    rank,
+                    node_id,
+                    is_reverse: false,
+                })
+                .collect(),
+        }
+    }
+
+    fn node_order(path: &VgPath) -> Vec<i64> {
+        path.steps.iter().map(|s| s.node_id).collect()
+    }
+
+    #[test]
+    fn test_sort_by_rank() {
+        // Distinct ranks define the order.
+        let mut path = ranked_path(&[3, 1, 2]);
+        path.sort_by_rank();
+        assert_eq!(node_order(&path), vec![2, 3, 1]);
+
+        // Unset ranks keep stream order.
+        let mut path = ranked_path(&[2, 0, 1]);
+        path.sort_by_rank();
+        assert_eq!(node_order(&path), vec![1, 2, 3]);
+
+        // Ranks restarting in every chunk must not interleave the chunks.
+        let mut path = ranked_path(&[1, 2, 1, 2]);
+        path.sort_by_rank();
+        assert_eq!(node_order(&path), vec![1, 2, 3, 4]);
     }
 }
