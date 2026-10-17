@@ -258,12 +258,18 @@ impl GraphSerializer for GBZCodec {
 /// primitives provided by the `gbz` crate.
 ///
 /// When a node name map is present, the graph nodes are treated as segments and
-/// written without further splitting (`max_length = 0`). Otherwise, nodes are
-/// written with 1-based identifiers derived from their dense index.
+/// written without further splitting (`max_length = 0`). Otherwise, or when the
+/// names are just the 1-based node ids (as parsed from a GBZ without a
+/// translation), nodes are written with 1-based identifiers derived from their
+/// dense index and no translation is stored.
 fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
     let mut graph_builder = GraphBuilder::new();
 
-    if let Some(name_map) = &graph.node_name_map {
+    if let Some(name_map) = graph
+        .node_name_map
+        .as_ref()
+        .filter(|map| !names_are_gbz_ids(map, graph.nodes.len()))
+    {
         for node in graph.nodes.iter() {
             let name = name_map.get(&node.id).ok_or_else(|| {
                 PanGraphXError::Serialize(format!("Missing name for node {}", node.id))
@@ -305,6 +311,16 @@ fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
         Sequences::from_graph(&gbwt, &graph_builder).map_err(PanGraphXError::Serialize)?;
 
     GBZ::from_parts(gbwt, sequences, Tags::new()).map_err(PanGraphXError::Serialize)
+}
+
+/// Whether node `id` is named `id + 1` for every node, i.e. a translation would be redundant.
+fn names_are_gbz_ids(name_map: &HashMap<usize, Vec<u8>>, node_count: usize) -> bool {
+    let mut buf = itoa::Buffer::new();
+    (0..node_count).all(|id| {
+        name_map
+            .get(&id)
+            .is_some_and(|name| name.as_slice() == buf.format(id + 1).as_bytes())
+    })
 }
 
 #[cfg(test)]
@@ -351,5 +367,24 @@ mod tests {
         let parsed = GBZCodec.parse(&mut Cursor::new(&buf)).unwrap();
         assert_eq!(parsed.get_name_from_id(0), "1");
         assert_eq!(parsed.get_name_from_id(1), "2");
+    }
+
+    #[test]
+    fn id_names_do_not_add_a_translation() {
+        let mut buf = Vec::new();
+        GBZCodec.serialize(&unnamed_graph(), &mut buf).unwrap();
+        let parsed = GBZCodec.parse(&mut Cursor::new(&buf)).unwrap();
+
+        let mut rewritten = Vec::new();
+        GBZCodec.serialize(&parsed, &mut rewritten).unwrap();
+        assert!(!build_gbz(&parsed).unwrap().has_translation());
+        assert_eq!(rewritten, buf);
+
+        // Other names are kept in a translation.
+        let named = CoreGraphDTO {
+            node_name_map: Some(HashMap::from([(0, b"a".to_vec()), (1, b"b".to_vec())])),
+            ..unnamed_graph()
+        };
+        assert!(build_gbz(&named).unwrap().has_translation());
     }
 }
