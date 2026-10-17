@@ -5,7 +5,7 @@ use crate::formats::id_map::IdMap;
 use crate::traits::{GraphParser, GraphSerializer};
 use gbz::sequences::Sequences;
 use gbz::{
-    FullPathName, GBWTBuilder, GBZ, GENERIC_SAMPLE, GraphBuilder, Metadata,
+    FullPathName, GBWTBuilder, GBZ, GENERIC_HAPLOTYPE, GENERIC_SAMPLE, GraphBuilder, Metadata,
     Orientation as GbzOrientation, Tags, support,
 };
 use rayon::prelude::*;
@@ -181,40 +181,77 @@ fn push_canonical_edges(
     Ok(())
 }
 
-/// Collects the generic (reference) paths of the graph.
+/// Collects all paths of the graph: generic, reference and haplotype paths.
 ///
-/// Generic paths store their actual name in the contig field of the metadata, while
-/// haplotype paths are ignored.
+/// Path names are rebuilt from the structured metadata (see [`path_name`]).
 fn collect_paths(gbz: &GBZ, metadata: &Metadata, id_map: &IdMap) -> PanResult<Vec<Path>> {
-    let Some(generic_sample) = metadata.sample_id(GENERIC_SAMPLE) else {
+    if metadata.paths() > 0 && !metadata.has_path_names() {
         return Err(PanGraphXError::Parse(
             "GBZ file missing path names".to_string(),
         ));
-    };
-
-    let generic_paths: Vec<(usize, usize)> = metadata
-        .path_iter()
-        .enumerate()
-        .filter(|(_, path_name)| path_name.sample() == generic_sample)
-        .map(|(path_id, path_name)| (path_id, path_name.contig()))
-        .collect();
+    }
+    let reference_samples = gbz.reference_sample_ids(false);
 
     // Paths are independent, so they are decompressed from the GBWT in parallel.
-    generic_paths
+    (0..metadata.paths())
         .into_par_iter()
-        .map(|(path_id, contig)| {
-            let contig_name = metadata
-                .contig(contig)
-                .ok_or_else(|| PanGraphXError::Parse("GBZ file missing contig name".to_string()))?;
+        .map(|path_id| {
+            let missing_name =
+                || PanGraphXError::Parse(format!("GBZ file missing name of path {path_id}"));
+            let sample = metadata.path(path_id).ok_or_else(missing_name)?.sample();
+            let full_name =
+                FullPathName::from_metadata(metadata, path_id).ok_or_else(missing_name)?;
             let steps = collect_path_steps(gbz, path_id, id_map)?;
             // GBZ does not store overlaps; an empty list means no overlaps.
             Ok(Path {
-                name: contig_name.as_bytes().to_vec(),
+                name: path_name(&full_name, reference_samples.contains(&sample)),
                 steps,
                 overlaps: Vec::new(),
             })
         })
         .collect()
+}
+
+/// Builds a path name from GBZ path metadata the way vg does (libhandlegraph
+/// `PathMetadata::create_path_name`), with the fragment field as the subrange
+/// start of generic and reference paths and the phase block of haplotype paths:
+///
+/// - generic: `contig`, then `[fragment]` if the fragment is non-zero
+/// - reference (sample listed in the `reference_samples` tag): `sample#[haplotype#]contig`,
+///   then `[fragment]` if the fragment is non-zero
+/// - haplotype: `sample#haplotype#contig#fragment`
+///
+/// Paths without a haplotype number (vg stores `sample#contig` names this way) are
+/// named as reference paths even when the sample is not tagged as a reference.
+///
+/// vg drops the end of `[start-end]` subranges and stores `#fragment` and
+/// `[start-end]` haplotype names identically, so the original GFA spelling cannot
+/// always be recovered.
+fn path_name(name: &FullPathName, is_reference_sample: bool) -> Vec<u8> {
+    let has_haplotype = name.haplotype != GENERIC_HAPLOTYPE as usize;
+    let subrange = || match name.fragment {
+        0 => String::new(),
+        start => format!("[{start}]"),
+    };
+    let formatted = if name.sample == GENERIC_SAMPLE {
+        format!("{}{}", name.contig, subrange())
+    } else if !has_haplotype {
+        format!("{}#{}{}", name.sample, name.contig, subrange())
+    } else if is_reference_sample {
+        format!(
+            "{}#{}#{}{}",
+            name.sample,
+            name.haplotype,
+            name.contig,
+            subrange()
+        )
+    } else {
+        format!(
+            "{}#{}#{}#{}",
+            name.sample, name.haplotype, name.contig, name.fragment
+        )
+    };
+    formatted.into_bytes()
 }
 
 /// Decodes the steps of one GBZ path, mapped to dense node ids.
@@ -384,5 +421,59 @@ mod tests {
             ..unnamed_graph()
         };
         assert!(build_gbz(&named).unwrap().has_translation());
+    }
+
+    #[test]
+    fn reads_reference_and_haplotype_paths() {
+        // Nodes 1 and 2; every path is 1+ 2+.
+        let mut graph_builder = GraphBuilder::new();
+        graph_builder.add_node(1, b"ACGT").unwrap();
+        graph_builder.add_node(2, b"GGA").unwrap();
+        let mut gbwt_builder = GBWTBuilder::new(true, true, GBWT_BUFFER_SIZE);
+        let encoded = [
+            support::encode_node(1, GbzOrientation::Forward),
+            support::encode_node(2, GbzOrientation::Forward),
+        ];
+        let no_haplotype = GENERIC_HAPLOTYPE as usize;
+        for name in [
+            FullPathName::generic("p"),
+            FullPathName::haplotype("_gbwt_ref", "q", 0, 5),
+            FullPathName::reference("GRCh38", "chr22"),
+            FullPathName::haplotype("GRCh38", "chrM", 0, 10),
+            FullPathName::haplotype("CHM13", "chr22", no_haplotype, 0),
+            FullPathName::haplotype("HG1", "ctg#0", 1, 0),
+            FullPathName::haplotype("HG1", "ctg#0", 2, 100),
+        ] {
+            gbwt_builder.insert(&encoded, Some(name)).unwrap();
+        }
+        let gbwt = gbwt_builder.build().unwrap();
+        let sequences = Sequences::from_graph(&gbwt, &graph_builder).unwrap();
+        let mut gbz = GBZ::from_parts(gbwt, sequences, Tags::new()).unwrap();
+        gbz.set_reference_samples(&["GRCh38".to_string()]);
+        let mut buf = Vec::new();
+        gbz.serialize_version(&mut buf, GBZ_SERIALIZE_VERSION)
+            .unwrap();
+
+        let parsed = GBZCodec.parse(&mut Cursor::new(&buf)).unwrap();
+        let names: Vec<&[u8]> = parsed.paths.iter().map(|p| p.name.as_slice()).collect();
+        assert_eq!(
+            names,
+            [
+                b"p".as_slice(),
+                b"q[5]",
+                b"GRCh38#0#chr22",
+                b"GRCh38#0#chrM[10]",
+                b"CHM13#chr22",
+                b"HG1#1#ctg#0#0",
+                b"HG1#2#ctg#0#100",
+            ]
+        );
+        let expected_steps = [
+            Step::new(0, Orientation::Forward).unwrap(),
+            Step::new(1, Orientation::Forward).unwrap(),
+        ];
+        for path in &parsed.paths {
+            assert_eq!(path.steps, expected_steps);
+        }
     }
 }
