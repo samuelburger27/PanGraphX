@@ -1,152 +1,18 @@
-use crate::core::core_types::{Edge, Node, NodeId, NodeName, Nodes, Orientation, Path, Step};
+use crate::core::core_types::{Edge, Node, Orientation, Path};
 use crate::core::graph_dto::CoreGraphDTO;
-use crate::error::{PanGraphXError, PanResult};
+use crate::error::PanResult;
+use crate::formats::gfa_parser;
 use crate::traits::{GraphParser, GraphSerializer};
-use bstr::io::BufReadExt;
-use gfa::cigar::CIGAR;
-use gfa::gfa::GFA;
-use gfa::gfa::orientation::Orientation as GFAOrientation;
-use gfa::parser::GFAParserBuilder;
-use gfa::parser::error::ParserTolerance;
-use log::debug;
 use rayon::prelude::*;
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::io::{BufReader, Read, Seek, Write};
+use std::io::{Read, Seek, Write};
 
 pub struct GFACodec;
 
-impl From<GFAOrientation> for Orientation {
-    fn from(orientation: GFAOrientation) -> Self {
-        match orientation {
-            GFAOrientation::Forward => Self::Forward,
-            GFAOrientation::Backward => Self::Reverse,
-        }
-    }
-}
-/// Converts CIGAR to overlap length
-/// For now ignore everything except matches
-#[inline]
-fn cigar_to_overlap(cigar: CIGAR) -> u32 {
-    let mut result: u32 = 0;
-    for pair in cigar.0 {
-        let (count, op) = pair.into_pair();
-        if op == gfa::cigar::CIGAROp::M {
-            result += count;
-        } else {
-            debug!("Non-match CIGAR op encountered: {op:?} with count {count}");
-            debug!("Ignoring non-match operations for overlap calculation");
-        }
-    }
-    result
-}
-
-// Can be made faster by avoiding parsing CIGAR completely
-// For now, this seems sufficient
-#[inline]
-fn parse_overlap(cigar_str: &[u8]) -> u32 {
-    CIGAR::from_bytestring(cigar_str).map_or(0, cigar_to_overlap)
-}
-
-/// Implementation of `GraphParser` for GFA format
-/// Uses gfa crate to parse GFA files and converts to `CoreGraph`
+/// Implementation of `GraphParser` for GFA format; see [`gfa_parser`] for details.
 impl<R: Read + Seek> GraphParser<R> for GFACodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
-        // Containments are parsed but never used, so skip them entirely.
-        let parser = GFAParserBuilder {
-            segments: true,
-            links: true,
-            containments: false,
-            paths: true,
-            tolerance: ParserTolerance::default(),
-        }
-        .build::<Vec<u8>, ()>();
-
-        // Stream lines into the gfa crate's `GFA` struct instead of collecting
-        // the whole file into a `Vec<String>` first. `byte_lines` yields owned
-        // buffers per line (no UTF-8 validation, handles `\r\n`), so the raw
-        // file text is never fully resident in memory.
-        let buf_reader = BufReader::new(reader);
-        let mut gfa: GFA<Vec<u8>, ()> = GFA::new();
-        for line in buf_reader.byte_lines() {
-            let line = line?;
-            match parser.parse_gfa_line(&line) {
-                Ok(parsed) => gfa.insert_line(parsed),
-                Err(err) if err.can_safely_continue(&ParserTolerance::Safe) => {}
-                Err(err) => return Err(err.into()),
-            }
-        }
-
-        // Phase 1: Create nodes sequentially (maintaining order) and build the
-        // name -> id lookup, moving names and sequences out of the segments
-        // instead of cloning them.
-        let mut name_to_id: HashMap<NodeName, NodeId> = HashMap::with_capacity(gfa.segments.len());
-        let mut nodes = Nodes::new();
-        for (i, segment) in gfa.segments.into_iter().enumerate() {
-            name_to_id.insert(segment.name, i);
-            nodes.push(segment.sequence);
-        }
-
-        // Phase 2: Parallelize edge creation from links.
-        let edges = gfa
-            .links
-            .into_par_iter()
-            .map(|link| {
-                PanResult::Ok(Edge {
-                    from_node: *name_to_id.get(&link.from_segment[..]).ok_or_else(|| {
-                        PanGraphXError::Parse("Failed to map from_segment to node ID".into())
-                    })?,
-                    from_orient: link.from_orient.into(),
-                    to_node: *name_to_id.get(&link.to_segment[..]).ok_or_else(|| {
-                        PanGraphXError::Parse("Failed to map to_segment to node ID".into())
-                    })?,
-                    to_orient: link.to_orient.into(),
-                    overlap: parse_overlap(&link.overlap),
-                })
-            })
-            .collect::<PanResult<Vec<Edge>>>()?;
-
-        // Phase 3: Parallelize path creation from paths.
-        let paths: Vec<Path> = gfa
-            .paths
-            .into_par_iter()
-            .map(|p| {
-                let steps: Vec<Step> = p
-                    .iter()
-                    .map(|(id, orient)| {
-                        let a: &[u8] = id.iter().as_slice();
-                        let o = *name_to_id.get(a).ok_or_else(|| {
-                            PanGraphXError::Parse("Failed to map segment ID to node ID".into())
-                        })?;
-                        Step::new(o, orient.into())
-                    })
-                    .collect::<PanResult<Vec<Step>>>()?;
-
-                let overlaps: Vec<u32> = p
-                    .overlaps
-                    .into_iter()
-                    .map(|opt_cigar| opt_cigar.map_or(0, cigar_to_overlap))
-                    .collect();
-                PanResult::Ok(Path {
-                    name: p.path_name,
-                    steps,
-                    overlaps,
-                })
-            })
-            .collect::<PanResult<Vec<Path>>>()?;
-
-        // Invert the name -> id lookup into the id -> name map the DTO stores.
-        let node_name_map = name_to_id
-            .into_iter()
-            .map(|(name, id)| (id, name))
-            .collect();
-
-        Ok(CoreGraphDTO {
-            nodes,
-            edges,
-            paths,
-            node_name_map: Some(node_name_map),
-        })
+        gfa_parser::parse(reader)
     }
 }
 
