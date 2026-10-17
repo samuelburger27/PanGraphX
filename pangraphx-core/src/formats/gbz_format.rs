@@ -1,6 +1,7 @@
-use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
+use crate::core::core_types::{Edge, NodeId, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
+use crate::formats::id_map::IdMap;
 use crate::traits::{GraphParser, GraphSerializer};
 use gbz::sequences::Sequences;
 use gbz::{
@@ -24,24 +25,15 @@ const GBZ_SERIALIZE_VERSION: usize = 2;
 /// The builder grows this automatically if a single path exceeds it.
 const GBWT_BUFFER_SIZE: usize = 1 << 20;
 
-/// Maps GBZ identifiers (segment or node ids) to dense, 0-based node ids.
-///
-/// GBZ identifiers are small and nearly dense, so a flat table replaces hashing
-/// for the per-step lookups while extracting paths.
-#[derive(Default)]
-struct IdMap(Vec<usize>);
+/// Looks up the dense node id of a GBZ identifier (segment or node id).
+fn lookup(id_map: &IdMap, key: usize) -> Option<NodeId> {
+    i64::try_from(key).ok().and_then(|key| id_map.get(key))
+}
 
-impl IdMap {
-    fn insert(&mut self, key: usize, id: usize) {
-        if key >= self.0.len() {
-            self.0.resize(key + 1, usize::MAX);
-        }
-        self.0[key] = id;
-    }
-
-    fn get(&self, key: usize) -> Option<usize> {
-        self.0.get(key).copied().filter(|&id| id != usize::MAX)
-    }
+/// Converts a GBZ identifier to the key type of [`IdMap`].
+fn id_key(id: usize) -> PanResult<i64> {
+    i64::try_from(id)
+        .map_err(|_| PanGraphXError::Parse(format!("GBZ identifier {id} is too large")))
 }
 
 impl From<GbzOrientation> for Orientation {
@@ -75,14 +67,14 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
         // GBZ identifiers are 1-based and may contain gaps, so they are remapped
         // to dense, 0-based node ids. When a node-to-segment translation is present,
         // GFA segments (which may span several GBZ nodes) become the graph nodes.
-        let mut id_map = IdMap::default();
+        let mut gbz_ids: Vec<i64> = Vec::new();
         let mut nodes = Nodes::new();
 
         let mut names: HashMap<usize, Vec<u8>> = HashMap::new();
         if let Some(iter) = gbz.segment_iter() {
             for segment in iter {
                 let id = nodes.len();
-                id_map.insert(segment.id, id);
+                gbz_ids.push(id_key(segment.id)?);
                 names.insert(id, segment.name.to_vec());
                 nodes.push(segment.sequence.to_vec());
             }
@@ -98,7 +90,7 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
                     })?
                     .to_vec();
                 let id = nodes.len();
-                id_map.insert(gbz_node_id, id);
+                gbz_ids.push(id_key(gbz_node_id)?);
                 names.insert(
                     id,
                     itoa::Buffer::new().format(gbz_node_id).as_bytes().to_vec(),
@@ -107,6 +99,9 @@ impl<R: Read + Seek> GraphParser<R> for GBZCodec {
             }
         }
         let node_name_map = Some(names);
+        let id_map = IdMap::from_ids(&gbz_ids)
+            .map_err(|id| PanGraphXError::Parse(format!("Duplicate GBZ identifier {id}")))?;
+        drop(gbz_ids);
 
         let edges = collect_edges(&gbz, &id_map)?;
         let paths = collect_paths(&gbz, metadata, &id_map)?;
@@ -163,7 +158,7 @@ fn push_canonical_edges(
     orientation: GbzOrientation,
     successors: impl Iterator<Item = (usize, GbzOrientation)>,
 ) -> PanResult<()> {
-    let from_node = id_map.get(from_key).ok_or_else(|| {
+    let from_node = lookup(id_map, from_key).ok_or_else(|| {
         PanGraphXError::Parse(format!("Identifier {from_key} is not a node in the graph"))
     })?;
 
@@ -171,7 +166,7 @@ fn push_canonical_edges(
         if !support::edge_is_canonical((from_key, orientation), (to_key, to_orient)) {
             continue;
         }
-        let to_node = id_map.get(to_key).ok_or_else(|| {
+        let to_node = lookup(id_map, to_key).ok_or_else(|| {
             PanGraphXError::Parse(format!("Identifier {to_key} is not a node in the graph"))
         })?;
         edges.push(Edge {
@@ -226,7 +221,7 @@ fn collect_paths(gbz: &GBZ, metadata: &Metadata, id_map: &IdMap) -> PanResult<Ve
 fn collect_path_steps(gbz: &GBZ, path_id: usize, id_map: &IdMap) -> PanResult<Vec<Step>> {
     if let Some(iter) = gbz.segment_path(path_id, GbzOrientation::Forward) {
         iter.map(|(segment, orientation)| {
-            let node_id = id_map.get(segment.id).ok_or_else(|| {
+            let node_id = lookup(id_map, segment.id).ok_or_else(|| {
                 PanGraphXError::Parse(format!("Segment {} not found in node map", segment.id))
             })?;
             Step::new(node_id, orientation.into())
@@ -237,7 +232,7 @@ fn collect_path_steps(gbz: &GBZ, path_id: usize, id_map: &IdMap) -> PanResult<Ve
             .path(path_id, GbzOrientation::Forward)
             .ok_or_else(|| PanGraphXError::Parse("GBZ file missing path steps".to_string()))?;
         iter.map(|(node_id, orientation)| {
-            let node_id = id_map.get(node_id).ok_or_else(|| {
+            let node_id = lookup(id_map, node_id).ok_or_else(|| {
                 PanGraphXError::Parse(format!("Node {node_id} not found in node map"))
             })?;
             Step::new(node_id, orientation.into())
