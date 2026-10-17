@@ -1,10 +1,11 @@
-use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
+use crate::core::core_types::{Edge, Node, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::proto_gen::vg as vg_proto;
 use crate::traits::{GraphParser, GraphSerializer};
 use log::debug;
 use prost::Message;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
 
@@ -65,61 +66,66 @@ fn write_varint(writer: &mut dyn Write, mut value: u64) -> PanResult<()> {
 // VG framing protocol
 // ---------------------------------------------------------------------------
 
-/// Reads all `Graph` messages from a VG-framed protobuf stream.
+/// Maximum number of nodes, edges or path mappings stored in one `Graph` message.
+/// Matches vg's default chunk size and keeps every message far below protobuf's 2 GB limit.
+const VG_CHUNK_SIZE: usize = 1000;
+
+/// Maximum number of messages per framing group (libvgio uses the same limit).
+const VG_GROUP_SIZE: usize = 1000;
+
+/// Reads a VG-framed protobuf stream and hands every decoded `Graph` message to `on_graph`.
 ///
 /// The VG framing format consists of groups. Each group starts with a varint
 /// count of messages, each message is length-prefixed with a varint. The first
 /// message in a group may be a type tag string (e.g. `"VG"`).
+///
+/// Messages are decoded one at a time, so only a single chunk of the stream is
+/// held in its protobuf form.
 #[allow(clippy::cast_possible_truncation)]
-fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
-    let mut graphs = Vec::new();
+fn for_each_vg_graph<R: Read>(
+    reader: &mut R,
+    mut on_graph: impl FnMut(vg_proto::Graph) -> PanResult<()>,
+) -> PanResult<()> {
+    let mut msg_buf = Vec::new();
 
-    while let Some(c) = read_varint(reader)? {
-        let count = c as usize;
-
-        if count == 0 {
-            continue; // skip empty groups
-        }
-
-        // Read first message (may be type tag)
-        let first_len = read_varint(reader)?.ok_or_else(|| {
-            PanGraphXError::Parse("Unexpected EOF reading first message length".to_string())
-        })? as usize;
-
-        let mut first_buf = vec![0u8; first_len];
-        reader.read_exact(&mut first_buf)?;
-
-        // Determine if the first message is a type tag.
-        // Type tags are short ASCII strings; Graph messages are protobuf-encoded.
-        let (is_type_tag, tag_str) = detect_type_tag(&first_buf);
-
-        let remaining_count = count - 1;
-        if is_type_tag {
-            debug!("VG stream type tag: {tag_str:?}");
-        } else {
-            // First message is an actual Graph, decode it
-            let graph = vg_proto::Graph::decode(first_buf.as_slice()).map_err(|e| {
-                PanGraphXError::Parse(format!("Failed to decode VG Graph message: {e}"))
-            })?;
-            graphs.push(graph);
-        }
-
-        // Read remaining messages in the group
-        for _ in 0..remaining_count {
+    while let Some(count) = read_varint(reader)? {
+        for index in 0..count {
             let msg_len = read_varint(reader)?.ok_or_else(|| {
                 PanGraphXError::Parse("Unexpected EOF reading message length".to_string())
             })? as usize;
 
-            let mut msg_buf = vec![0u8; msg_len];
+            msg_buf.clear();
+            msg_buf.resize(msg_len, 0);
             reader.read_exact(&mut msg_buf)?;
+
+            // Determine if the first message is a type tag.
+            // Type tags are short ASCII strings; Graph messages are protobuf-encoded.
+            if index == 0 {
+                let (is_type_tag, tag_str) = detect_type_tag(&msg_buf);
+                if is_type_tag {
+                    debug!("VG stream type tag: {tag_str:?}");
+                    continue;
+                }
+            }
 
             let graph = vg_proto::Graph::decode(msg_buf.as_slice()).map_err(|e| {
                 PanGraphXError::Parse(format!("Failed to decode VG Graph message: {e}"))
             })?;
-            graphs.push(graph);
+            on_graph(graph)?;
         }
     }
 
+    Ok(())
+}
+
+/// Reads all `Graph` messages from a VG-framed protobuf stream.
+#[cfg(test)]
+fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
+    let mut graphs = Vec::new();
+    for_each_vg_graph(reader, |graph| {
+        graphs.push(graph);
+        Ok(())
+    })?;
     Ok(graphs)
 }
 
@@ -133,25 +139,28 @@ fn detect_type_tag(buf: &[u8]) -> (bool, String) {
     (false, String::new())
 }
 
-/// Writes `Graph` messages to a VG-framed protobuf stream.
-fn write_vg_graphs(writer: &mut dyn Write, graphs: &[vg_proto::Graph]) -> PanResult<()> {
-    // Write one group: type tag "VG" + all graph messages
-    let count = graphs.len() + 1; // +1 for type tag
+/// Writes one framing group: the `"VG"` type tag followed by already-encoded `Graph` messages.
+fn write_vg_group(writer: &mut dyn Write, encoded_graphs: &[Vec<u8>]) -> PanResult<()> {
+    let count = encoded_graphs.len() + 1; // +1 for type tag
     write_varint(writer, count as u64)?;
 
-    // Write type tag
     let tag = b"VG";
     write_varint(writer, tag.len() as u64)?;
     writer.write_all(tag)?;
 
-    // Write each graph message
-    for graph in graphs {
-        let encoded = graph.encode_to_vec();
+    for encoded in encoded_graphs {
         write_varint(writer, encoded.len() as u64)?;
-        writer.write_all(&encoded)?;
+        writer.write_all(encoded)?;
     }
 
     Ok(())
+}
+
+/// Writes `Graph` messages to a VG-framed protobuf stream as a single group.
+#[cfg(test)]
+fn write_vg_graphs(writer: &mut dyn Write, graphs: &[vg_proto::Graph]) -> PanResult<()> {
+    let encoded: Vec<Vec<u8>> = graphs.iter().map(Message::encode_to_vec).collect();
+    write_vg_group(writer, &encoded)
 }
 
 // ---------------------------------------------------------------------------
@@ -185,65 +194,182 @@ fn orientations_to_vg_edge(from_orient: Orientation, to_orient: Orientation) -> 
 
 // ---------------------------------------------------------------------------
 // GraphParser implementation
+
+// ---------------------------------------------------------------------------
+// GraphParser implementation
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::cast_sign_loss)]
+/// Maps VG node ids to dense internal ids.
+///
+/// VG ids are usually compact (1..=n), so a flat lookup table replaces hashing
+/// for the tens of millions of path-step lookups; sparse ids fall back to a map.
+enum VgIdMap {
+    Dense { min_id: i64, table: Vec<usize> },
+    Sparse(HashMap<i64, usize>),
+}
+
+impl VgIdMap {
+    /// Builds the map from VG ids sorted ascending; the internal id is the position.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn from_sorted_ids(ids: &[i64]) -> Self {
+        let (Some(&min_id), Some(&max_id)) = (ids.first(), ids.last()) else {
+            return Self::Sparse(HashMap::new());
+        };
+        let span = max_id.abs_diff(min_id) as usize + 1;
+        if span <= ids.len().saturating_mul(2).saturating_add(1024) {
+            let mut table = vec![usize::MAX; span];
+            for (internal, &id) in ids.iter().enumerate() {
+                table[(id - min_id) as usize] = internal;
+            }
+            Self::Dense { min_id, table }
+        } else {
+            Self::Sparse(ids.iter().enumerate().map(|(i, &id)| (id, i)).collect())
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn get(&self, id: i64) -> Option<usize> {
+        match self {
+            Self::Dense { min_id, table } => {
+                let offset = id.checked_sub(*min_id)?;
+                if offset < 0 {
+                    return None;
+                }
+                table
+                    .get(offset as usize)
+                    .copied()
+                    .filter(|&i| i != usize::MAX)
+            }
+            Self::Sparse(map) => map.get(&id).copied(),
+        }
+    }
+}
+
+/// The part of a VG `Mapping` the graph model keeps.
+struct VgStep {
+    rank: i64,
+    node_id: i64,
+    is_reverse: bool,
+}
+
+/// Mappings of one path, accumulated across all `Graph` chunks it is split over.
+struct VgPath {
+    name: String,
+    steps: Vec<VgStep>,
+}
+
+impl VgPath {
+    /// Orders the steps by rank when every mapping carries one.
+    ///
+    /// Rank 0 means "unset", in which case stream order is kept.
+    fn sort_by_rank(&mut self) {
+        if self.steps.iter().all(|s| s.rank > 0) && !self.steps.is_sorted_by_key(|s| s.rank) {
+            self.steps.sort_by_key(|s| s.rank);
+        }
+    }
+}
+
+/// Nodes, edges and paths of a whole VG stream, merged across its `Graph` chunks.
+struct VgStream {
+    nodes: Vec<vg_proto::Node>,
+    edges: Vec<vg_proto::Edge>,
+    paths: Vec<VgPath>,
+}
+
+impl VgStream {
+    /// Collects nodes, edges and path steps from all partial graphs, moving
+    /// the decoded values instead of cloning them.
+    fn read<R: Read>(reader: &mut R) -> PanResult<Self> {
+        let mut proto_nodes: Vec<vg_proto::Node> = Vec::new();
+        let mut proto_edges: Vec<vg_proto::Edge> = Vec::new();
+        let mut vg_paths: Vec<VgPath> = Vec::new();
+        let mut path_index: HashMap<String, usize> = HashMap::new();
+
+        for_each_vg_graph(reader, |graph| {
+            proto_nodes.extend(graph.node);
+            proto_edges.extend(graph.edge);
+            for path in graph.path {
+                let index = if let Some(&index) = path_index.get(&path.name) {
+                    index
+                } else {
+                    path_index.insert(path.name.clone(), vg_paths.len());
+                    vg_paths.push(VgPath {
+                        name: path.name,
+                        steps: Vec::new(),
+                    });
+                    vg_paths.len() - 1
+                };
+                let vg_path = &mut vg_paths[index];
+                vg_path.steps.reserve(path.mapping.len());
+                for mapping in path.mapping {
+                    let Some(position) = mapping.position else {
+                        return Err(PanGraphXError::Parse(format!(
+                            "Mapping in path {} missing position",
+                            vg_path.name
+                        )));
+                    };
+                    vg_path.steps.push(VgStep {
+                        rank: mapping.rank,
+                        node_id: position.node_id,
+                        is_reverse: position.is_reverse,
+                    });
+                }
+            }
+            Ok(())
+        })?;
+
+        Ok(Self {
+            nodes: proto_nodes,
+            edges: proto_edges,
+            paths: vg_paths,
+        })
+    }
+}
+
 impl<R: Read + Seek> GraphParser<R> for VGCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
-        let proto_graphs = read_vg_graphs(reader)?;
-
-        // Collect all proto nodes, edges, paths from partial graphs
-        let mut all_proto_nodes = Vec::new();
-        let mut all_proto_edges = Vec::new();
-        let mut all_proto_paths: HashMap<String, Vec<vg_proto::Mapping>> = HashMap::new();
-        // TODO lookup is currently O(n) per mapping, can optimize by building a name → path map first if needed
-        let mut path_order: Vec<String> = Vec::new();
-
-        for graph in &proto_graphs {
-            all_proto_nodes.extend(graph.node.iter().cloned());
-            all_proto_edges.extend(graph.edge.iter().copied());
-            for path in &graph.path {
-                let entry = all_proto_paths.entry(path.name.clone()).or_default();
-                if !path_order.contains(&path.name) {
-                    path_order.push(path.name.clone());
-                }
-                entry.extend(path.mapping.iter().cloned());
-            }
-        }
+        let VgStream {
+            nodes: mut proto_nodes,
+            edges: proto_edges,
+            paths: vg_paths,
+        } = VgStream::read(reader)?;
 
         // Build node ID mapping: VG i64 IDs → 0-based usize
         // Sort by original ID to maintain a deterministic ordering
-        all_proto_nodes.sort_by_key(|n| n.id);
-        all_proto_nodes.dedup_by_key(|n| n.id);
+        proto_nodes.sort_by_key(|n| n.id);
+        proto_nodes.dedup_by_key(|n| n.id);
+        let vg_ids: Vec<i64> = proto_nodes.iter().map(|n| n.id).collect();
+        let id_map = VgIdMap::from_sorted_ids(&vg_ids);
+        drop(vg_ids);
 
-        let mut vg_id_to_internal: HashMap<i64, usize> = HashMap::new();
-        let mut node_name_map: HashMap<usize, Vec<u8>> = HashMap::new();
+        let mut node_name_map: HashMap<usize, Vec<u8>> = HashMap::with_capacity(proto_nodes.len());
         let mut nodes = Nodes::new();
-
-        for (idx, proto_node) in all_proto_nodes.iter().enumerate() {
-            vg_id_to_internal.insert(proto_node.id, idx);
-            nodes.push(proto_node.sequence.as_bytes().to_vec());
-
+        for (idx, proto_node) in proto_nodes.into_iter().enumerate() {
             // Store original name or ID as the node name
             let name = if proto_node.name.is_empty() {
-                proto_node.id.to_string().into_bytes()
+                itoa::Buffer::new()
+                    .format(proto_node.id)
+                    .as_bytes()
+                    .to_vec()
             } else {
-                proto_node.name.as_bytes().to_vec()
+                proto_node.name.into_bytes()
             };
             node_name_map.insert(idx, name);
+            nodes.push(proto_node.sequence.into_bytes());
         }
 
         // Convert edges
-        let edges: Vec<Edge> = all_proto_edges
-            .iter()
+        #[allow(clippy::cast_sign_loss)]
+        let edges: Vec<Edge> = proto_edges
+            .par_iter()
             .map(|pe| {
-                let from_id = *vg_id_to_internal.get(&pe.from).ok_or_else(|| {
+                let from_id = id_map.get(pe.from).ok_or_else(|| {
                     PanGraphXError::Parse(format!(
                         "Edge references unknown from-node ID {}",
                         pe.from
                     ))
                 })?;
-                let to_id = *vg_id_to_internal.get(&pe.to).ok_or_else(|| {
+                let to_id = id_map.get(pe.to).ok_or_else(|| {
                     PanGraphXError::Parse(format!("Edge references unknown to-node ID {}", pe.to))
                 })?;
                 let (from_orient, to_orient) = vg_edge_to_orientations(pe.from_start, pe.to_end);
@@ -256,45 +382,36 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
                 })
             })
             .collect::<PanResult<Vec<Edge>>>()?;
+        drop(proto_edges);
 
         // Convert paths
-        let mut paths = Vec::new();
-        for path_name in &path_order {
-            let mappings = all_proto_paths.get(path_name).ok_or_else(|| {
-                PanGraphXError::Parse(format!("Missing mappings for path {path_name}"))
-            })?;
-
-            let mut steps = Vec::with_capacity(mappings.len());
-            for mapping in mappings {
-                if let Some(pos) = &mapping.position {
-                    let node_id = *vg_id_to_internal.get(&pos.node_id).ok_or_else(|| {
-                        PanGraphXError::Parse(format!(
-                            "Path mapping references unknown node ID {}",
-                            pos.node_id
-                        ))
-                    })?;
-                    let orientation = if pos.is_reverse {
-                        Orientation::Reverse
-                    } else {
-                        Orientation::Forward
-                    };
-                    steps.push(Step {
-                        node_id,
-                        orientation,
-                    });
-                } else {
-                    return Err(PanGraphXError::Parse(format!(
-                        "Mapping in path {path_name} missing position"
-                    )));
-                }
-            }
-
-            paths.push(Path {
-                name: path_name.as_bytes().to_vec(),
-                steps,
-                overlaps: Vec::new(),
-            });
-        }
+        let paths = vg_paths
+            .into_par_iter()
+            .map(|mut vg_path| {
+                vg_path.sort_by_rank();
+                let steps = vg_path
+                    .steps
+                    .iter()
+                    .map(|step| {
+                        let node_id = id_map.get(step.node_id).ok_or_else(|| {
+                            PanGraphXError::Parse(format!(
+                                "Path mapping references unknown node ID {}",
+                                step.node_id
+                            ))
+                        })?;
+                        Ok(Step {
+                            node_id,
+                            orientation: step.is_reverse.into(),
+                        })
+                    })
+                    .collect::<PanResult<Vec<Step>>>()?;
+                Ok(Path {
+                    name: vg_path.name.into_bytes(),
+                    steps,
+                    overlaps: Vec::new(),
+                })
+            })
+            .collect::<PanResult<Vec<Path>>>()?;
 
         Ok(CoreGraphDTO {
             nodes,
@@ -309,136 +426,173 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
 // GraphSerializer implementation
 // ---------------------------------------------------------------------------
 
+/// The slice of the graph stored in one `Graph` message.
+///
+/// Nodes come first, then edges, then paths, so every message only refers to
+/// nodes a reader has already seen.
+enum VgChunk<'a> {
+    Nodes(&'a [Node]),
+    Edges(&'a [Edge]),
+    /// Steps `start..end` of `path`.
+    Path {
+        path: &'a Path,
+        start: usize,
+        end: usize,
+    },
+}
+
+/// Splits the graph into chunks of at most `VG_CHUNK_SIZE` entities.
+fn vg_chunks(graph: &CoreGraphDTO) -> Vec<VgChunk<'_>> {
+    let mut chunks: Vec<VgChunk<'_>> = graph
+        .nodes
+        .as_slice()
+        .chunks(VG_CHUNK_SIZE)
+        .map(VgChunk::Nodes)
+        .collect();
+    chunks.extend(graph.edges.chunks(VG_CHUNK_SIZE).map(VgChunk::Edges));
+    for path in &graph.paths {
+        // An empty path still gets one (empty) chunk so that its name is kept.
+        let len = path.steps.len();
+        let mut start = 0;
+        loop {
+            let end = (start + VG_CHUNK_SIZE).min(len);
+            chunks.push(VgChunk::Path { path, start, end });
+            start = end;
+            if start >= len {
+                break;
+            }
+        }
+    }
+    chunks
+}
+
+/// Lookup tables shared by all chunks while serializing.
+struct VgWriteContext<'a> {
+    graph: &'a CoreGraphDTO,
+    /// Internal id → VG id.
+    vg_ids: Vec<i64>,
+}
+
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
-    clippy::cast_sign_loss,
-    clippy::too_many_lines
+    clippy::cast_sign_loss
 )]
-impl GraphSerializer for VGCodec {
-    fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
-        // Build reverse mapping: internal ID → original VG ID
-        let internal_to_vg_id: HashMap<usize, i64> = graph.node_name_map.as_ref().map_or_else(
-            || {
+impl<'a> VgWriteContext<'a> {
+    fn new(graph: &'a CoreGraphDTO) -> Self {
+        // Original VG IDs are kept when the node names are numeric.
+        let vg_ids = (0..graph.nodes.len())
+            .into_par_iter()
+            .map(|id| {
                 graph
-                    .nodes
-                    .iter()
-                    .map(|n| (n.id, (n.id + 1) as i64))
-                    .collect()
-            },
-            |name_map| {
-                name_map
-                    .iter()
-                    .map(|(&id, name)| {
-                        let vg_id = String::from_utf8_lossy(name)
-                            .parse::<i64>()
-                            .unwrap_or((id + 1) as i64);
-                        (id, vg_id)
-                    })
-                    .collect()
-            },
-        );
-
-        // Convert nodes
-        let proto_nodes: Vec<vg_proto::Node> = graph
-            .nodes
-            .iter()
-            .map(|node| {
-                let vg_id = *internal_to_vg_id
-                    .get(&node.id)
-                    .unwrap_or(&((node.id + 1) as i64));
-                let name = graph
                     .node_name_map
                     .as_ref()
-                    .and_then(|m| m.get(&node.id))
-                    .map(|n| String::from_utf8_lossy(n).to_string())
-                    .unwrap_or_default();
-                // Only set name if it differs from the ID string
-                let name_field = if name == vg_id.to_string() {
-                    String::new()
-                } else {
-                    name
-                };
-                vg_proto::Node {
-                    sequence: String::from_utf8_lossy(&node.sequence).to_string(),
-                    name: name_field,
-                    id: vg_id,
-                }
+                    .and_then(|map| map.get(&id))
+                    .and_then(|name| std::str::from_utf8(name).ok())
+                    .and_then(|name| name.parse::<i64>().ok())
+                    .unwrap_or((id + 1) as i64)
             })
             .collect();
+        Self { graph, vg_ids }
+    }
 
-        // Convert edges
-        let proto_edges: Vec<vg_proto::Edge> = graph
-            .edges
+    fn node(&self, node: &Node) -> vg_proto::Node {
+        let vg_id = self.vg_ids[node.id];
+        // Only set name if it differs from the ID string
+        let name = self
+            .graph
+            .node_name_map
+            .as_ref()
+            .and_then(|m| m.get(&node.id))
+            .filter(|name| name.as_slice() != itoa::Buffer::new().format(vg_id).as_bytes())
+            .map(|name| String::from_utf8_lossy(name).into_owned())
+            .unwrap_or_default();
+        vg_proto::Node {
+            sequence: String::from_utf8_lossy(&node.sequence).into_owned(),
+            name,
+            id: vg_id,
+        }
+    }
+
+    fn edge(&self, edge: &Edge) -> vg_proto::Edge {
+        let (from_start, to_end) = orientations_to_vg_edge(edge.from_orient, edge.to_orient);
+        vg_proto::Edge {
+            from: self.vg_ids[edge.from_node],
+            to: self.vg_ids[edge.to_node],
+            from_start,
+            to_end,
+            overlap: edge.overlap as i32,
+        }
+    }
+
+    fn path(&self, path: &Path, start: usize, end: usize) -> vg_proto::Path {
+        let mapping = path.steps[start..end]
             .iter()
-            .map(|edge| {
-                let from = *internal_to_vg_id
-                    .get(&edge.from_node)
-                    .unwrap_or(&((edge.from_node + 1) as i64));
-                let to = *internal_to_vg_id
-                    .get(&edge.to_node)
-                    .unwrap_or(&((edge.to_node + 1) as i64));
-                let (from_start, to_end) =
-                    orientations_to_vg_edge(edge.from_orient, edge.to_orient);
-                vg_proto::Edge {
-                    from,
-                    to,
-                    from_start,
-                    to_end,
-                    overlap: edge.overlap as i32,
+            .zip(start..)
+            .map(|(step, index)| {
+                let node_seq_len = self
+                    .graph
+                    .nodes
+                    .get(step.node_id)
+                    .map_or(0, |n| n.sequence.len()) as i32;
+                vg_proto::Mapping {
+                    position: Some(vg_proto::Position {
+                        node_id: self.vg_ids[step.node_id],
+                        offset: 0,
+                        is_reverse: step.orientation == Orientation::Reverse,
+                        name: String::new(),
+                    }),
+                    edit: vec![vg_proto::Edit {
+                        from_length: node_seq_len,
+                        to_length: node_seq_len,
+                        sequence: String::new(),
+                    }],
+                    rank: (index + 1) as i64,
                 }
             })
             .collect();
+        vg_proto::Path {
+            name: String::from_utf8_lossy(&path.name).into_owned(),
+            mapping,
+            is_circular: false,
+            length: 0,
+        }
+    }
 
-        // Convert paths
-        let proto_paths: Vec<vg_proto::Path> = graph
-            .paths
-            .iter()
-            .map(|path| {
-                let mappings: Vec<vg_proto::Mapping> = path
-                    .steps
-                    .iter()
-                    .enumerate()
-                    .map(|(rank, step)| {
-                        let vg_node_id = *internal_to_vg_id
-                            .get(&step.node_id)
-                            .unwrap_or(&((step.node_id + 1) as i64));
-                        let node_seq_len = graph
-                            .nodes
-                            .get(step.node_id)
-                            .map_or(0, |n| n.sequence.len());
-                        vg_proto::Mapping {
-                            position: Some(vg_proto::Position {
-                                node_id: vg_node_id,
-                                offset: 0,
-                                is_reverse: step.orientation == Orientation::Reverse,
-                                name: String::new(),
-                            }),
-                            edit: vec![vg_proto::Edit {
-                                from_length: node_seq_len as i32,
-                                to_length: node_seq_len as i32,
-                                sequence: String::new(),
-                            }],
-                            rank: (rank + 1) as i64,
-                        }
-                    })
-                    .collect();
-                vg_proto::Path {
-                    name: String::from_utf8_lossy(&path.name).to_string(),
-                    mapping: mappings,
-                    is_circular: false,
-                    length: 0,
-                }
-            })
-            .collect();
-
-        let proto_graph = vg_proto::Graph {
-            node: proto_nodes,
-            edge: proto_edges,
-            path: proto_paths,
+    fn encode(&self, chunk: &VgChunk<'_>) -> Vec<u8> {
+        let graph = match *chunk {
+            VgChunk::Nodes(nodes) => vg_proto::Graph {
+                node: nodes.iter().map(|n| self.node(n)).collect(),
+                ..Default::default()
+            },
+            VgChunk::Edges(edges) => vg_proto::Graph {
+                edge: edges.iter().map(|e| self.edge(e)).collect(),
+                ..Default::default()
+            },
+            VgChunk::Path { path, start, end } => vg_proto::Graph {
+                path: vec![self.path(path, start, end)],
+                ..Default::default()
+            },
         };
+        graph.encode_to_vec()
+    }
+}
 
-        write_vg_graphs(writer, &[proto_graph])?;
+impl GraphSerializer for VGCodec {
+    fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
+        let context = VgWriteContext::new(graph);
+        let chunks = vg_chunks(graph);
+
+        // Encode one group of chunks in parallel at a time and write it in order,
+        // so only a bounded window of protobuf data is ever held in memory.
+        if chunks.is_empty() {
+            // Keep the stream non-empty so that readers see a valid VG file.
+            return write_vg_group(writer, &[vg_proto::Graph::default().encode_to_vec()]);
+        }
+        for group in chunks.chunks(VG_GROUP_SIZE) {
+            let encoded: Vec<Vec<u8>> = group.par_iter().map(|c| context.encode(c)).collect();
+            write_vg_group(writer, &encoded)?;
+        }
         Ok(())
     }
 }
@@ -934,5 +1088,60 @@ mod tests {
         let parsed = codec.parse(&mut cursor).unwrap();
 
         assert_eq!(parsed.edges[0].overlap, 2);
+    }
+
+    #[test]
+    fn test_large_graph_is_chunked_and_roundtrips() {
+        // Enough nodes, edges and steps to span several messages and framing groups.
+        // Nodes, edges and steps each take a third of the messages.
+        let node_count = VG_CHUNK_SIZE * VG_GROUP_SIZE / 3 + 1500;
+        let nodes = Nodes::from_seq(vec![b"A".to_vec(); node_count]);
+        let edges: Vec<Edge> = (1..node_count)
+            .map(|i| Edge {
+                from_node: i - 1,
+                from_orient: Orientation::Forward,
+                to_node: i,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            })
+            .collect();
+        let steps: Vec<Step> = (0..node_count)
+            .map(|i| Step {
+                node_id: i,
+                orientation: (i % 3 == 0).into(),
+            })
+            .collect();
+        let original = CoreGraphDTO {
+            nodes,
+            edges,
+            paths: vec![
+                Path {
+                    name: b"long".to_vec(),
+                    steps,
+                    overlaps: vec![],
+                },
+                Path {
+                    name: b"empty".to_vec(),
+                    steps: vec![],
+                    overlaps: vec![],
+                },
+            ],
+            node_name_map: None,
+        };
+
+        let mut buf = Vec::new();
+        VGCodec.serialize(&original, &mut buf).unwrap();
+
+        let graphs = read_vg_graphs(&mut Cursor::new(&buf)).unwrap();
+        assert!(graphs.len() > VG_GROUP_SIZE);
+        assert!(graphs.iter().all(|g| g.node.len() <= VG_CHUNK_SIZE
+            && g.edge.len() <= VG_CHUNK_SIZE
+            && g.path.iter().all(|p| p.mapping.len() <= VG_CHUNK_SIZE)));
+
+        let parsed = VGCodec.parse(&mut Cursor::new(&buf)).unwrap();
+        assert!(parsed.isomorphic(&CoreGraphDTO {
+            node_name_map: parsed.node_name_map.clone(),
+            ..original
+        }));
     }
 }

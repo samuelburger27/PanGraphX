@@ -1,4 +1,4 @@
-use crate::core::core_types::{Edge, NodeId, NodeName, Nodes, Orientation, Path, Step};
+use crate::core::core_types::{Edge, Node, NodeId, NodeName, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::traits::{GraphParser, GraphSerializer};
@@ -10,6 +10,7 @@ use gfa::parser::GFAParserBuilder;
 use gfa::parser::error::ParserTolerance;
 use log::debug;
 use rayon::prelude::*;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{BufReader, Read, Seek, Write};
 
@@ -152,85 +153,138 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
     }
 }
 
+/// Number of S/L records formatted per parallel task.
+const RECORDS_PER_CHUNK: usize = 1 << 14;
+
+/// Builds the id -> name table once, so formatting never hashes or allocates per step.
+/// Nodes without an entry in `node_name_map` are named by their numeric id.
+fn node_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
+    (0..graph.nodes.len())
+        .into_par_iter()
+        .map(|id| {
+            graph
+                .node_name_map
+                .as_ref()
+                .and_then(|map| map.get(&id))
+                .map_or_else(
+                    || Cow::Owned(itoa::Buffer::new().format(id).as_bytes().to_vec()),
+                    |name| Cow::Borrowed(name.as_slice()),
+                )
+        })
+        .collect()
+}
+
+#[inline]
+const fn orientation_byte(orientation: Orientation) -> u8 {
+    match orientation {
+        Orientation::Forward => b'+',
+        Orientation::Reverse => b'-',
+    }
+}
+
+/// Formats `items` in parallel and writes the result in order.
+///
+/// Only one window of chunks (`RECORDS_PER_CHUNK` items per thread) is held in
+/// memory at a time, so the output text is never fully resident.
+fn write_records<T, F>(
+    writer: &mut dyn Write,
+    items: &[T],
+    per_chunk: usize,
+    format: F,
+) -> PanResult<()>
+where
+    T: Sync,
+    F: Fn(&T, &mut Vec<u8>) + Sync,
+{
+    let window = per_chunk * rayon::current_num_threads();
+    for window_items in items.chunks(window) {
+        let buffers: Vec<Vec<u8>> = window_items
+            .par_chunks(per_chunk)
+            .map(|chunk| {
+                let mut buf = Vec::new();
+                for item in chunk {
+                    format(item, &mut buf);
+                }
+                buf
+            })
+            .collect();
+        for buf in buffers {
+            writer.write_all(&buf)?;
+        }
+    }
+    Ok(())
+}
+
+fn format_segment(names: &[Cow<'_, [u8]>], node: &Node, buf: &mut Vec<u8>) {
+    buf.extend_from_slice(b"S\t");
+    buf.extend_from_slice(&names[node.id]);
+    buf.push(b'\t');
+    buf.extend_from_slice(&node.sequence);
+    buf.push(b'\n');
+}
+
+fn format_link(names: &[Cow<'_, [u8]>], edge: &Edge, buf: &mut Vec<u8>) {
+    buf.extend_from_slice(b"L\t");
+    buf.extend_from_slice(&names[edge.from_node]);
+    buf.push(b'\t');
+    buf.push(orientation_byte(edge.from_orient));
+    buf.push(b'\t');
+    buf.extend_from_slice(&names[edge.to_node]);
+    buf.push(b'\t');
+    buf.push(orientation_byte(edge.to_orient));
+    buf.push(b'\t');
+    buf.extend_from_slice(itoa::Buffer::new().format(edge.overlap).as_bytes());
+    buf.extend_from_slice(b"M\n");
+}
+
+fn format_path(names: &[Cow<'_, [u8]>], path: &Path, buf: &mut Vec<u8>) {
+    buf.extend_from_slice(b"P\t");
+    buf.extend_from_slice(&path.name);
+    buf.push(b'\t');
+    for (i, step) in path.steps.iter().enumerate() {
+        if i > 0 {
+            buf.push(b',');
+        }
+        buf.extend_from_slice(&names[step.node_id]);
+        buf.push(orientation_byte(step.orientation));
+    }
+    buf.push(b'\t');
+    // All-zero overlaps carry no information, so they are written as `*`.
+    if path.overlaps.iter().all(|&overlap| overlap == 0) {
+        buf.push(b'*');
+    } else {
+        let mut itoa_buf = itoa::Buffer::new();
+        for (i, &overlap) in path.overlaps.iter().enumerate() {
+            if i > 0 {
+                buf.push(b',');
+            }
+            buf.extend_from_slice(itoa_buf.format(overlap).as_bytes());
+            buf.push(b'M');
+        }
+    }
+    buf.push(b'\n');
+}
+
 impl GraphSerializer for GFACodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
-        // write header
+        let names = node_names(graph);
+
         writer.write_all(b"H\tVN:Z:1.0\n")?;
-
-        // Parallelize node formatting
-        let node_lines: Vec<String> = graph
-            .nodes
-            .par_iter()
-            .map(|node| {
-                let name = graph.get_node_name(node);
-                let seq = String::from_utf8_lossy(&node.sequence);
-                format!("S\t{name}\t{seq}\n")
-            })
-            .collect();
-
-        // Write all node lines sequentially
-        for line in node_lines {
-            writer.write_all(line.as_bytes())?;
-        }
-
-        // Parallelize edge formatting
-        let edge_lines: Vec<String> = graph
-            .edges
-            .par_iter()
-            .map(|edge| {
-                let from_name = graph.get_node_name(&graph.nodes[edge.from_node]);
-                let to_name = graph.get_node_name(&graph.nodes[edge.to_node]);
-                let overlap = edge.overlap.to_string() + "M";
-                format!(
-                    "L\t{}\t{}\t{}\t{}\t{}\n",
-                    from_name, edge.from_orient, to_name, edge.to_orient, overlap
-                )
-            })
-            .collect();
-
-        // Write all edge lines sequentially
-        for line in edge_lines {
-            writer.write_all(line.as_bytes())?;
-        }
-
-        // Parallelize path formatting
-        let path_lines: Vec<String> = graph
-            .paths
-            .par_iter()
-            .map(|path| {
-                let segments = path
-                    .steps
-                    .iter()
-                    .map(|step| {
-                        let name: String = graph.get_name_from_id(step.node_id);
-                        let orient = match step.orientation {
-                            Orientation::Forward => "+",
-                            Orientation::Reverse => "-",
-                        };
-                        format!("{name}{orient}")
-                    })
-                    .collect::<Vec<_>>()
-                    .join(",");
-                let mut overlaps = path
-                    .overlaps
-                    .iter()
-                    .map(|opt| opt.to_string() + "M")
-                    .collect::<Vec<_>>()
-                    .join(",");
-                if overlaps.is_empty() || overlaps.chars().all(|c| c == '0' || c == 'M' || c == ',')
-                {
-                    overlaps = "*".to_string();
-                }
-                let name = String::from_utf8_lossy(&path.name);
-                format!("P\t{name}\t{segments}\t{overlaps}\n")
-            })
-            .collect();
-
-        // Write all path lines sequentially
-        for line in path_lines {
-            writer.write_all(line.as_bytes())?;
-        }
-
+        write_records(
+            writer,
+            graph.nodes.as_slice(),
+            RECORDS_PER_CHUNK,
+            |node, buf| {
+                format_segment(&names, node, buf);
+            },
+        )?;
+        write_records(writer, &graph.edges, RECORDS_PER_CHUNK, |edge, buf| {
+            format_link(&names, edge, buf);
+        })?;
+        // A single path line can be hundreds of MB, so each path is its own task.
+        write_records(writer, &graph.paths, 1, |path, buf| {
+            format_path(&names, path, buf);
+        })?;
         Ok(())
     }
 }

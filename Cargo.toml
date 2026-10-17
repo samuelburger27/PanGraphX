@@ -12,3 +12,7 @@ warnings = "deny"
 pedantic = { level = "deny", priority = -1 }
 perf = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
