@@ -12,7 +12,8 @@
 # vg runs with all cores (VG_THREADS overrides): `vg convert -t` and, for GBZ
 # construction, `vg gbwt --num-jobs` (vg gbwt has no -t/--threads). VG files
 # are written as Protobuf (--vg-out), the encoding PanGraphX reads and writes,
-# so both tools produce the same format.
+# so both tools produce the same format. GBZ construction passes --max-node 0:
+# vg otherwise chops segments to 1024 bp, which PanGraphX does not do.
 
 VG_THREADS="${VG_THREADS:-$(cpu_count)}"
 
@@ -61,7 +62,7 @@ op_tool_cmd() {
     case "$op" in
         gfa_to_vg)  echo "vg convert --gfa-in --vg-out $in -t $VG_THREADS > $dir/tool_out.vg" ;;
         vg_to_gfa)  echo "vg convert --gfa-out $in -t $VG_THREADS > $dir/tool_out.gfa" ;;
-        gfa_to_gbz) echo "vg gbwt -G $in -g $dir/tool_out.gbz --num-jobs $VG_THREADS" ;;
+        gfa_to_gbz) echo "vg gbwt -G $in -g $dir/tool_out.gbz --max-node 0 --num-jobs $VG_THREADS" ;;
         gbz_to_gfa) echo "vg convert --gfa-out $in -t $VG_THREADS > $dir/tool_out.gfa" ;;
         gfa_to_og)  echo "odgi build -g $in -o $dir/tool_out.og" ;;
         og_to_gfa)  echo "odgi view -i $in -g > $dir/tool_out.gfa" ;;
@@ -79,7 +80,7 @@ prepare_inputs() {
         [[ -s "$dir/ref.$fmt" ]] && continue
         case "$fmt" in
             vg)  $HAVE_VG   || continue; cmd="vg convert --gfa-in --vg-out $gfa -t $VG_THREADS > $dir/ref.vg" ;;
-            gbz) $HAVE_VG   || continue; cmd="vg gbwt -G $gfa -g $dir/ref.gbz --num-jobs $VG_THREADS" ;;
+            gbz) $HAVE_VG   || continue; cmd="vg gbwt -G $gfa -g $dir/ref.gbz --max-node 0 --num-jobs $VG_THREADS" ;;
             og)  $HAVE_ODGI || continue; cmd="odgi build -g $gfa -o $dir/ref.og" ;;
         esac
         log "Preparing reference input ref.$fmt"

@@ -90,7 +90,7 @@ this the number to track when optimizing memory. The CSV goes to
 |-----------|-----------|----------------|
 | GFA → VG | `convert -i g.gfa -o g.vg` | `vg convert --gfa-in --vg-out g.gfa -t N` |
 | VG → GFA | `convert -i g.vg -o g.gfa` | `vg convert --gfa-out g.vg -t N` |
-| GFA → GBZ | `convert -i g.gfa -o g.gbz` | `vg gbwt -G g.gfa -g g.gbz --num-jobs N` |
+| GFA → GBZ | `convert -i g.gfa -o g.gbz` | `vg gbwt -G g.gfa -g g.gbz --max-node 0 --num-jobs N` |
 | GBZ → GFA | `convert -i g.gbz -o g.gfa` | `vg convert --gfa-out g.gbz -t N` |
 | GFA → OG | `convert -i g.gfa -o g.og` | `odgi build` |
 | OG → GFA | `convert -i g.og -o g.gfa` | `odgi view -g` |
@@ -103,7 +103,9 @@ inputs across them.
 
 vg gets all cores (`N`, override with `VG_THREADS`). `vg gbwt` has no
 `-t`/`--threads`; `--num-jobs` is its thread setting for GFA input, and `-g`
-(not `-o`, which writes a bare GBWT) produces the GBZ. vg writes `.vg` files
+(not `-o`, which writes a bare GBWT) produces the GBZ. `--max-node 0` stops
+vg from chopping segments into nodes of at most 1024 bp, so both tools build
+a GBZ over the same nodes as the GFA. vg writes `.vg` files
 as Protobuf (`--vg-out`), the encoding PanGraphX reads and writes, so GFA → VG
 compares the same output format.
 
