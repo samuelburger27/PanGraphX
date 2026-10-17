@@ -1,7 +1,13 @@
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(version, about, subcommand_required = true, long_about = None)]
+#[command(
+    version,
+    about,
+    subcommand_required = true,
+    arg_required_else_help = true,
+    long_about = None
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -10,25 +16,36 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Convert genome graphs between formats
+    #[command(
+        arg_required_else_help = true,
+        after_help = "Examples:\n  pangraphx-cli convert graph.gfa -o graph.gbz\n  pangraphx-cli convert graph.dat -o graph.vg --from gfa"
+    )]
     Convert(ConvertArgs),
 
     /// Convert variation graph to De Bruijn graph
+    #[command(
+        arg_required_else_help = true,
+        after_help = "Examples:\n  pangraphx-cli ddb graph.vg -k 31 -o dbg.gfa\n  pangraphx-cli ddb graph.gfa -k 21 -c --compact -o unitigs.gfa"
+    )]
     Ddb(DeBruijnArgs),
 
     /// Show basic information about a graph file
+    #[command(arg_required_else_help = true)]
     Info(InfoArgs),
 
     /// Show detailed statistics about a graph file
+    #[command(arg_required_else_help = true)]
     Stats(StatsArgs),
 
     /// List supported graph formats
+    #[command(visible_alias = "formats")]
     Format,
 }
 
 #[derive(Args, Debug)]
 pub struct ConvertArgs {
     /// Input file path (format inferred from suffix)
-    #[arg(short = 'i', long)]
+    #[arg(value_name = "INPUT")]
     pub input: String,
 
     /// Output file path (format inferred from suffix)
@@ -79,7 +96,7 @@ pub struct DeBruijnArgs {
     #[arg(short = 'c', long, default_value_t = false)]
     pub colored: bool,
 
-    // Use all topological walks to create edges ( otherwise use only haplotype paths)
+    /// Use all topological walks to create edges ( otherwise use only haplotype paths)
     #[arg(short = 'f', long = "full-topology", default_value_t = false)]
     pub full_topology: bool,
 
@@ -88,7 +105,7 @@ pub struct DeBruijnArgs {
     pub compact: bool,
 
     /// Input file path (format inferred from suffix)
-    #[arg(short = 'i', long)]
+    #[arg(value_name = "INPUT")]
     pub input: String,
 
     /// Output file path (format inferred from suffix)
