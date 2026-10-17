@@ -88,10 +88,10 @@ this the number to track when optimizing memory. The CSV goes to
 
 | Operation | PanGraphX | Reference tool |
 |-----------|-----------|----------------|
-| GFA → VG | `convert -i g.gfa -o g.vg` | `vg convert --gfa-in --vg-out` |
-| VG → GFA | `convert -i g.vg -o g.gfa` | `vg convert --gfa-out` |
-| GFA → GBZ | `convert -i g.gfa -o g.gbz` | `vg gbwt -G g.gfa -g g.gbz` |
-| GBZ → GFA | `convert -i g.gbz -o g.gfa` | `vg convert --gfa-out` |
+| GFA → VG | `convert -i g.gfa -o g.vg` | `vg convert -p g.gfa -t N` |
+| VG → GFA | `convert -i g.vg -o g.gfa` | `vg convert --gfa-out g.vg -t N` |
+| GFA → GBZ | `convert -i g.gfa -o g.gbz` | `vg gbwt -G g.gfa -g g.gbz --num-jobs N` |
+| GBZ → GFA | `convert -i g.gbz -o g.gfa` | `vg convert --gfa-out g.gbz -t N` |
 | GFA → OG | `convert -i g.gfa -o g.og` | `odgi build` |
 | OG → GFA | `convert -i g.og -o g.gfa` | `odgi view -g` |
 
@@ -100,6 +100,13 @@ measuring a dataset, each script builds the reverse-direction inputs (`.vg`,
 `.gbz`, `.og`) once with the **reference tool**, untimed. Both tools then read
 the same files. Pass the same `WORK=/some/dir` to both scripts to reuse those
 inputs across them.
+
+vg gets all cores (`N`, override with `VG_THREADS`). `vg gbwt` has no
+`-t`/`--threads`; `--num-jobs` is its thread setting for GFA input, and `-g`
+(not `-o`, which writes a bare GBWT) produces the GBZ. GFA → VG writes vg's
+native PackedGraph (`-p`, its fastest output). The `.vg` reverse-direction input
+is still built as Protobuf (`--vg-out`), because that is the only VG encoding
+PanGraphX reads.
 
 ```bash
 benchmarks/compare_tools.sh                         # default datasets (lib.sh)
