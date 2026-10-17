@@ -542,6 +542,9 @@ impl<'a> VgWriteContext<'a> {
 
 impl GraphSerializer for VGCodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
+        if let Some(message) = graph.dangling_reference() {
+            return Err(PanGraphXError::Serialize(message));
+        }
         let context = VgWriteContext::new(graph);
         let chunks = vg_chunks(graph);
 
