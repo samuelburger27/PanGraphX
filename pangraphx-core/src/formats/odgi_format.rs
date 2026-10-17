@@ -1,117 +1,45 @@
-use crate::core::core_types::{Edge, Node, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
-use crate::formats::gfa_format::GFACodec;
+use crate::formats::gfa_format::{self, GFACodec};
 use crate::traits::{GraphParser, GraphSerializer};
-use odgi_ffi::{Edge as OdgiEdge, Graph as OdgiGraph, gfa_to_odgi};
+use odgi_ffi::{gfa_to_odgi, odgi_to_gfa};
+use std::fs::File;
 use std::io::{Read, Seek, Write, copy};
 use tempfile::NamedTempFile;
 
 /// Codec for reading and writing ODGI graphs.
 ///
-/// The current FFI layer accepts filesystem paths rather than generic readers/writers,
-/// so parsing and serialization use temporary files as an interoperability bridge.
+/// odgi only works on files, so parsing and serialization go through temporary
+/// files and GFA: `odgi_ffi` runs `odgi view` / `odgi build` to convert, and the
+/// GFA codec does the rest.
+///
+/// # Performance
+/// ODGI support is slow and memory hungry, and is not meant for large graphs.
+/// Every conversion runs the external `odgi` executable and writes the whole
+/// graph to temporary files as both ODGI and GFA. On top of that, reading
+/// (`odgi_ffi::odgi_to_gfa`) holds the complete GFA text output by `odgi view`
+/// in memory before writing it out, so peak memory is the size of the GFA text
+/// plus the parsed graph.
 pub struct ODGICodec;
 
-/// Converts an `odgi_ffi` orientation flag, which is `true` for forward, to an [`Orientation`].
-const fn orientation_from_is_forward(is_forward: bool) -> Orientation {
-    if is_forward {
-        Orientation::Forward
-    } else {
-        Orientation::Reverse
-    }
-}
-
-/// Converts an ODGI edge to the internal `Edge` representation.
-///
-/// `from_id` is a 0-based index into the node vector, while `edge.to_node`
-/// is the 1-based ODGI node identifier, so it is shifted by one.
-#[allow(clippy::cast_possible_truncation)]
-impl From<(usize, OdgiEdge)> for Edge {
-    fn from((from_id, edge): (usize, OdgiEdge)) -> Self {
-        Self {
-            from_node: from_id,
-            from_orient: orientation_from_is_forward(edge.from_orientation),
-            to_node: (edge.to_node - 1) as usize,
-            to_orient: orientation_from_is_forward(edge.to_orientation),
-            overlap: 0, // ODGI edges do not have explicit overlap information
-        }
-    }
-}
-
-#[allow(clippy::cast_possible_truncation)]
 impl<R: Read + Seek> GraphParser<R> for ODGICodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
-        // `odgi_ffi` currently parses from a file path, so the input stream is staged
-        // into a temporary file before loading.
+        // `odgi_to_gfa` converts between files, so stage the input as a temporary
+        // ODGI file, convert it to temporary GFA, then parse that with the GFA codec.
+        let mut odgi_file = NamedTempFile::new()?;
+        copy(reader, &mut odgi_file)?;
+        odgi_file.flush()?;
+        let odgi_path = odgi_file.path().to_string_lossy().to_string();
 
-        let mut temp_file = NamedTempFile::new()?;
-        copy(reader, &mut temp_file)?;
-        let temp_path = temp_file.path().to_str().ok_or_else(|| {
-            PanGraphXError::Parse("Failed to convert temp file path to string".to_string())
+        let gfa_file = NamedTempFile::new()?;
+        let gfa_path = gfa_file.path().to_string_lossy().to_string();
+
+        odgi_to_gfa(&odgi_path, &gfa_path).map_err(|e| {
+            PanGraphXError::Parse(format!("Failed to convert ODGI to GFA format: {e:?}"))
         })?;
+        drop(odgi_file);
 
-        let odgi_graph = OdgiGraph::load(temp_path)
-            .map_err(|e| PanGraphXError::Parse(format!("Failed to parse ODGI graph: {e:?}")))?;
-
-        temp_file.close()?;
-
-        let node_len = odgi_graph.node_count();
-
-        let mut nodes = Vec::with_capacity(node_len as usize);
-        let mut edges = Vec::with_capacity(node_len as usize);
-
-        // ODGI node identifiers are 1-based, while the internal `NodeId` is a
-        // 0-based index into the node vector. Iterate over the 1-based IDs and
-        // convert to 0-based indices when storing.
-        for odgi_id in 1..=node_len {
-            let seq = odgi_graph.get_node_sequence(odgi_id).into_bytes();
-
-            nodes.push(Node {
-                id: (odgi_id - 1) as usize,
-                sequence: seq,
-            });
-
-            let successors = odgi_graph.get_successors(odgi_id);
-            for succ in successors {
-                edges.push(Edge::from(((odgi_id - 1) as usize, succ)));
-            }
-        }
-        let path_names = odgi_graph.get_path_names();
-        let mut paths = Vec::with_capacity(path_names.len());
-
-        // Build each path by projecting every position to its corresponding node/orientation.
-        for path_name in path_names {
-            let path_len = odgi_graph.get_path_length(&path_name).ok_or_else(|| {
-                PanGraphXError::Parse(format!("Failed to get path length for path: {path_name}"))
-            })?;
-            let mut steps = Vec::with_capacity(path_len as usize);
-            for pos in 0..path_len {
-                let path_pos = odgi_graph.project(&path_name, pos).ok_or_else(|| {
-                    PanGraphXError::Parse(format!(
-                        "Failed to project path position for path: {path_name}, pos: {pos}"
-                    ))
-                })?;
-                steps.push(Step::new(
-                    (path_pos.node_id - 1) as usize,
-                    orientation_from_is_forward(path_pos.is_forward),
-                )?);
-            }
-            paths.push(Path {
-                name: path_name.into_bytes(),
-                steps,
-                overlaps: Vec::new(), // ODGI does not expose explicit overlap values.
-            });
-        }
-
-        let nodes = Nodes::from_node_vec(nodes)?;
-
-        Ok(CoreGraphDTO {
-            nodes,
-            edges,
-            paths,
-            node_name_map: None, // ODGI does not expose a dedicated node name map.
-        })
+        GFACodec.parse(&mut File::open(gfa_file.path())?)
     }
 }
 
@@ -119,10 +47,10 @@ impl GraphSerializer for ODGICodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
         // `gfa_to_odgi` converts between files, so serialize to temporary GFA first,
         // convert to temporary ODGI, then stream the result to the destination writer.
+        // odgi needs positive integer node ids, so segments are named by 1-based node id.
         let mut temp_file = NamedTempFile::new()?;
         let temp_path = temp_file.path().to_string_lossy().to_string();
-        let gfa_codec = GFACodec;
-        gfa_codec.serialize(graph, &mut temp_file)?;
+        gfa_format::serialize_with_one_based_ids(graph, &mut temp_file)?;
         temp_file.flush()?;
 
         let mut output_file = NamedTempFile::new()?;
@@ -139,6 +67,7 @@ impl GraphSerializer for ODGICodec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
     use std::io::Cursor;
 
     #[test]
@@ -167,22 +96,45 @@ mod tests {
         ODGICodec.serialize(&original, &mut buf).unwrap();
         let parsed = ODGICodec.parse(&mut Cursor::new(buf)).unwrap();
 
+        // Compare by segment name (`1..=n`, as written for odgi), not by node order.
+        let name = |id| parsed.get_name_from_id(id);
         let steps: Vec<_> = parsed.paths[0]
             .steps
             .iter()
-            .map(|s| (s.node_id(), s.orientation()))
+            .map(|s| (name(s.node_id()), s.orientation()))
             .collect();
         assert_eq!(
             steps,
-            vec![(0, Orientation::Forward), (1, Orientation::Reverse)]
+            vec![
+                ("1".to_string(), Orientation::Forward),
+                ("2".to_string(), Orientation::Reverse)
+            ]
         );
-        // The link is reported from both of its ends: 1+ -> 2- and 2+ -> 1-.
+        // One edge per link; odgi may write it from either end.
         let edges: Vec<_> = parsed
             .edges
             .iter()
-            .map(|e| (e.from_node, e.from_orient, e.to_node, e.to_orient))
+            .map(|e| {
+                (
+                    name(e.from_node),
+                    e.from_orient,
+                    name(e.to_node),
+                    e.to_orient,
+                )
+            })
             .collect();
-        assert!(edges.contains(&(0, Orientation::Forward, 1, Orientation::Reverse)));
-        assert!(!edges.contains(&(0, Orientation::Reverse, 1, Orientation::Forward)));
+        let forward = (
+            "1".to_string(),
+            Orientation::Forward,
+            "2".to_string(),
+            Orientation::Reverse,
+        );
+        let flipped = (
+            "2".to_string(),
+            Orientation::Forward,
+            "1".to_string(),
+            Orientation::Reverse,
+        );
+        assert!(edges == [forward] || edges == [flipped], "{edges:?}");
     }
 }
