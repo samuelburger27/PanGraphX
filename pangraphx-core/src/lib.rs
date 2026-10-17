@@ -62,6 +62,7 @@ pub mod de_bruijn_conversion;
 pub mod error;
 pub mod formats;
 pub mod proto_gen;
+pub mod search;
 pub mod traits;
 
 /// Common graph primitive types used throughout the crate.
@@ -76,6 +77,8 @@ pub use core::{graph::CoreGraph, graph_dto::CoreGraphDTO};
 pub use de_bruijn_conversion::{colored_dbg::ColoredDBG, de_bruijn_graph::DeBruijn, k_mers::Kmer};
 /// Standard result type for public APIs in this crate.
 pub use error::PanResult;
+/// Result of a sequence search: a single exact match occurrence.
+pub use search::SearchHit;
 use std::fmt::Display;
 
 use crate::error::PanGraphXError;
