@@ -12,7 +12,11 @@ warnings = "deny"
 pedantic = { level = "deny", priority = -1 }
 perf = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
-[profile.release]
+
+# Fully optimized build for benchmarks and distribution (`cargo build --profile dist`).
+# Kept out of `release` because fat LTO with one codegen unit makes builds slow.
+[profile.dist]
+inherits = "release"
 lto = "fat"
 codegen-units = 1
 panic = "abort"

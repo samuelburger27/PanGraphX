@@ -37,6 +37,8 @@ cargo build --release
 
 The compiled binary will be available at `target/release/pangraphx-cli`.
 
+For the fastest binary (fat LTO, used by the benchmarks), build with `cargo build --profile dist`; it is placed at `target/dist/pangraphx-cli`. The build takes noticeably longer.
+
 #### With ODGI Support (Linux Only)
 
 ODGI support requires native C++ libraries that only build on Linux. Enable it with the `odgi` feature flag:
