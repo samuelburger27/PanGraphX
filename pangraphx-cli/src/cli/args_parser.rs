@@ -97,11 +97,11 @@ pub struct DeBruijnArgs {
     pub colored: bool,
 
     /// Use all topological walks to create edges ( otherwise use only haplotype paths)
-    #[arg(short = 'f', long = "full-topology", default_value_t = false)]
+    #[arg(short = 't', long = "full-topology", default_value_t = false)]
     pub full_topology: bool,
 
     /// Merge non-branching chains of k-mers into unitig nodes
-    #[arg(long, default_value_t = false)]
+    #[arg(short = 'u', long, default_value_t = false)]
     pub compact: bool,
 
     /// Input file path (format inferred from suffix)
