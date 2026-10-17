@@ -12,8 +12,8 @@ impl CoreGraph {
         path: &'a Path,
     ) -> impl Iterator<Item = Cow<'a, [u8]>> + 'a {
         path.steps.iter().map(move |step| {
-            let node = &self.nodes[step.node_id];
-            match step.orientation {
+            let node = &self.nodes[step.node_id()];
+            match step.orientation() {
                 Orientation::Forward => Cow::Borrowed(node.sequence.as_slice()),
                 Orientation::Reverse => Cow::Owned(reverse_complement(&node.sequence)),
             }

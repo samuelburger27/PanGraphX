@@ -399,10 +399,7 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
                                 step.node_id
                             ))
                         })?;
-                        Ok(Step {
-                            node_id,
-                            orientation: step.is_reverse.into(),
-                        })
+                        Step::new(node_id, step.is_reverse.into())
                     })
                     .collect::<PanResult<Vec<Step>>>()?;
                 Ok(Path {
@@ -533,13 +530,13 @@ impl<'a> VgWriteContext<'a> {
                 let node_seq_len = self
                     .graph
                     .nodes
-                    .get(step.node_id)
+                    .get(step.node_id())
                     .map_or(0, |n| n.sequence.len()) as i32;
                 vg_proto::Mapping {
                     position: Some(vg_proto::Position {
-                        node_id: self.vg_ids[step.node_id],
+                        node_id: self.vg_ids[step.node_id()],
                         offset: 0,
-                        is_reverse: step.orientation == Orientation::Reverse,
+                        is_reverse: step.is_reverse(),
                         name: String::new(),
                     }),
                     edit: vec![vg_proto::Edit {
@@ -778,18 +775,9 @@ mod tests {
             paths: vec![Path {
                 name: b"path1".to_vec(),
                 steps: vec![
-                    Step {
-                        node_id: 0,
-                        orientation: Orientation::Forward,
-                    },
-                    Step {
-                        node_id: 1,
-                        orientation: Orientation::Forward,
-                    },
-                    Step {
-                        node_id: 2,
-                        orientation: Orientation::Reverse,
-                    },
+                    Step::new(0, Orientation::Forward).unwrap(),
+                    Step::new(1, Orientation::Forward).unwrap(),
+                    Step::new(2, Orientation::Reverse).unwrap(),
                 ],
                 overlaps: vec![],
             }],
@@ -835,8 +823,8 @@ mod tests {
         assert_eq!(parsed.paths[0].name, original.paths[0].name);
         assert_eq!(parsed.paths[0].steps.len(), original.paths[0].steps.len());
         for (i, step) in parsed.paths[0].steps.iter().enumerate() {
-            assert_eq!(step.node_id, original.paths[0].steps[i].node_id);
-            assert_eq!(step.orientation, original.paths[0].steps[i].orientation);
+            assert_eq!(step.node_id(), original.paths[0].steps[i].node_id());
+            assert_eq!(step.orientation(), original.paths[0].steps[i].orientation());
         }
     }
 
@@ -942,18 +930,9 @@ mod tests {
             paths: vec![Path {
                 name: b"haplotype_1".to_vec(),
                 steps: vec![
-                    Step {
-                        node_id: 0,
-                        orientation: Orientation::Forward,
-                    },
-                    Step {
-                        node_id: 1,
-                        orientation: Orientation::Reverse,
-                    },
-                    Step {
-                        node_id: 2,
-                        orientation: Orientation::Forward,
-                    },
+                    Step::new(0, Orientation::Forward).unwrap(),
+                    Step::new(1, Orientation::Reverse).unwrap(),
+                    Step::new(2, Orientation::Forward).unwrap(),
                 ],
                 overlaps: vec![],
             }],
@@ -968,9 +947,9 @@ mod tests {
         let parsed = codec.parse(&mut cursor).unwrap();
 
         assert_eq!(parsed.paths.len(), 1);
-        assert_eq!(parsed.paths[0].steps[0].orientation, Orientation::Forward);
-        assert_eq!(parsed.paths[0].steps[1].orientation, Orientation::Reverse);
-        assert_eq!(parsed.paths[0].steps[2].orientation, Orientation::Forward);
+        assert_eq!(parsed.paths[0].steps[0].orientation(), Orientation::Forward);
+        assert_eq!(parsed.paths[0].steps[1].orientation(), Orientation::Reverse);
+        assert_eq!(parsed.paths[0].steps[2].orientation(), Orientation::Forward);
     }
 
     #[test]
@@ -1017,28 +996,16 @@ mod tests {
                 Path {
                     name: b"ref".to_vec(),
                     steps: vec![
-                        Step {
-                            node_id: 0,
-                            orientation: Orientation::Forward,
-                        },
-                        Step {
-                            node_id: 1,
-                            orientation: Orientation::Forward,
-                        },
+                        Step::new(0, Orientation::Forward).unwrap(),
+                        Step::new(1, Orientation::Forward).unwrap(),
                     ],
                     overlaps: vec![],
                 },
                 Path {
                     name: b"alt".to_vec(),
                     steps: vec![
-                        Step {
-                            node_id: 0,
-                            orientation: Orientation::Forward,
-                        },
-                        Step {
-                            node_id: 2,
-                            orientation: Orientation::Forward,
-                        },
+                        Step::new(0, Orientation::Forward).unwrap(),
+                        Step::new(2, Orientation::Forward).unwrap(),
                     ],
                     overlaps: vec![],
                 },
@@ -1106,10 +1073,7 @@ mod tests {
             })
             .collect();
         let steps: Vec<Step> = (0..node_count)
-            .map(|i| Step {
-                node_id: i,
-                orientation: (i % 3 == 0).into(),
-            })
+            .map(|i| Step::new(i, (i % 3 == 0).into()).unwrap())
             .collect();
         let original = CoreGraphDTO {
             nodes,

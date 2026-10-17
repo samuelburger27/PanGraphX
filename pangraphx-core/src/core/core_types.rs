@@ -57,11 +57,75 @@ pub struct Edge {
     pub overlap: u32,
 }
 
-/// A single step in a path.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Step {
-    pub node_id: NodeId,
-    pub orientation: Orientation,
+/// A single step in a path: a node traversed in a given orientation.
+///
+/// Packed into 4 bytes as `node_id << 1 | is_reverse` (a handle, as in
+/// odgi/libhandlegraph). Paths dominate the memory of pangenome graphs, so this
+/// is 4× smaller than storing a `NodeId` and an `Orientation` side by side.
+/// Node ids are therefore limited to [`Step::MAX_NODE_ID`].
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Step(u32);
+
+impl Step {
+    /// The largest node id a step can refer to.
+    pub const MAX_NODE_ID: NodeId = (u32::MAX >> 1) as NodeId;
+
+    /// Creates a step visiting `node_id` in the given orientation.
+    ///
+    /// # Errors
+    /// Returns an error if `node_id` exceeds [`Step::MAX_NODE_ID`].
+    pub fn new(node_id: NodeId, orientation: Orientation) -> PanResult<Self> {
+        if node_id > Self::MAX_NODE_ID {
+            return Err(PanGraphXError::Other(format!(
+                "Node ID {node_id} exceeds the maximum supported node ID {}",
+                Self::MAX_NODE_ID
+            )));
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let id = node_id as u32;
+        Ok(Self(
+            id << 1 | u32::from(orientation == Orientation::Reverse),
+        ))
+    }
+
+    /// The node this step visits.
+    #[must_use]
+    pub const fn node_id(self) -> NodeId {
+        (self.0 >> 1) as NodeId
+    }
+
+    /// The orientation the node is traversed in.
+    #[must_use]
+    pub const fn orientation(self) -> Orientation {
+        if self.is_reverse() {
+            Orientation::Reverse
+        } else {
+            Orientation::Forward
+        }
+    }
+
+    /// Whether the node is traversed in reverse orientation.
+    #[must_use]
+    pub const fn is_reverse(self) -> bool {
+        self.0 & 1 == 1
+    }
+
+    /// Returns this step moved to another node, keeping its orientation.
+    ///
+    /// # Errors
+    /// Returns an error if `node_id` exceeds [`Step::MAX_NODE_ID`].
+    pub fn with_node_id(self, node_id: NodeId) -> PanResult<Self> {
+        Self::new(node_id, self.orientation())
+    }
+}
+
+impl std::fmt::Debug for Step {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Step")
+            .field("node_id", &self.node_id())
+            .field("orientation", &self.orientation())
+            .finish()
+    }
 }
 
 /// A uniquely named, ordered traversal through nodes in the graph.
@@ -218,5 +282,39 @@ impl<'a> IntoIterator for &'a mut Nodes {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter_mut()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn step_is_four_bytes() {
+        assert_eq!(std::mem::size_of::<Step>(), 4);
+    }
+
+    #[test]
+    fn step_roundtrips_id_and_orientation() {
+        for id in [0, 1, 2, 12_345, Step::MAX_NODE_ID] {
+            for orientation in [Orientation::Forward, Orientation::Reverse] {
+                let step = Step::new(id, orientation).unwrap();
+                assert_eq!(step.node_id(), id);
+                assert_eq!(step.orientation(), orientation);
+                assert_eq!(step.is_reverse(), orientation == Orientation::Reverse);
+            }
+        }
+    }
+
+    #[test]
+    fn step_rejects_too_large_node_id() {
+        assert!(Step::new(Step::MAX_NODE_ID + 1, Orientation::Forward).is_err());
+        let step = Step::new(7, Orientation::Reverse).unwrap();
+        assert!(step.with_node_id(Step::MAX_NODE_ID + 1).is_err());
+        let moved = step.with_node_id(3).unwrap();
+        assert_eq!(
+            (moved.node_id(), moved.orientation()),
+            (3, Orientation::Reverse)
+        );
     }
 }

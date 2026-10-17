@@ -122,14 +122,14 @@ impl ColoredDBG {
             .paths
             .into_par_iter()
             .map(|p| {
-                let steps = unitigs.translate_path(p.raw_steps());
-                Path {
+                let steps = unitigs.translate_path(p.raw_steps())?;
+                Ok(Path {
                     overlaps: vec![overlap; steps.len().saturating_sub(1)],
                     steps,
                     name: p.name,
-                }
+                })
             })
-            .collect();
+            .collect::<PanResult<Vec<Path>>>()?;
         unitigs_to_dto(unitigs, k, paths)
     }
 }
@@ -260,20 +260,17 @@ impl TryFrom<ColoredDBG> for CoreGraphDTO {
             .paths
             .into_par_iter()
             .map(|p| {
-                let steps: Vec<Step> = p
+                let steps = p
                     .steps()
-                    .map(|(node_id, orientation)| Step {
-                        node_id,
-                        orientation,
-                    })
-                    .collect();
-                Path {
+                    .map(|(node_id, orientation)| Step::new(node_id, orientation))
+                    .collect::<PanResult<Vec<Step>>>()?;
+                Ok(Path {
                     overlaps: vec![overlap; steps.len().saturating_sub(1)],
                     steps,
                     name: p.name,
-                }
+                })
             })
-            .collect();
+            .collect::<PanResult<Vec<Path>>>()?;
         Ok(Self {
             nodes,
             edges,
@@ -301,7 +298,7 @@ mod tests {
     fn spell(dto: &CoreGraphDTO, path: &Path, k: usize) -> Vec<u8> {
         let mut out = Vec::new();
         for (i, step) in path.steps.iter().enumerate() {
-            let seq = oriented(&dto.nodes[step.node_id].sequence, step.orientation);
+            let seq = oriented(&dto.nodes[step.node_id()].sequence, step.orientation());
             out.extend_from_slice(if i == 0 { &seq } else { &seq[k - 1..] });
         }
         out
@@ -311,7 +308,7 @@ mod tests {
     fn input_spell(g: &CoreGraphDTO, path: &Path) -> Vec<u8> {
         path.steps
             .iter()
-            .flat_map(|s| oriented(&g.nodes[s.node_id].sequence, s.orientation))
+            .flat_map(|s| oriented(&g.nodes[s.node_id()].sequence, s.orientation()))
             .collect()
     }
 

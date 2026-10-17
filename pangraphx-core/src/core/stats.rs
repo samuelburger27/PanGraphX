@@ -241,7 +241,7 @@ fn path_stats(graph: &CoreGraph) -> PathStats {
         let node_bp: usize = path
             .steps
             .iter()
-            .map(|step| graph.nodes[step.node_id].sequence.len())
+            .map(|step| graph.nodes[step.node_id()].sequence.len())
             .sum();
         let overlap: usize = path.overlaps.iter().map(|&o| o as usize).sum();
         let bp = node_bp.saturating_sub(overlap);

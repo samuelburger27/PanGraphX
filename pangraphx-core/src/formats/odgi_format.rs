@@ -83,10 +83,10 @@ impl<R: Read + Seek> GraphParser<R> for ODGICodec {
                         "Failed to project path position for path: {path_name}, pos: {pos}"
                     ))
                 })?;
-                steps.push(Step {
-                    node_id: (path_pos.node_id - 1) as usize,
-                    orientation: Orientation::from(path_pos.is_forward),
-                });
+                steps.push(Step::new(
+                    (path_pos.node_id - 1) as usize,
+                    Orientation::from(path_pos.is_forward),
+                )?);
             }
             paths.push(Path {
                 name: path_name.into_bytes(),

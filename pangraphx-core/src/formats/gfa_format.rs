@@ -118,10 +118,7 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
                         let o = *name_to_id.get(a).ok_or_else(|| {
                             PanGraphXError::Parse("Failed to map segment ID to node ID".into())
                         })?;
-                        PanResult::Ok(Step {
-                            node_id: o,
-                            orientation: orient.into(),
-                        })
+                        Step::new(o, orient.into())
                     })
                     .collect::<PanResult<Vec<Step>>>()?;
 
@@ -245,8 +242,8 @@ fn format_path(names: &[Cow<'_, [u8]>], path: &Path, buf: &mut Vec<u8>) {
         if i > 0 {
             buf.push(b',');
         }
-        buf.extend_from_slice(&names[step.node_id]);
-        buf.push(orientation_byte(step.orientation));
+        buf.extend_from_slice(&names[step.node_id()]);
+        buf.push(orientation_byte(step.orientation()));
     }
     buf.push(b'\t');
     // All-zero overlaps carry no information, so they are written as `*`.

@@ -74,14 +74,8 @@ fn test_add_path() {
     let path = Path {
         name: b"path1".to_vec(),
         steps: vec![
-            Step {
-                node_id: n1,
-                orientation: Orientation::Forward,
-            },
-            Step {
-                node_id: n2,
-                orientation: Orientation::Forward,
-            },
+            Step::new(n1, Orientation::Forward).unwrap(),
+            Step::new(n2, Orientation::Forward).unwrap(),
         ],
         overlaps: vec![],
     };
@@ -99,10 +93,7 @@ fn test_add_path_duplicate() {
 
     let path = Path {
         name: b"path1".to_vec(),
-        steps: vec![Step {
-            node_id: n1,
-            orientation: Orientation::Forward,
-        }],
+        steps: vec![Step::new(n1, Orientation::Forward).unwrap()],
         overlaps: vec![],
     };
 
@@ -178,18 +169,9 @@ fn test_remove_node_updates_paths() {
     let path = Path {
         name: b"path1".to_vec(),
         steps: vec![
-            Step {
-                node_id: n1,
-                orientation: Orientation::Forward,
-            },
-            Step {
-                node_id: n2,
-                orientation: Orientation::Forward,
-            },
-            Step {
-                node_id: n3,
-                orientation: Orientation::Forward,
-            },
+            Step::new(n1, Orientation::Forward).unwrap(),
+            Step::new(n2, Orientation::Forward).unwrap(),
+            Step::new(n3, Orientation::Forward).unwrap(),
         ],
         overlaps: vec![],
     };
@@ -199,8 +181,8 @@ fn test_remove_node_updates_paths() {
 
     let updated_path = graph.path_map.get(b"path1".as_slice()).unwrap();
     assert_eq!(updated_path.steps.len(), 2);
-    assert_eq!(updated_path.steps[0].node_id, 0); // n1, still at position 0
-    assert_eq!(updated_path.steps[1].node_id, 1); // n3, now at position 1
+    assert_eq!(updated_path.steps[0].node_id(), 0); // n1, still at position 0
+    assert_eq!(updated_path.steps[1].node_id(), 1); // n3, now at position 1
 }
 
 #[test]
@@ -235,10 +217,7 @@ fn test_remove_path() {
 
     let path = Path {
         name: b"path1".to_vec(),
-        steps: vec![Step {
-            node_id: n1,
-            orientation: Orientation::Forward,
-        }],
+        steps: vec![Step::new(n1, Orientation::Forward).unwrap()],
         overlaps: vec![],
     };
 
@@ -289,14 +268,8 @@ fn test_complex_graph_manipulation() {
     let path1 = Path {
         name: b"path1".to_vec(),
         steps: vec![
-            Step {
-                node_id: n1,
-                orientation: Orientation::Forward,
-            },
-            Step {
-                node_id: n2,
-                orientation: Orientation::Forward,
-            },
+            Step::new(n1, Orientation::Forward).unwrap(),
+            Step::new(n2, Orientation::Forward).unwrap(),
         ],
         overlaps: vec![],
     };
@@ -304,14 +277,8 @@ fn test_complex_graph_manipulation() {
     let path2 = Path {
         name: b"path2".to_vec(),
         steps: vec![
-            Step {
-                node_id: n2,
-                orientation: Orientation::Forward,
-            },
-            Step {
-                node_id: n3,
-                orientation: Orientation::Forward,
-            },
+            Step::new(n2, Orientation::Forward).unwrap(),
+            Step::new(n3, Orientation::Forward).unwrap(),
         ],
         overlaps: vec![],
     };
@@ -332,11 +299,11 @@ fn test_complex_graph_manipulation() {
     // Check paths were updated
     let p1 = graph.path_map.get(b"path1".as_slice()).unwrap();
     assert_eq!(p1.steps.len(), 1);
-    assert_eq!(p1.steps[0].node_id, 0);
+    assert_eq!(p1.steps[0].node_id(), 0);
 
     let p2 = graph.path_map.get(b"path2".as_slice()).unwrap();
     assert_eq!(p2.steps.len(), 1);
-    assert_eq!(p2.steps[0].node_id, 1);
+    assert_eq!(p2.steps[0].node_id(), 1);
 }
 #[test]
 fn test_get_node() {
@@ -392,10 +359,7 @@ fn test_get_path() {
 
     let path = Path {
         name: b"path1".to_vec(),
-        steps: vec![Step {
-            node_id: n1,
-            orientation: Orientation::Forward,
-        }],
+        steps: vec![Step::new(n1, Orientation::Forward).unwrap()],
         overlaps: vec![],
     };
     graph.add_path(path.clone()).unwrap();

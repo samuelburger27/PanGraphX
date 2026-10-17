@@ -32,7 +32,7 @@ fn is_path_complete(g: &CoreGraphDTO) -> bool {
     let mut adjacent = HashSet::new();
     for path in &g.paths {
         for window in path.steps.windows(2) {
-            let (a, b) = (window[0].node_id, window[1].node_id);
+            let (a, b) = (window[0].node_id(), window[1].node_id());
             adjacent.insert(if a < b { (a, b) } else { (b, a) });
         }
     }
@@ -88,8 +88,8 @@ fn gbz_equivalent(a: &CoreGraphDTO, b: &CoreGraphDTO) -> bool {
             return false;
         }
         for (sa, sb) in pa.steps.iter().zip(&pb.steps) {
-            let same_node = a.get_name_from_id(sa.node_id) == b.get_name_from_id(sb.node_id);
-            if !same_node || sa.orientation != sb.orientation {
+            let same_node = a.get_name_from_id(sa.node_id()) == b.get_name_from_id(sb.node_id());
+            if !same_node || sa.orientation() != sb.orientation() {
                 return false;
             }
         }

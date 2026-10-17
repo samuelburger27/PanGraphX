@@ -272,7 +272,7 @@ pub fn path_bases(dto: &CoreGraphDTO) -> u64 {
     dto.paths
         .iter()
         .flat_map(|path| &path.steps)
-        .map(|step| as_u64(dto.nodes[step.node_id].sequence.len()))
+        .map(|step| as_u64(dto.nodes[step.node_id()].sequence.len()))
         .sum()
 }
 
