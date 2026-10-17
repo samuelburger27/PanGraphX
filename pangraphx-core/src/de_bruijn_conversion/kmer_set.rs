@@ -114,26 +114,26 @@ impl<W: KmerWord> ShardedSet<W> {
     }
 
     /// Number of distinct words inserted so far.
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
+    fn len_all(&self) -> usize {
         self.shards
             .iter()
             .map(|s| s.lock().unwrap_or_else(PoisonError::into_inner).len())
             .sum()
     }
 
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.len_all()
+    }
+
     /// Consumes the set into a sorted vector of its words. Shards are drained
     /// one at a time, so the set and the vector are never both fully resident.
     pub fn into_sorted_vec(self) -> Vec<W> {
-        let shards: Vec<HashSet<W, KmerBuildHasher>> = self
-            .shards
-            .into_iter()
-            .map(|s| s.into_inner().unwrap_or_else(PoisonError::into_inner))
-            .collect();
-        let total = shards.iter().map(HashSet::len).sum();
+        let total = self.len_all();
         let mut words = Vec::with_capacity(total);
-        for shard in shards {
-            words.extend(shard);
+        for shard in self.shards {
+            // Each table is freed as soon as it has been moved into `words`.
+            words.extend(shard.into_inner().unwrap_or_else(PoisonError::into_inner));
         }
         // Shards are disjoint, so the words are already distinct.
         words.par_sort_unstable();

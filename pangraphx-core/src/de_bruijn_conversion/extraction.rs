@@ -312,10 +312,11 @@ impl CoreGraph {
                 continue;
             }
             for &(next, overlap) in adjacency.successors(side) {
-                // Walks reaching the same oriented node with the same window
-                // after the same distance continue identically.
+                // Walks reaching the same oriented node through the same
+                // overlap with the same window after the same distance
+                // continue identically.
                 let (code, len) = window.state();
-                if scratch.seen.insert((next, past_end, code, len)) {
+                if scratch.seen.insert((next, overlap, past_end, code, len)) {
                     scratch.stack.push(Frame {
                         side: next,
                         overlap,
@@ -399,7 +400,7 @@ struct Frame<W> {
 /// Per-thread buffers of the topology walk, reused across start nodes.
 struct TopologyScratch<W> {
     stack: Vec<Frame<W>>,
-    seen: HashSet<(usize, usize, W, usize), KmerBuildHasher>,
+    seen: HashSet<(usize, usize, usize, W, usize), KmerBuildHasher>,
 }
 
 impl<W> Default for TopologyScratch<W> {

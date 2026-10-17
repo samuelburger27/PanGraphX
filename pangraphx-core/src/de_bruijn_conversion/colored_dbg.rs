@@ -1,6 +1,6 @@
 use super::compaction::{self, SegmentEnds};
 use super::de_bruijn_graph::{
-    DbgCore, DbgTables, DeBruijn, build_from_paths, unitigs_to_dto, with_core,
+    DbgCore, DbgTables, DeBruijn, build_from_paths, edge_overlap, unitigs_to_dto, with_core,
 };
 use super::extraction::WindowSink;
 use super::word::{KmerWord, MAX_SMALL_K, Spelled};
@@ -115,15 +115,19 @@ impl ColoredDBG {
             })
             .collect();
         let k = self.dbg.k;
+        let overlap = edge_overlap(k)?;
         let unitigs = with_core!(self.dbg.tables, core => compaction::compact(core, k, &segments)?);
         drop(segments);
         let paths = self
             .paths
             .into_par_iter()
-            .map(|p| Path {
-                steps: unitigs.translate_path(p.raw_steps()),
-                name: p.name,
-                overlaps: Vec::new(),
+            .map(|p| {
+                let steps = unitigs.translate_path(p.raw_steps());
+                Path {
+                    overlaps: vec![overlap; steps.len().saturating_sub(1)],
+                    steps,
+                    name: p.name,
+                }
             })
             .collect();
         unitigs_to_dto(unitigs, k, paths)
@@ -250,21 +254,24 @@ impl TryFrom<ColoredDBG> for CoreGraphDTO {
     fn try_from(colored_dbg: ColoredDBG) -> PanResult<Self> {
         let k = colored_dbg.dbg.k;
         let (nodes, edges) = with_core!(colored_dbg.dbg.tables, core => core.into_dto_parts(k)?);
-        // Consecutive steps overlap by k - 1, as recorded on the edges; the
-        // per-step overlaps are left unspecified ("*" in GFA).
+        // Consecutive steps overlap by k - 1, as recorded on the edges.
+        let overlap = edge_overlap(k)?;
         let paths = colored_dbg
             .paths
             .into_par_iter()
-            .map(|p| Path {
-                steps: p
+            .map(|p| {
+                let steps: Vec<Step> = p
                     .steps()
                     .map(|(node_id, orientation)| Step {
                         node_id,
                         orientation,
                     })
-                    .collect(),
-                name: p.name,
-                overlaps: Vec::new(),
+                    .collect();
+                Path {
+                    overlaps: vec![overlap; steps.len().saturating_sub(1)],
+                    steps,
+                    name: p.name,
+                }
             })
             .collect();
         Ok(Self {
