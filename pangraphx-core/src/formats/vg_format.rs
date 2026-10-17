@@ -1,6 +1,7 @@
 use crate::core::core_types::{Edge, Node, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
+use crate::formats::id_map::IdMap;
 use crate::proto_gen::vg as vg_proto;
 use crate::traits::{GraphParser, GraphSerializer};
 use log::debug;
@@ -194,56 +195,7 @@ fn orientations_to_vg_edge(from_orient: Orientation, to_orient: Orientation) -> 
 
 // ---------------------------------------------------------------------------
 // GraphParser implementation
-
 // ---------------------------------------------------------------------------
-// GraphParser implementation
-// ---------------------------------------------------------------------------
-
-/// Maps VG node ids to dense internal ids.
-///
-/// VG ids are usually compact (1..=n), so a flat lookup table replaces hashing
-/// for the tens of millions of path-step lookups; sparse ids fall back to a map.
-enum VgIdMap {
-    Dense { min_id: i64, table: Vec<usize> },
-    Sparse(HashMap<i64, usize>),
-}
-
-impl VgIdMap {
-    /// Builds the map from VG ids sorted ascending; the internal id is the position.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn from_sorted_ids(ids: &[i64]) -> Self {
-        let (Some(&min_id), Some(&max_id)) = (ids.first(), ids.last()) else {
-            return Self::Sparse(HashMap::new());
-        };
-        let span = max_id.abs_diff(min_id) as usize + 1;
-        if span <= ids.len().saturating_mul(2).saturating_add(1024) {
-            let mut table = vec![usize::MAX; span];
-            for (internal, &id) in ids.iter().enumerate() {
-                table[(id - min_id) as usize] = internal;
-            }
-            Self::Dense { min_id, table }
-        } else {
-            Self::Sparse(ids.iter().enumerate().map(|(i, &id)| (id, i)).collect())
-        }
-    }
-
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn get(&self, id: i64) -> Option<usize> {
-        match self {
-            Self::Dense { min_id, table } => {
-                let offset = id.checked_sub(*min_id)?;
-                if offset < 0 {
-                    return None;
-                }
-                table
-                    .get(offset as usize)
-                    .copied()
-                    .filter(|&i| i != usize::MAX)
-            }
-            Self::Sparse(map) => map.get(&id).copied(),
-        }
-    }
-}
 
 /// The part of a VG `Mapping` the graph model keeps.
 struct VgStep {
@@ -339,7 +291,9 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
         proto_nodes.sort_by_key(|n| n.id);
         proto_nodes.dedup_by_key(|n| n.id);
         let vg_ids: Vec<i64> = proto_nodes.iter().map(|n| n.id).collect();
-        let id_map = VgIdMap::from_sorted_ids(&vg_ids);
+        // Ids were deduplicated above, so a duplicate cannot occur here.
+        let id_map = IdMap::from_ids(&vg_ids)
+            .map_err(|id| PanGraphXError::Parse(format!("Duplicate VG node ID {id}")))?;
         drop(vg_ids);
 
         let mut node_name_map: HashMap<usize, Vec<u8>> = HashMap::with_capacity(proto_nodes.len());
