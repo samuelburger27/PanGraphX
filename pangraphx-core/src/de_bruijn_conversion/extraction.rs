@@ -109,11 +109,11 @@ impl CoreGraph {
             )));
         }
         for path in self.path_map.values() {
-            if let Some(step) = path.steps.iter().find(|s| s.node_id >= n) {
+            if let Some(step) = path.steps.iter().find(|s| s.node_id() >= n) {
                 return Err(PanGraphXError::DeBruijn(format!(
                     "path {} refers to missing node {}",
                     String::from_utf8_lossy(&path.name),
-                    step.node_id
+                    step.node_id()
                 )));
             }
         }
@@ -135,7 +135,7 @@ impl CoreGraph {
             let mut start = 0;
             let mut bases = 0;
             for (i, step) in path.steps.iter().enumerate() {
-                bases += self.nodes[step.node_id].sequence.len();
+                bases += self.nodes[step.node_id()].sequence.len();
                 if bases >= CHUNK_BASES {
                     chunks.push(PathChunk {
                         path_index,
@@ -178,8 +178,8 @@ impl CoreGraph {
                 .checked_sub(1)
                 .and_then(|prev| path.overlaps.get(prev))
                 .map_or(0, |&o| overlap_len(o));
-            let sequence = &self.nodes[step.node_id].sequence;
-            for base in oriented_bases(sequence, step.orientation, skip) {
+            let sequence = &self.nodes[step.node_id()].sequence;
+            for base in oriented_bases(sequence, step.orientation(), skip) {
                 if outside {
                     past_end += 1;
                 }

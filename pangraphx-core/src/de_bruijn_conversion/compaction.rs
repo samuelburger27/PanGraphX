@@ -51,7 +51,13 @@ pub struct Unitigs {
 impl Unitigs {
     /// Translates a walk over k-mers (`(node id, reverse)` per step) into a
     /// walk over unitigs.
-    pub fn translate_path(&self, steps: impl Iterator<Item = (usize, bool)>) -> Vec<Step> {
+    ///
+    /// # Errors
+    /// Returns an error if a unitig id does not fit in a [`Step`].
+    pub fn translate_path(
+        &self,
+        steps: impl Iterator<Item = (usize, bool)>,
+    ) -> PanResult<Vec<Step>> {
         let mut out = Vec::new();
         // (unitig, traversed in reverse, offset) of the previous step.
         let mut prev: Option<(u64, bool, u64)> = None;
@@ -70,15 +76,15 @@ impl Unitigs {
                     }
             });
             if !continues {
-                out.push(Step {
-                    // Unitig ids were checked to fit in 32 bits.
-                    node_id: usize::try_from(unitig).unwrap_or(usize::MAX),
-                    orientation: Orientation::from(backwards),
-                });
+                out.push(Step::new(
+                    // An id that does not fit is rejected by `Step::new`.
+                    usize::try_from(unitig).unwrap_or(usize::MAX),
+                    Orientation::from(backwards),
+                )?);
             }
             prev = Some((unitig, backwards, offset));
         }
-        out
+        Ok(out)
     }
 }
 

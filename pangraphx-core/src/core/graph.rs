@@ -142,7 +142,7 @@ impl CoreGraph {
     /// let n1 = graph.add_node(b"ACGT".to_vec(), None);
     /// let path = Path {
     ///     name: b"path1".to_vec(),
-    ///     steps: vec![Step { node_id: n1, orientation: Orientation::Forward }],
+    ///     steps: vec![Step::new(n1, Orientation::Forward).unwrap()],
     ///     overlaps: vec![],
     /// };
     /// graph.add_path(path).unwrap();
@@ -158,10 +158,10 @@ impl CoreGraph {
 
         // Validate that all nodes in the path exist
         for step in &path.steps {
-            if step.node_id >= self.nodes.len() {
+            if step.node_id() >= self.nodes.len() {
                 return Err(PanGraphXError::Other(format!(
                     "Node {} in path does not exist",
-                    step.node_id
+                    step.node_id()
                 )));
             }
         }
@@ -226,7 +226,7 @@ impl CoreGraph {
         // TODO update overlaps if needed
         let mut paths_to_remove = Vec::new();
         for (name, path) in &mut self.path_map {
-            path.steps.retain(|step| step.node_id != node_id);
+            path.steps.retain(|step| step.node_id() != node_id);
 
             // If path is now empty, mark for removal
             if path.steps.is_empty() {
@@ -234,8 +234,8 @@ impl CoreGraph {
             } else {
                 // Update node IDs in remaining steps
                 for step in &mut path.steps {
-                    if step.node_id > node_id {
-                        step.node_id -= 1;
+                    if step.node_id() > node_id {
+                        *step = step.with_node_id(step.node_id() - 1)?;
                     }
                 }
             }
@@ -326,7 +326,7 @@ impl CoreGraph {
     /// let n1 = graph.add_node(b"ACGT".to_vec(), None);
     /// let path = Path {
     ///     name: b"path1".to_vec(),
-    ///     steps: vec![Step { node_id: n1, orientation: Orientation::Forward }],
+    ///     steps: vec![Step::new(n1, Orientation::Forward).unwrap()],
     ///     overlaps: vec![],
     /// };
     /// graph.add_path(path).unwrap();

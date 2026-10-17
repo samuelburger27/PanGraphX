@@ -119,10 +119,10 @@ impl CoreGraphDTO {
                 .iter()
                 .zip(other_path.steps.iter())
                 .all(|(s, o)| {
-                    let Some(&mapped_id) = id_mapping.get(&s.node_id) else {
+                    let Some(&mapped_id) = id_mapping.get(&s.node_id()) else {
                         return false;
                     };
-                    mapped_id == o.node_id && s.orientation == o.orientation
+                    mapped_id == o.node_id() && s.orientation() == o.orientation()
                 })
         })
     }

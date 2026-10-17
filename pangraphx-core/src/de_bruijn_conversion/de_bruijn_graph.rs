@@ -307,10 +307,7 @@ pub(crate) mod tests {
                     name: name.as_bytes().to_vec(),
                     steps: steps
                         .iter()
-                        .map(|&(node_id, rev)| Step {
-                            node_id,
-                            orientation: Orientation::from(rev),
-                        })
+                        .map(|&(node_id, rev)| Step::new(node_id, Orientation::from(rev)).unwrap())
                         .collect(),
                     overlaps: vec![],
                 })

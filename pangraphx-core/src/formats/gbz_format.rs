@@ -220,10 +220,7 @@ fn collect_path_steps(gbz: &GBZ, path_id: usize, id_map: &IdMap) -> PanResult<Ve
             let node_id = id_map.get(segment.id).ok_or_else(|| {
                 PanGraphXError::Parse(format!("Segment {} not found in node map", segment.id))
             })?;
-            Ok(Step {
-                node_id,
-                orientation: orientation.into(),
-            })
+            Step::new(node_id, orientation.into())
         })
         .collect()
     } else {
@@ -234,10 +231,7 @@ fn collect_path_steps(gbz: &GBZ, path_id: usize, id_map: &IdMap) -> PanResult<Ve
             let node_id = id_map.get(node_id).ok_or_else(|| {
                 PanGraphXError::Parse(format!("Node {node_id} not found in node map"))
             })?;
-            Ok(Step {
-                node_id,
-                orientation: orientation.into(),
-            })
+            Step::new(node_id, orientation.into())
         })
         .collect()
     }
@@ -288,8 +282,8 @@ fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
         encoded_path.clear();
         for step in &path.steps {
             encoded_path.push(support::encode_node(
-                step.node_id + 1,
-                step.orientation.into(),
+                step.node_id() + 1,
+                step.orientation().into(),
             ));
         }
         gbwt_builder

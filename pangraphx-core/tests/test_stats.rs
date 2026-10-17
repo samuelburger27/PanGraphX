@@ -4,11 +4,8 @@ fn approx(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9
 }
 
-const fn fwd(node_id: usize) -> Step {
-    Step {
-        node_id,
-        orientation: Orientation::Forward,
-    }
+fn fwd(node_id: usize) -> Step {
+    Step::new(node_id, Orientation::Forward).unwrap()
 }
 
 const fn edge(from_node: usize, to_node: usize, overlap: u32) -> Edge {
