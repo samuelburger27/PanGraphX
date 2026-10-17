@@ -62,13 +62,13 @@ pangraphx-cli formats
 Convert a GFA file to GBZ format with automatic format detection:
 
 ```bash
-pangraphx-cli convert -i graph.gfa -o graph.gbz
+pangraphx-cli convert graph.gfa -o graph.gbz
 ```
 
 Explicitly specify input and output formats:
 
 ```bash
-pangraphx-cli convert -i graph.gfa -o graph.gbz --from gfa --to gbz
+pangraphx-cli convert graph.gfa -o graph.gbz --from gfa --to gbz
 ```
 
 #### Inspect Graph Files
@@ -118,41 +118,33 @@ Graph Statistics:
    Path steps:        min 169 / avg 169.0 / max 169
 ```
 
-#### Validate Graph Files
-
-Check graph structure and format compliance:
-
-```bash
-pangraphx-cli validate graph.gfa
-```
-
 #### De Bruijn Graph Construction
 
 Convert a variation graph to a de Bruijn graph with k-mer size 31 (1-63).
 Nodes are the canonical k-mers of the sequences spelled by the paths:
 
 ```bash
-pangraphx-cli ddb -i graph.vg -k 31 -o dbg_graph.gfa
+pangraphx-cli ddb graph.vg -k 31 -o dbg_graph.gfa
 ```
 
 Generate a colored de Bruijn graph (for multi-sample analysis); every input
 path is kept as a walk through the k-mers:
 
 ```bash
-pangraphx-cli ddb -i graph.vg -k 31 -c -o colored_dbg.gfa
+pangraphx-cli ddb graph.vg -k 31 -c -o colored_dbg.gfa
 ```
 
 Use full topology (all topological walks instead of just haplotype paths):
 
 ```bash
-pangraphx-cli ddb -i graph.vg -k 31 --full-topology -o full_dbg.gfa
+pangraphx-cli ddb graph.vg -k 31 --full-topology -o full_dbg.gfa
 ```
 
 Add `--compact` to any of these to merge non-branching k-mer chains into
 unitig nodes, which makes the output graph much smaller:
 
 ```bash
-pangraphx-cli ddb -i graph.vg -k 31 -c --compact -o colored_unitigs.gfa
+pangraphx-cli ddb graph.vg -k 31 -c --compact -o colored_unitigs.gfa
 ```
 
 ### Library Usage
@@ -295,7 +287,7 @@ cargo test --package pangraphx-core -- formats::gfa_format
 Enable debug logging:
 
 ```bash
-RUST_LOG=debug pangraphx-cli convert -i graph.gfa -o graph.vg
+RUST_LOG=debug pangraphx-cli convert graph.gfa -o graph.vg
 ```
 
 ## License
