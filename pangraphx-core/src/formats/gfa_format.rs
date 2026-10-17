@@ -1,6 +1,6 @@
 use crate::core::core_types::{Edge, Node, Orientation, Path};
 use crate::core::graph_dto::CoreGraphDTO;
-use crate::error::PanResult;
+use crate::error::{PanGraphXError, PanResult};
 use crate::formats::gfa_parser;
 use crate::traits::{GraphParser, GraphSerializer};
 use rayon::prelude::*;
@@ -130,6 +130,9 @@ fn format_path(names: &[Cow<'_, [u8]>], path: &Path, buf: &mut Vec<u8>) {
 
 impl GraphSerializer for GFACodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
+        if let Some(message) = graph.dangling_reference() {
+            return Err(PanGraphXError::Serialize(message));
+        }
         let names = node_names(graph);
 
         writer.write_all(b"H\tVN:Z:1.0\n")?;

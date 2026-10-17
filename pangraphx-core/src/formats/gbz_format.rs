@@ -263,6 +263,9 @@ impl GraphSerializer for GBZCodec {
 /// translation), nodes are written with 1-based identifiers derived from their
 /// dense index and no translation is stored.
 fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
+    if let Some(message) = graph.dangling_reference() {
+        return Err(PanGraphXError::Serialize(message));
+    }
     let mut graph_builder = GraphBuilder::new();
 
     if let Some(name_map) = graph

@@ -30,6 +30,34 @@ impl CoreGraphDTO {
         }
         node_id.to_string()
     }
+
+    /// Describes the first edge or path step that refers to a missing node, if any.
+    ///
+    /// The fields are public, so serializers check this once up front and can
+    /// then index nodes directly.
+    #[must_use]
+    pub fn dangling_reference(&self) -> Option<String> {
+        let n = self.nodes.len();
+        if let Some(edge) = self
+            .edges
+            .par_iter()
+            .find_first(|e| e.from_node >= n || e.to_node >= n)
+        {
+            return Some(format!(
+                "edge {} -> {} refers to a missing node",
+                edge.from_node, edge.to_node
+            ));
+        }
+        self.paths.par_iter().find_map_first(|path| {
+            path.steps.iter().find(|s| s.node_id() >= n).map(|step| {
+                format!(
+                    "path {} refers to missing node {}",
+                    String::from_utf8_lossy(&path.name),
+                    step.node_id()
+                )
+            })
+        })
+    }
 }
 
 impl CoreGraphDTO {
@@ -125,5 +153,56 @@ impl CoreGraphDTO {
                     mapped_id == o.node_id() && s.orientation() == o.orientation()
                 })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::core_types::{Orientation, Step};
+    use crate::error::PanGraphXError;
+    use crate::formats::{gbz_format::GBZCodec, gfa_format::GFACodec, vg_format::VGCodec};
+    use crate::traits::GraphSerializer;
+
+    fn graph(edge_to: NodeId, step_node: NodeId) -> CoreGraphDTO {
+        CoreGraphDTO {
+            nodes: Nodes::from_seq(vec![b"A".to_vec(), b"C".to_vec()]),
+            edges: vec![Edge {
+                from_node: 0,
+                from_orient: Orientation::Forward,
+                to_node: edge_to,
+                to_orient: Orientation::Forward,
+                overlap: 0,
+            }],
+            paths: vec![Path {
+                name: b"p".to_vec(),
+                steps: vec![Step::new(step_node, Orientation::Forward).unwrap()],
+                overlaps: Vec::new(),
+            }],
+            node_name_map: None,
+        }
+    }
+
+    #[test]
+    fn dangling_references_are_reported() {
+        assert_eq!(graph(1, 1).dangling_reference(), None);
+        assert!(
+            graph(2, 1)
+                .dangling_reference()
+                .unwrap()
+                .contains("edge 0 -> 2")
+        );
+        assert!(graph(1, 5).dangling_reference().unwrap().contains("node 5"));
+    }
+
+    #[test]
+    fn serializers_reject_dangling_references() {
+        let serializers: [&dyn GraphSerializer; 3] = [&GFACodec, &VGCodec, &GBZCodec];
+        for serializer in serializers {
+            for bad in [graph(2, 1), graph(1, 5)] {
+                let result = serializer.serialize(&bad, &mut Vec::new());
+                assert!(matches!(result, Err(PanGraphXError::Serialize(_))));
+            }
+        }
     }
 }
