@@ -74,6 +74,10 @@ const VG_CHUNK_SIZE: usize = 1000;
 /// Maximum number of messages per framing group (libvgio uses the same limit).
 const VG_GROUP_SIZE: usize = 1000;
 
+/// Largest message length accepted when reading: protobuf messages are limited
+/// to 2 GB, so a larger length means a corrupt stream, not a huge allocation.
+const VG_MAX_MESSAGE_LEN: u64 = i32::MAX as u64;
+
 /// Reads a VG-framed protobuf stream and hands every decoded `Graph` message to `on_graph`.
 ///
 /// The VG framing format consists of groups. Each group starts with a varint
@@ -93,7 +97,13 @@ fn for_each_vg_graph<R: Read>(
         for index in 0..count {
             let msg_len = read_varint(reader)?.ok_or_else(|| {
                 PanGraphXError::Parse("Unexpected EOF reading message length".to_string())
-            })? as usize;
+            })?;
+            if msg_len > VG_MAX_MESSAGE_LEN {
+                return Err(PanGraphXError::Parse(format!(
+                    "VG message length {msg_len} exceeds the protobuf limit of {VG_MAX_MESSAGE_LEN} bytes"
+                )));
+            }
+            let msg_len = msg_len as usize;
 
             msg_buf.clear();
             msg_buf.resize(msg_len, 0);
@@ -1112,5 +1122,17 @@ mod tests {
         let mut path = ranked_path(&[1, 2, 1, 2]);
         path.sort_by_rank();
         assert_eq!(node_order(&path), vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_oversized_message_length_is_rejected() {
+        let mut buf = Vec::new();
+        write_varint(&mut buf, 1).unwrap();
+        write_varint(&mut buf, u64::MAX >> 1).unwrap();
+        let err = read_vg_graphs(&mut Cursor::new(buf)).unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds the protobuf limit"),
+            "{err}"
+        );
     }
 }
