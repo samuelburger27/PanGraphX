@@ -22,6 +22,9 @@
 //! Edges are stored on both of their nodes (`to_curr` on the right one, self loops
 //! once). A path is a linked list of steps; a step is named by its node handle
 //! (`rank << 1 | is_reverse`) and its rank among the steps stored on that node.
+//!
+//! `docs/odgi_format.md` describes every field in detail, with a worked example
+//! decoded from `odgi build` output; `utils/dump_odgi.py` prints a file's fields.
 
 use crate::core::core_types::{Edge, NodeId, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;

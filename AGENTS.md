@@ -32,7 +32,7 @@ Every change implement in a separate branch describing the request,  commit your
   - `core/`: Internal graph representation (`CoreGraph`, `CoreGraphDTO`).
   - `formats/`: Format-specific logic (GFA, GBZ, VG, FastG, ODGI).
     - Each format has a codec struct (e.g., `GBZCodec`, `GFACodec`) implementing generic traits.
-    - `gfa_parser.rs`: in-house streaming two-pass GFA parser (no external GFA crate); `odgi_format.rs`: native reader/writer for odgi's binary `.og` layout (format documented in its module docs; no `odgi` dependency); `id_map.rs`: shared external-integer-id → `NodeId` lookup (dense table or hash map) used by VG, GBZ and numeric GFA names.
+    - `gfa_parser.rs`: in-house streaming two-pass GFA parser (no external GFA crate); `odgi_format.rs`: native reader/writer for odgi's binary `.og` layout (format spec in `docs/odgi_format.md`, `utils/dump_odgi.py` dumps a file; no `odgi` dependency); `id_map.rs`: shared external-integer-id → `NodeId` lookup (dense table or hash map) used by VG, GBZ and numeric GFA names.
     - Serializers check `CoreGraphDTO::dangling_reference()` once, then index nodes directly.
   - `de_bruijn_conversion/`: Algorithms for de Bruijn graph construction and k-mer processing.
     - `word.rs` (2-bit `u64`/`u128` words, `RollingWindow`), `extraction.rs` (streaming path / bidirected topology walkers), `kmer_set.rs` (sharded concurrent set), `compaction.rs` (unitigs). `DeBruijn` stores sorted k-mer and canonical (k+1)-mer tables; node id = rank. Keep per-k-mer state to a few bytes and never materialize per-path k-mer vectors.
