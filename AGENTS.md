@@ -38,7 +38,7 @@ Every change implement in a separate branch describing the request,  commit your
     - `word.rs` (2-bit `u64`/`u128` words, `RollingWindow`), `extraction.rs` (streaming path / bidirected topology walkers), `kmer_set.rs` (sharded concurrent set), `compaction.rs` (unitigs). `DeBruijn` stores sorted k-mer and canonical (k+1)-mer tables; node id = rank. Keep per-k-mer state to a few bytes and never materialize per-path k-mer vectors.
   - `traits/`: Defines `GraphParser` and `GraphSerializer`.
 - **`pangraphx-cli`**: The command-line interface.
-  - `cli/args_parser.rs`: `clap` definitions for subcommands (`Convert`, `DBG`, `Info`, `Validate`, `Formats`).
+  - `cli/args_parser.rs`: `clap` definitions for subcommands (`Convert`, `DBG`, `Info`, `Formats`).
   - `src/main.rs`: Entry point dispatching commands to handlers in `src/`.
 
 ### Key Abstractions
