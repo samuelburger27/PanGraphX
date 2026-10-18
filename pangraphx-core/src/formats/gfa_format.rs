@@ -9,7 +9,7 @@ use std::io::{Read, Seek, Write};
 
 pub struct GFACodec;
 
-/// Implementation of `GraphParser` for GFA format; see [`gfa_parser`] for details.
+/// Implementation of `GraphParser` for GFA format; see the `gfa_parser` module for details.
 impl<R: Read + Seek> GraphParser<R> for GFACodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
         gfa_parser::parse(reader)
