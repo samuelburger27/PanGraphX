@@ -26,8 +26,8 @@ fn undirected_adjacency(g: &CoreGraphDTO) -> HashSet<(String, String)> {
 /// Returns true when every edge of the graph lies on some path.
 ///
 /// GBZ is a path-first format: it reconstructs the graph from the GBWT, so edges
-/// that are not traversed by any path cannot be represented. Synthetic inputs
-/// such as `random.gfa` contain such off-path links and are therefore skipped.
+/// that are not traversed by any path cannot be represented. Inputs with such
+/// off-path links (e.g. `utils/generate_gfa.py --extra-links`) are skipped.
 fn is_path_complete(g: &CoreGraphDTO) -> bool {
     let mut adjacent = HashSet::new();
     for path in &g.paths {

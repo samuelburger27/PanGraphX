@@ -84,28 +84,6 @@ fn same_in_odgi(original: &CoreGraphDTO, other: &CoreGraphDTO) -> bool {
         .isomorphic(&with_canonical_edges(other.clone()))
 }
 
-/// Whether every pair of consecutive path steps is joined by an edge, which
-/// `odgi validate` checks. Generated fixtures like `random.gfa` don't satisfy it.
-fn paths_follow_edges(graph: &CoreGraphDTO) -> bool {
-    let handle = |node: usize, o: Orientation| (node, o == Orientation::Reverse);
-    let mut links = std::collections::HashSet::new();
-    for e in &graph.edges {
-        let (from, to) = (
-            handle(e.from_node, e.from_orient),
-            handle(e.to_node, e.to_orient),
-        );
-        links.insert((from, to));
-        links.insert(((to.0, !to.1), (from.0, !from.1)));
-    }
-    graph.paths.iter().all(|path| {
-        path.steps.windows(2).all(|pair| {
-            let from = handle(pair[0].node_id(), pair[0].orientation());
-            let to = handle(pair[1].node_id(), pair[1].orientation());
-            links.contains(&(from, to))
-        })
-    })
-}
-
 fn odgi_available() -> bool {
     Command::new("odgi").arg("version").output().is_ok()
 }
@@ -146,17 +124,15 @@ fn test_odgi_cross_validation() {
         let og_file = NamedTempFile::new().unwrap();
         let og_path = og_file.path().to_str().unwrap();
         original.save_to_file(og_path, GraphFormat::ODGI).unwrap();
-        if paths_follow_edges(&original) {
-            let validate = Command::new("odgi")
-                .args(["validate", "-i", og_path])
-                .output()
-                .unwrap();
-            assert!(
-                validate.status.success(),
-                "odgi validate failed for {path_string}: {}",
-                String::from_utf8_lossy(&validate.stderr)
-            );
-        }
+        let validate = Command::new("odgi")
+            .args(["validate", "-i", og_path])
+            .output()
+            .unwrap();
+        assert!(
+            validate.status.success(),
+            "odgi validate failed for {path_string}: {}",
+            String::from_utf8_lossy(&validate.stderr)
+        );
         let view = Command::new("odgi")
             .args(["view", "-g", "-i", og_path])
             .output()
