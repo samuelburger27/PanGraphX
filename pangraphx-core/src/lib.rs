@@ -80,9 +80,7 @@ pub use error::PanResult;
 use std::fmt::Display;
 
 use crate::error::PanGraphXError;
-#[cfg(feature = "odgi")]
-use crate::formats::ODGICodec;
-use crate::formats::{FastgCodec, GBZCodec, GFACodec, VGCodec};
+use crate::formats::{FastgCodec, GBZCodec, GFACodec, ODGICodec, VGCodec};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::io::{Read, Seek};
 
@@ -97,8 +95,7 @@ pub enum GraphFormat {
     VG,
     /// FASTG graph format.
     FASTG,
-    /// ODGI binary graph format (requires `odgi` feature, Linux only).
-    #[cfg(feature = "odgi")]
+    /// ODGI binary graph format.
     ODGI,
 }
 
@@ -109,7 +106,6 @@ impl Display for GraphFormat {
             Self::GFA => write!(f, "GFA"),
             Self::VG => write!(f, "VG"),
             Self::FASTG => write!(f, "FASTG"),
-            #[cfg(feature = "odgi")]
             Self::ODGI => write!(f, "ODGI"),
         }
     }
@@ -118,12 +114,7 @@ impl Display for GraphFormat {
 impl GraphFormat {
     /// Returns an iterator over all supported formats.
     pub fn iter() -> impl Iterator<Item = Self> {
-        let base = [Self::GFA, Self::GBZ, Self::VG, Self::FASTG];
-        #[cfg(feature = "odgi")]
-        let extra = [Self::ODGI];
-        #[cfg(not(feature = "odgi"))]
-        let extra: [Self; 0] = [];
-        base.into_iter().chain(extra)
+        [Self::GFA, Self::GBZ, Self::VG, Self::FASTG, Self::ODGI].into_iter()
     }
 
     /// Returns the conventional filename extension for this format.
@@ -134,7 +125,6 @@ impl GraphFormat {
             Self::GFA => "gfa",
             Self::VG => "vg",
             Self::FASTG => "fastg",
-            #[cfg(feature = "odgi")]
             Self::ODGI => "og",
         }
     }
@@ -151,7 +141,6 @@ impl GraphFormat {
             "vg" => Ok(Self::VG),
             "gbz" => Ok(Self::GBZ),
             "fastg" => Ok(Self::FASTG),
-            #[cfg(feature = "odgi")]
             "og" => Ok(Self::ODGI),
             _ => Err(PanGraphXError::UnsupportedFormat),
         }
@@ -165,7 +154,6 @@ impl GraphFormat {
             Self::VG => Box::new(VGCodec),
             Self::GBZ => Box::new(GBZCodec),
             Self::FASTG => Box::new(FastgCodec),
-            #[cfg(feature = "odgi")]
             Self::ODGI => Box::new(ODGICodec),
         }
     }
@@ -178,7 +166,6 @@ impl GraphFormat {
             Self::VG => Box::new(VGCodec),
             Self::GBZ => Box::new(GBZCodec),
             Self::FASTG => Box::new(FastgCodec),
-            #[cfg(feature = "odgi")]
             Self::ODGI => Box::new(ODGICodec),
         }
     }
@@ -196,7 +183,6 @@ impl GraphFormat {
             Self::FASTG => {
                 "FASTG: A text-based format designed to capture assembly ambiguities; largely superseded by GFA in modern workflows."
             }
-            #[cfg(feature = "odgi")]
             Self::ODGI => {
                 "ODGI: A dynamic, memory-efficient binary format optimized for large-scale pangenome analysis and graph manipulation."
             }

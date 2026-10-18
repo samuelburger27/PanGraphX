@@ -17,20 +17,14 @@ autobenches = false
 [lints]
 workspace = true
 
-[features]
-default = []
-odgi = ["dep:odgi-ffi"]
-
 [dependencies]
 bio = "3.0.0"
 gbz = { git = "https://github.com/samuelburger27/gbwt-rs", branch = "gbz_construction" }
 log = "0.4.28"
-odgi-ffi = { version = "1.1.3", optional = true }
 prost = "0.13"
 rayon = "1.7"
 simple-sds = "0.4"
 thiserror = "2.0.17"
-tempfile = "3"
 itoa = "1.0.18"
 rustc-hash = "2.1.3"
 memchr = "2.8.3"
@@ -39,6 +33,7 @@ memchr = "2.8.3"
 prost-build = "0.13"
 
 [dev-dependencies]
+tempfile = "3"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
