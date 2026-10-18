@@ -17,11 +17,11 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
 }
 
 /// Number of S/L records formatted per parallel task.
-const RECORDS_PER_CHUNK: usize = 1 << 14;
+pub(crate) const RECORDS_PER_CHUNK: usize = 1 << 14;
 
 /// Builds the id -> name table once, so formatting never hashes or allocates per step.
 /// Nodes without an entry in `node_name_map` are named by their numeric id.
-fn node_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
+pub(crate) fn node_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
     (0..graph.nodes.len())
         .into_par_iter()
         .map(|id| {
@@ -38,7 +38,7 @@ fn node_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
 }
 
 /// Names every node by its 1-based id, ignoring `node_name_map`.
-fn one_based_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
+pub(crate) fn one_based_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
     (1..=graph.nodes.len())
         .into_par_iter()
         .map(|id| Cow::Owned(itoa::Buffer::new().format(id).as_bytes().to_vec()))
@@ -57,7 +57,7 @@ const fn orientation_byte(orientation: Orientation) -> u8 {
 ///
 /// Only one window of chunks (`RECORDS_PER_CHUNK` items per thread) is held in
 /// memory at a time, so the output text is never fully resident.
-fn write_records<T, F>(
+pub(crate) fn write_records<T, F>(
     writer: &mut dyn Write,
     items: &[T],
     per_chunk: usize,

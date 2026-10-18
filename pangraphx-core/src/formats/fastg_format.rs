@@ -1,498 +1,638 @@
-use crate::core::core_types::{Edge, NodeId, NodeName, Nodes, Orientation, Sequence};
+//! FASTG codec in the `SPAdes` / Bandage dialect.
+//!
+//! A record is a header `>NAME[']:SUCC1,SUCC2';` (the edge list is optional)
+//! followed by sequence lines. `NAME'` is the reverse-complement strand of
+//! `NAME`, and its record holds the reverse-complemented sequence.
+//!
+//! **Output** follows `SPAdes`: every node gets a forward and a `'` record, each
+//! listing the successors of that strand, so every edge appears from both
+//! ends. Names are wrapped as `EDGE_<name>_length_<len>_cov_1`, the only form
+//! for which Bandage resolves edge targets.
+//!
+//! **Input** strips that wrapper back to `<name>`, reverse-complements `'`
+//! records and merges mirrored edges (`A:B` and `B':A'`), so single- and
+//! double-stranded files parse to the same graph.
+//!
+//! FASTG has no paths or overlaps; they are dropped on output.
+
+use crate::core::core_types::{Edge, Node, NodeId, NodeName, Nodes, Orientation, Sequence};
 use crate::core::graph_dto::CoreGraphDTO;
+use crate::core::graph_utils::oriented_bases;
 use crate::error::{PanGraphXError, PanResult};
+use crate::formats::gfa_format::{RECORDS_PER_CHUNK, node_names, one_based_names, write_records};
 use crate::traits::{GraphParser, GraphSerializer};
-use bio::alphabets::dna::n_alphabet as dna_alphabet;
 use log::warn;
-use std::collections::HashMap;
+use memchr::memchr;
+use rayon::prelude::*;
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::borrow::Cow;
 use std::io::{BufRead, BufReader, Read, Seek, Write};
 
 pub struct FastgCodec;
 
-#[inline]
-fn is_header_line(line: &[u8]) -> bool {
-    line.first() == Some(&b'>')
+/// Bytes allowed in a sequence line: IUPAC nucleotide codes in either case.
+const SEQUENCE_BYTES: [bool; 256] = {
+    let mut table = [false; 256];
+    let codes = b"ACGTUNRYKMSWBDHVacgtunrykmswbdhv";
+    let mut i = 0;
+    while i < codes.len() {
+        table[codes[i] as usize] = true;
+        i += 1;
+    }
+    table
+};
+
+fn line_error(line_no: usize, message: &str) -> PanGraphXError {
+    PanGraphXError::Parse(format!("FASTG line {line_no}: {message}"))
 }
 
-impl<R: Read + Seek> GraphParser<R> for FastgCodec {
-    fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
-        warn!("FASTG file doesn't contain path information.");
-        warn!("Only nodes and edges will be parsed.");
-        let buf_reader = BufReader::new(reader);
+fn lossy(bytes: &[u8]) -> Cow<'_, str> {
+    String::from_utf8_lossy(bytes)
+}
 
-        // Map from node names to their assigned sequential IDs
-        let mut name_id_map: HashMap<NodeName, NodeId> = HashMap::new();
+/// Whether `name` can be written inside a SPAdes-style record name: non-empty
+/// printable ASCII without `_` (Bandage splits on it) or FASTG delimiters.
+fn is_record_name(name: &[u8]) -> bool {
+    !name.is_empty()
+        && name.iter().all(|&b| {
+            b.is_ascii_graphic() && !matches!(b, b'_' | b':' | b',' | b';' | b'\'' | b'>')
+        })
+}
 
-        // Vector of node sequences indexed by node ID. Elements are populated as headers
-        // are parsed and sequences are read
-        let mut sequences: Vec<Option<Sequence>> = Vec::new();
+/// Strips the `SPAdes` wrapper `<prefix>_<id>_length_<len>_cov_<cov>` down to
+/// `<id>`, the part Bandage uses as the node name. Other names are unchanged.
+fn canonical_name(name: &[u8]) -> &[u8] {
+    let mut parts = name.split(|&b| b == b'_');
+    match (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) {
+        (Some(prefix), Some(id), Some(b"length"), Some(len), Some(b"cov"), Some(cov), None)
+            if !prefix.is_empty()
+                && !id.is_empty()
+                && !len.is_empty()
+                && len.iter().all(u8::is_ascii_digit)
+                && !cov.is_empty() =>
+        {
+            id
+        }
+        _ => name,
+    }
+}
 
-        // Buffer to collect all edges as they're discovered during parsing
-        let mut edge_buff: Vec<Edge> = Vec::new();
+/// Splits a trailing `'` off a record name.
+fn split_strand(name: &[u8]) -> (&[u8], Orientation) {
+    name.strip_suffix(b"'")
+        .map_or((name, Orientation::Forward), |stripped| {
+            (stripped, Orientation::Reverse)
+        })
+}
 
-        // Current accumulated node sequence being read from sequence lines.
-        // This is stored temporarily and finalized when the next header is encountered.
-        let mut node_sequence: Sequence = Vec::new();
-        // The name of the node that the current sequence lines belong to
-        let mut last_node_name: NodeName = Vec::new();
+/// Parses one name of a header (the record itself or an edge-list entry).
+fn parse_name(raw: &[u8], line_no: usize) -> PanResult<(&[u8], Orientation)> {
+    let (name, orientation) = split_strand(raw);
+    if name.is_empty() {
+        return Err(line_error(line_no, "empty node name"));
+    }
+    if !name
+        .iter()
+        .all(|&b| b.is_ascii_graphic() && !matches!(b, b':' | b',' | b';' | b'\''))
+    {
+        return Err(line_error(
+            line_no,
+            &format!("invalid node name {:?}", lossy(raw)),
+        ));
+    }
+    Ok((canonical_name(name), orientation))
+}
 
-        for line in buf_reader.lines() {
-            // FASTG files contain only ASCII characters, safe to read as bytes
-            let line = line?.bytes().collect::<Vec<u8>>();
-            if line.is_empty() {
-                continue;
-            }
+/// Canonical key of an oriented edge: `a -> b` and its mirror `b' -> a'` are
+/// the same edge and share a key.
+fn edge_key(edge: &Edge) -> (NodeId, bool, NodeId, bool) {
+    let forward = (
+        edge.from_node,
+        edge.from_orient == Orientation::Reverse,
+        edge.to_node,
+        edge.to_orient == Orientation::Reverse,
+    );
+    let mirror = (
+        edge.to_node,
+        edge.to_orient == Orientation::Forward,
+        edge.from_node,
+        edge.from_orient == Orientation::Forward,
+    );
+    forward.min(mirror)
+}
 
-            // Header format: >NodeName[']:EdgeList;
-            if is_header_line(&line) {
-                // Finalize the previous node's sequence before processing the new header
-                record_node(node_sequence, &name_id_map, &mut sequences, &last_node_name)?;
+/// Incremental parser state.
+#[derive(Default)]
+struct FastgReader {
+    ids: FxHashMap<NodeName, NodeId>,
+    /// Forward-strand sequence per node, set by its first record.
+    sequences: Vec<Option<Sequence>>,
+    edges: Vec<Edge>,
+    seen_edges: FxHashSet<(NodeId, bool, NodeId, bool)>,
+    /// Record whose sequence lines are being read: node, strand, header line.
+    current: Option<(NodeId, Orientation, usize)>,
+    sequence: Sequence,
+}
 
-                last_node_name =
-                    parse_header_line(&line, &mut name_id_map, &mut edge_buff, &mut sequences)?;
+impl FastgReader {
+    fn node_id(&mut self, name: &[u8]) -> NodeId {
+        if let Some(&id) = self.ids.get(name) {
+            return id;
+        }
+        let id = self.sequences.len();
+        self.ids.insert(name.to_vec(), id);
+        self.sequences.push(None);
+        id
+    }
 
-                node_sequence = Vec::new(); // Reset sequence buffer for the new node
-            } else {
-                // sequence line
-                // Validate that all characters are valid DNA nucleotides before accumulating
-                if !dna_alphabet().is_word(&line) {
-                    return Err(PanGraphXError::Parse(format!(
-                        "Invalid character in DNA sequence: {}",
-                        String::from_utf8_lossy(&line)
-                    )));
+    fn header(&mut self, line: &[u8], line_no: usize) -> PanResult<()> {
+        self.finish_record()?;
+        let body = line
+            .get(1..)
+            .and_then(|rest| rest.strip_suffix(b";"))
+            .ok_or_else(|| line_error(line_no, "header must end with ';'"))?;
+        let (record, list) =
+            memchr(b':', body).map_or((body, &[][..]), |i| (&body[..i], &body[i + 1..]));
+
+        let (name, from_orient) = parse_name(record, line_no)?;
+        let from_node = self.node_id(name);
+        if !list.is_empty() {
+            for entry in list.split(|&b| b == b',') {
+                let (name, to_orient) = parse_name(entry, line_no)?;
+                let to_node = self.node_id(name);
+                let edge = Edge {
+                    from_node,
+                    from_orient,
+                    to_node,
+                    to_orient,
+                    overlap: 0,
+                };
+                if self.seen_edges.insert(edge_key(&edge)) {
+                    self.edges.push(edge);
                 }
-                node_sequence.extend(line);
             }
         }
+        self.current = Some((from_node, from_orient, line_no));
+        Ok(())
+    }
 
-        // Finalize the last node's sequence at EOF
-        record_node(node_sequence, &name_id_map, &mut sequences, &last_node_name)?;
+    fn sequence_line(&mut self, line: &[u8], line_no: usize) -> PanResult<()> {
+        if self.current.is_none() {
+            return Err(line_error(line_no, "sequence before the first header"));
+        }
+        if let Some(&b) = line.iter().find(|&&b| !SEQUENCE_BYTES[usize::from(b)]) {
+            return Err(line_error(
+                line_no,
+                &format!("invalid character {:?} in sequence", char::from(b)),
+            ));
+        }
+        self.sequence.extend_from_slice(line);
+        Ok(())
+    }
 
-        // Build the final nodes with validated sequences
-        let sequences = sequences
-            .into_iter()
-            .enumerate()
-            .map(|(id, seq_opt)| {
-                let seq = seq_opt.ok_or_else(|| {
-                    PanGraphXError::Parse(format!(
-                        "Node {id} does not have a sequence, FASTG file is not valid"
-                    ))
-                })?;
-                Ok(seq)
-            })
-            .collect::<PanResult<Vec<Sequence>>>()?;
+    /// Stores the sequence of the record being read, checking it against an
+    /// earlier record of the same node (e.g. the other strand).
+    fn finish_record(&mut self) -> PanResult<()> {
+        let Some((id, orientation, line_no)) = self.current.take() else {
+            return Ok(());
+        };
+        let read = std::mem::take(&mut self.sequence);
+        let forward = match orientation {
+            Orientation::Forward => read,
+            Orientation::Reverse => oriented_bases(&read, Orientation::Reverse, 0).collect(),
+        };
+        match &self.sequences[id] {
+            Some(existing) if *existing != forward => Err(line_error(
+                line_no,
+                "sequence differs from an earlier record of the same node",
+            )),
+            Some(_) => Ok(()),
+            None => {
+                self.sequences[id] = Some(forward);
+                Ok(())
+            }
+        }
+    }
 
-        let nodes = Nodes::from_seq(sequences);
-
+    fn into_graph(mut self) -> PanResult<CoreGraphDTO> {
+        self.finish_record()?;
+        let mut sequences = Vec::with_capacity(self.sequences.len());
+        for (id, sequence) in self.sequences.into_iter().enumerate() {
+            let Some(sequence) = sequence else {
+                let name = self
+                    .ids
+                    .iter()
+                    .find_map(|(name, &other)| (other == id).then(|| lossy(name).into_owned()))
+                    .unwrap_or_default();
+                return Err(PanGraphXError::Parse(format!(
+                    "FASTG node {name} is referenced but has no record"
+                )));
+            };
+            sequences.push(sequence);
+        }
         Ok(CoreGraphDTO {
-            nodes,
-            edges: edge_buff,
-            paths: Vec::new(), // FASTG does not contain path information
-            node_name_map: Some(
-                name_id_map
-                    .into_iter()
-                    .map(|(name, id)| (id, name))
-                    .collect(),
-            ),
+            nodes: Nodes::from_seq(sequences),
+            edges: self.edges,
+            paths: Vec::new(),
+            node_name_map: Some(self.ids.into_iter().map(|(name, id)| (id, name)).collect()),
         })
     }
 }
 
-fn record_node(
-    node_sequence: Sequence,
-    name_id_map: &HashMap<NodeName, NodeId>,
-    sequences: &mut [Option<Sequence>],
-    last_node_name: &[u8],
-) -> PanResult<()> {
-    if !node_sequence.is_empty() {
-        // Store the finalized sequence in the sequences vector
-        if let Some(id) = name_id_map.get(last_node_name) {
-            if let Some(existing_seq) = &sequences[*id] {
-                // Verify that if a node appears multiple times, it has the same sequence
-                if existing_seq != &node_sequence {
-                    return Err(PanGraphXError::Parse(format!(
-                        "Node {} has multiple sequences in FASTG file, seq_a: {}, seq_b: {}",
-                        String::from_utf8_lossy(last_node_name),
-                        String::from_utf8_lossy(existing_seq),
-                        String::from_utf8_lossy(&node_sequence)
-                    )));
-                }
+impl<R: Read + Seek> GraphParser<R> for FastgCodec {
+    fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
+        warn!("FASTG files don't contain paths; only nodes and edges are parsed.");
+        let mut reader = BufReader::with_capacity(1 << 20, reader);
+        let mut state = FastgReader::default();
+        let mut line = Vec::new();
+        let mut line_no = 0;
+        loop {
+            line.clear();
+            if reader.read_until(b'\n', &mut line)? == 0 {
+                break;
             }
-            sequences[*id] = Some(node_sequence);
+            line_no += 1;
+            let trimmed = line.trim_ascii_end();
+            match trimmed.first() {
+                None => {}
+                Some(b'>') => state.header(trimmed, line_no)?,
+                Some(_) => state.sequence_line(trimmed, line_no)?,
+            }
         }
+        state.into_graph()
     }
-    Ok(())
 }
 
-/// Retrieves the node ID for a given node name, creating a new entry in the `name_id_map`
-/// and sequences vector if the node name has not been seen before.  
+/// Handle of a node strand: `node << 1 | is_reverse`.
 #[inline]
-fn get_node_id(
-    node_name: &[u8],
-    name_id_map: &mut HashMap<NodeName, NodeId>,
-    sequences: &mut Vec<Option<Sequence>>,
-) -> NodeId {
-    let new_id = name_id_map.len();
-    *name_id_map.entry(node_name.to_vec()).or_insert_with(|| {
-        sequences.push(None); // Placeholder for sequence, will be filled in later
-        new_id
-    })
+fn handle(node: NodeId, orientation: Orientation) -> usize {
+    node << 1 | usize::from(orientation == Orientation::Reverse)
 }
 
-/// Parses a FASTG header line to extract the node name, edges, and orientations.
-/// Updates the `name_id_map` with any new nodes encountered in the header and
-/// populates the `edge_buff` with edges defined in the header.
-/// Returns the node name for the current header.
-fn parse_header_line(
-    line: &[u8],
-    name_id_map: &mut HashMap<NodeName, NodeId>,
-    edge_buff: &mut Vec<Edge>,
-    sequences: &mut Vec<Option<Sequence>>,
-) -> PanResult<NodeName> {
-    if line.last() != Some(&b';') {
-        return Err(PanGraphXError::Parse(
-            "Header isn't in valid format, header should end with ';' character".to_string(),
-        ));
+/// Successor lists of every node strand in CSR form. Each edge `a -> b` is
+/// stored under `a` and, mirrored as `b' -> a'`, under `b'`. Rows are sorted
+/// and may contain duplicates, which the writer skips.
+struct Successors {
+    offsets: Vec<usize>,
+    targets: Vec<usize>,
+}
+
+impl Successors {
+    fn new(node_count: usize, edges: &[Edge]) -> Self {
+        let pairs = || {
+            edges.iter().flat_map(|edge| {
+                let from = handle(edge.from_node, edge.from_orient);
+                let to = handle(edge.to_node, edge.to_orient);
+                [(from, to), (to ^ 1, from ^ 1)]
+            })
+        };
+
+        let mut offsets = vec![0; 2 * node_count + 1];
+        for (from, _) in pairs() {
+            offsets[from + 1] += 1;
+        }
+        for i in 1..offsets.len() {
+            offsets[i] += offsets[i - 1];
+        }
+
+        let mut cursor = offsets.clone();
+        let mut targets = vec![0; 2 * edges.len()];
+        for (from, to) in pairs() {
+            targets[cursor[from]] = to;
+            cursor[from] += 1;
+        }
+        drop(cursor);
+        for row in offsets.windows(2) {
+            targets[row[0]..row[1]].sort_unstable();
+        }
+        Self { offsets, targets }
     }
 
-    // Find the ':' separator between node name and edge list
-    let separator = line.iter().position(|b| *b == b':').unwrap_or(line.len());
+    fn of(&self, handle: usize) -> &[usize] {
+        &self.targets[self.offsets[handle]..self.offsets[handle + 1]]
+    }
+}
 
-    // Determine if the node is on the reverse strand (indicated by trailing ')
-    let from_orientation = match line[separator - 1] {
-        b'\'' => Orientation::Reverse,
-        _ => Orientation::Forward,
-    };
+/// Node names usable inside record names, falling back to `1..=n` for all
+/// nodes if any name is not (so the fallback cannot collide with a kept name).
+fn record_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
+    let names = node_names(graph);
+    if names.par_iter().all(|name| is_record_name(name)) {
+        return names;
+    }
+    warn!(
+        "Some node names contain characters FASTG reserves (`_`, `:`, `,`, `;`, `'`, `>` or whitespace); nodes are renamed to 1..={}.",
+        graph.nodes.len()
+    );
+    one_based_names(graph)
+}
 
-    // Extract node name, excluding the orientation marker if present
-    let node_name = &line[1..separator - usize::from(from_orientation == Orientation::Reverse)];
+fn push_record_name(nodes: &Nodes, names: &[Cow<'_, [u8]>], strand: usize, buf: &mut Vec<u8>) {
+    let id = strand >> 1;
+    buf.extend_from_slice(b"EDGE_");
+    buf.extend_from_slice(&names[id]);
+    buf.extend_from_slice(b"_length_");
+    buf.extend_from_slice(
+        itoa::Buffer::new()
+            .format(nodes[id].sequence.len())
+            .as_bytes(),
+    );
+    buf.extend_from_slice(b"_cov_1");
+    if strand & 1 == 1 {
+        buf.push(b'\'');
+    }
+}
 
-    // Get or create the node ID for this node name
-    let from_node_id = get_node_id(node_name, name_id_map, sequences);
-
-    // Parse the edge list: edges are comma-separated and may have orientation markers
-    // Format: edge1,edge2',edge3,...
-    let sequence_end = line.len() - 1; // Exclude trailing ';'
-    let edges = line[separator + 1..sequence_end].split(|&b| b == b',');
-    for edge in edges {
-        if edge.is_empty() {
+fn format_record(
+    nodes: &Nodes,
+    names: &[Cow<'_, [u8]>],
+    successors: &Successors,
+    node: &Node,
+    orientation: Orientation,
+    buf: &mut Vec<u8>,
+) {
+    let strand = handle(node.id, orientation);
+    buf.push(b'>');
+    push_record_name(nodes, names, strand, buf);
+    let mut previous = None;
+    for &target in successors.of(strand) {
+        if previous == Some(target) {
             continue;
         }
-
-        // Check for reverse orientation marker on the target node
-        let mut edge_end = edge.len();
-        let mut edge_orientation = Orientation::Forward;
-        if edge.last() == Some(&b'\'') {
-            edge_orientation = Orientation::Reverse;
-            edge_end -= 1;
-        }
-
-        let edge_name = &edge[..edge_end];
-
-        let to_id = get_node_id(edge_name, name_id_map, sequences);
-
-        edge_buff.push(Edge {
-            from_node: from_node_id,
-            from_orient: from_orientation,
-            to_node: to_id,
-            to_orient: edge_orientation,
-            overlap: 0, // FASTG does not specify overlaps, use 0 as default
-        });
+        buf.push(if previous.is_none() { b':' } else { b',' });
+        push_record_name(nodes, names, target, buf);
+        previous = Some(target);
     }
-    Ok(node_name.to_vec())
+    buf.extend_from_slice(b";\n");
+    match orientation {
+        Orientation::Forward => buf.extend_from_slice(&node.sequence),
+        Orientation::Reverse => {
+            buf.reserve(node.sequence.len());
+            buf.extend(oriented_bases(&node.sequence, Orientation::Reverse, 0));
+        }
+    }
+    buf.push(b'\n');
 }
 
 impl GraphSerializer for FastgCodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
-        warn!("Fastg files don't support Paths.");
-        warn!("Only nodes and edges will be serialized.");
-        let mut node_edge_map: HashMap<&NodeId, Vec<&Edge>> = HashMap::new();
-        for edge in &graph.edges {
-            node_edge_map.entry(&edge.from_node).or_default().push(edge);
+        if let Some(message) = graph.dangling_reference() {
+            return Err(PanGraphXError::Serialize(message));
         }
-        for node in &graph.nodes {
-            let edges = node_edge_map.get(&node.id);
-            let mut header = format!(">{}", graph.get_node_name(node));
-            if let Some(edge_list) = edges {
-                let edge_strs: Vec<String> = edge_list
-                    .iter()
-                    .map(|edge| {
-                        let mut edge_id = graph.get_name_from_id(edge.to_node);
-                        if edge.to_orient == Orientation::Reverse {
-                            edge_id.push('\'');
-                        }
-                        edge_id
-                    })
-                    .collect();
-                if !edge_strs.is_empty() {
-                    header.push(':');
-                    header.push_str(&edge_strs.join(","));
+        if !graph.paths.is_empty() {
+            warn!(
+                "FASTG files don't support paths; {} paths are dropped.",
+                graph.paths.len()
+            );
+        }
+        if graph.edges.par_iter().any(|edge| edge.overlap != 0) {
+            warn!("FASTG files don't support overlaps; edge overlaps are dropped.");
+        }
+
+        let names = record_names(graph);
+        let successors = Successors::new(graph.nodes.len(), &graph.edges);
+        write_records(
+            writer,
+            graph.nodes.as_slice(),
+            RECORDS_PER_CHUNK,
+            |node, buf| {
+                for orientation in [Orientation::Forward, Orientation::Reverse] {
+                    format_record(&graph.nodes, &names, &successors, node, orientation, buf);
                 }
-            }
-            header.push_str(";\n");
-            writer.write_all(header.as_bytes())?;
-            writer.write_all(&node.sequence)?;
-            writer.write_all(b"\n")?;
-        }
-        Ok(())
+            },
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::io::Cursor;
+
+    fn parse(data: &[u8]) -> PanResult<CoreGraphDTO> {
+        FastgCodec.parse(&mut Cursor::new(data))
+    }
+
+    fn serialize(graph: &CoreGraphDTO) -> String {
+        let mut out = Vec::new();
+        FastgCodec.serialize(graph, &mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    fn err(data: &[u8]) -> String {
+        match parse(data) {
+            Err(PanGraphXError::Parse(msg)) => msg,
+            other => panic!("expected a parse error, got {other:?}"),
+        }
+    }
+
+    fn name(graph: &CoreGraphDTO, id: NodeId) -> String {
+        graph.get_name_from_id(id)
+    }
+
+    fn edge(from: NodeId, fo: Orientation, to: NodeId, to_o: Orientation) -> Edge {
+        Edge {
+            from_node: from,
+            from_orient: fo,
+            to_node: to,
+            to_orient: to_o,
+            overlap: 0,
+        }
+    }
+
+    use Orientation::{Forward as F, Reverse as R};
 
     #[test]
     fn test_fastg_tiny() {
-        let data = b">EDGE_1:EDGE_2;\nATCGCCCAT\n>EDGE_2:;\nGGATCC\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
-
-        let result = codec.parse(&mut cursor);
-        assert!(result.is_ok());
-
-        let graph = result.unwrap();
-        assert_eq!(graph.nodes.len(), 2, "Should have 2 nodes");
-        assert_eq!(graph.edges.len(), 1, "Should have 1 edge");
-        // Verify nodes
+        let graph = parse(b">EDGE_1:EDGE_2;\nATCGCCCAT\n>EDGE_2:;\nGGATCC\n").unwrap();
+        assert_eq!(graph.nodes.len(), 2);
         assert_eq!(graph.nodes[0].sequence, b"ATCGCCCAT");
         assert_eq!(graph.nodes[1].sequence, b"GGATCC");
-
-        // Verify edge
-        assert_eq!(graph.edges[0].from_node, 0);
-        assert_eq!(graph.edges[0].to_node, 1);
-        assert_eq!(graph.edges[0].from_orient, Orientation::Forward);
-        assert_eq!(graph.edges[0].to_orient, Orientation::Forward);
+        assert_eq!(graph.edges, vec![edge(0, F, 1, F)]);
     }
 
-    /// Test parsing of reverse-complemented nodes (indicated by trailing single quote).
-    /// Verifies that sequences are correctly reverse-complemented when the orientation
-    /// marker is present.
     #[test]
-    fn test_fastg_reverse_orientation() {
-        // FASTG header format with reverse orientation: >NodeName':
-        let data = b">NODE_A':EDGE_B;\nATCG\n>EDGE_B:;\nGGAT\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
-
-        let result = codec.parse(&mut cursor);
-        assert!(result.is_ok());
-
-        let graph = result.unwrap();
+    fn header_without_edge_list() {
+        let graph = parse(b">A:B;\nAC\n>B;\nGG\n").unwrap();
         assert_eq!(graph.nodes.len(), 2);
-
-        // Original: ATCG
-        assert_eq!(graph.nodes[0].sequence, b"ATCG");
-        assert_eq!(graph.nodes[1].sequence, b"GGAT");
+        assert_eq!(graph.nodes[1].sequence, b"GG");
+        assert_eq!(graph.edges.len(), 1);
     }
 
-    /// Test parsing of multiple edges from a single node with mixed orientations.
-    /// Verifies that comma-separated edge lists are parsed correctly and that
-    /// reverse orientation markers on target nodes are recognized.
+    /// A `'` record holds the reverse complement of the node's sequence.
+    #[test]
+    fn reverse_record_is_reverse_complemented() {
+        let graph = parse(b">A':B;\nCGAT\n>B;\nGGAT\n").unwrap();
+        assert_eq!(graph.nodes[0].sequence, b"ATCG");
+        assert_eq!(graph.edges, vec![edge(0, R, 1, F)]);
+    }
+
+    #[test]
+    fn both_strands_merge_into_one_node() {
+        let graph = parse(b">A:B;\nAACG\n>A';\nCGTT\n>B;\nGG\n>B':A';\nCC\n").unwrap();
+        assert_eq!(graph.nodes.len(), 2);
+        assert_eq!(graph.nodes[0].sequence, b"AACG");
+        // `B' -> A'` mirrors `A -> B`.
+        assert_eq!(graph.edges, vec![edge(0, F, 1, F)]);
+    }
+
+    #[test]
+    fn conflicting_strand_sequences_are_rejected() {
+        assert!(err(b">A;\nAACG\n>A';\nAACG\n").contains("line 3"));
+    }
+
+    #[test]
+    fn spades_names_are_normalized() {
+        let data = b">EDGE_1_length_4_cov_2.5:EDGE_2_length_2_cov_1';\nAACG\n\
+                     >EDGE_2_length_2_cov_1;\nGG\n";
+        let graph = parse(data).unwrap();
+        assert_eq!(name(&graph, 0), "1");
+        assert_eq!(name(&graph, 1), "2");
+        assert_eq!(graph.edges, vec![edge(0, F, 1, R)]);
+    }
+
+    #[test]
+    fn canonical_name_only_strips_full_spades_names() {
+        assert_eq!(canonical_name(b"EDGE_7_length_10_cov_3.2"), b"7");
+        assert_eq!(canonical_name(b"NODE_x_length_1_cov_1"), b"x");
+        for name in [
+            &b"EDGE_1"[..],
+            b"EDGE_1_length_x_cov_1",
+            b"EDGE_1_length_1_cov_",
+            b"EDGE_1_length_1_cov_1_ID_3",
+            b"_1_length_1_cov_1",
+        ] {
+            assert_eq!(canonical_name(name), name);
+        }
+    }
+
+    #[test]
+    fn edge_key_matches_mirror() {
+        let a = edge(3, F, 5, R);
+        let mirror = edge(5, F, 3, R);
+        assert_eq!(edge_key(&a), edge_key(&mirror));
+        assert_ne!(edge_key(&a), edge_key(&edge(3, F, 5, F)));
+    }
+
     #[test]
     fn test_fastg_multiple_edges_with_orientations() {
-        let data =
-            b">NODE_1:NODE_2,NODE_3',NODE_4;\nATCG\n>NODE_2:;\nTT\n>NODE_3:;\nGG\n>NODE_4:;\nCC\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
-
-        let result = codec.parse(&mut cursor);
-        assert!(result.is_ok());
-
-        let graph = result.unwrap();
+        let data = b">N1:N2,N3',N4;\nATCG\n>N2:;\nTT\n>N3:;\nGG\n>N4:;\nCC\n";
+        let graph = parse(data).unwrap();
         assert_eq!(graph.nodes.len(), 4);
-        assert_eq!(graph.edges.len(), 3, "Should have 3 edges from NODE_1");
-
-        // Verify first edge: NODE_1 -> NODE_2 (both forward)
-        assert_eq!(graph.edges[0].from_node, 0);
-        assert_eq!(graph.edges[0].to_node, 1);
-        assert_eq!(graph.edges[0].to_orient, Orientation::Forward);
-
-        // Verify second edge: NODE_1 -> NODE_3' (NODE_3 reverse)
-        assert_eq!(graph.edges[1].from_node, 0);
-        assert_eq!(graph.edges[1].to_node, 2);
-        assert_eq!(graph.edges[1].to_orient, Orientation::Reverse);
-
-        // Verify third edge: NODE_1 -> NODE_4 (both forward)
-        assert_eq!(graph.edges[2].from_node, 0);
-        assert_eq!(graph.edges[2].to_node, 3);
-        assert_eq!(graph.edges[2].to_orient, Orientation::Forward);
+        assert_eq!(
+            graph.edges,
+            vec![edge(0, F, 1, F), edge(0, F, 2, R), edge(0, F, 3, F)]
+        );
     }
 
-    /// Test parsing of multi-line sequences.
-    /// Verifies that sequence data spanning multiple lines is correctly concatenated
-    /// before being finalized.
     #[test]
     fn test_fastg_multiline_sequence() {
-        let data = b">NODE_A:NODE_B;\nAT\nCG\nAA\n>NODE_B:;\nGG\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
-
-        let result = codec.parse(&mut cursor);
-        assert!(result.is_ok());
-
-        let graph = result.unwrap();
-        assert_eq!(graph.nodes.len(), 2);
-        // Sequence should be concatenated from all lines
+        let graph = parse(b">A:B;\nAT\nCG\nAA\n>B:;\nGG\n").unwrap();
         assert_eq!(graph.nodes[0].sequence, b"ATCGAA");
         assert_eq!(graph.nodes[1].sequence, b"GG");
     }
 
-    /// Test parsing of nodes with no outgoing edges (empty edge list).
-    /// Verifies that nodes without edges are correctly added to the graph.
     #[test]
-    fn test_fastg_no_outgoing_edges() {
-        let data = b">LEAF_NODE:;\nACGT\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
-
-        let result = codec.parse(&mut cursor);
-        assert!(result.is_ok());
-
-        let graph = result.unwrap();
-        assert_eq!(graph.nodes.len(), 1);
-        assert_eq!(graph.edges.len(), 0);
-        assert_eq!(graph.nodes[0].sequence, b"ACGT");
-    }
-
-    /// Test parsing of duplicate edges from the same source.
-    /// Some assembly formats may include the same edge multiple times.
-    #[test]
-    fn test_fastg_duplicate_edges() {
-        let data = b">NODE_1:NODE_2,NODE_2;\nAT\n>NODE_2:;\nGG\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
-
-        let result = codec.parse(&mut cursor);
-        assert!(result.is_ok());
-
-        let graph = result.unwrap();
-        assert_eq!(graph.nodes.len(), 2);
-        // Both edges should be recorded
-        assert_eq!(graph.edges.len(), 2);
-        assert_eq!(graph.edges[0].to_node, 1);
-        assert_eq!(graph.edges[1].to_node, 1);
-    }
-
-    /// Test error handling for invalid DNA characters in sequence.
-    /// Verifies that invalid nucleotide characters are rejected with an appropriate error.
-    #[test]
-    fn test_fastg_invalid_dna_characters() {
-        let data = b">NODE_1:;\nATXG\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
-
-        let result = codec.parse(&mut cursor);
-        assert!(result.is_err(), "Should reject invalid DNA character 'X'");
-
-        if let Err(PanGraphXError::Parse(msg)) = result {
-            assert!(
-                msg.contains("Invalid character"),
-                "Error message should mention invalid character"
-            );
-        }
-    }
-
-    /// Test error handling for missing sequence terminator (';').
-    /// Verifies that headers without the required semicolon are rejected.
-    #[test]
-    fn test_fastg_missing_header_terminator() {
-        let data = b">NODE_1:NODE_2\nATCG\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
-
-        let result = codec.parse(&mut cursor);
-        assert!(
-            result.is_err(),
-            "Should reject header without terminating semicolon"
-        );
-
-        if let Err(PanGraphXError::Parse(msg)) = result {
-            assert!(
-                msg.contains("';'"),
-                "Error should mention missing semicolon"
-            );
-        }
-    }
-
-    /// Test error handling for nodes referenced in edges but without sequences.
-    /// Verifies that the parser ensures all nodes have at least one sequence definition.
-    #[test]
-    fn test_fastg_missing_node_sequence() {
-        let data = b">NODE_1:NODE_2;\nATCG\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
-
-        let result = codec.parse(&mut cursor);
-        assert!(
-            result.is_err(),
-            "Should reject when edge target has no sequence"
-        );
-
-        if let Err(PanGraphXError::Parse(msg)) = result {
-            assert!(
-                msg.contains("does not have a sequence"),
-                "Error should indicate missing sequence"
-            );
-        }
-    }
-
-    /// Test parsing of empty lines in the FASTG file.
-    /// Verifies that empty lines are skipped without causing parsing errors.
-    #[test]
-    fn test_fastg_empty_lines() {
-        let data = b">NODE_1:NODE_2;\n\nATCG\n\n>NODE_2:;\n\nGG\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
-
-        let result = codec.parse(&mut cursor);
-        assert!(result.is_ok());
-
-        let graph = result.unwrap();
-        assert_eq!(graph.nodes.len(), 2);
+    fn crlf_and_empty_lines() {
+        let graph = parse(b">A:B;\r\n\r\nATCG\r\n\n>B;\r\nGG").unwrap();
         assert_eq!(graph.nodes[0].sequence, b"ATCG");
         assert_eq!(graph.nodes[1].sequence, b"GG");
     }
 
-    /// Test node reuse in FASTG format.
-    /// When a node name appears again in the file, it should use the same node ID.
-    /// If sequences differ, this should be detected as an error.
     #[test]
-    fn test_fastg_node_reuse_forward_and_reverse() {
-        let data = b">NODE_A:NODE_B;\nATCG\n>NODE_A':NODE_B;\nATCG\n>NODE_B:;\nGG\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
-
-        let result = codec.parse(&mut cursor);
-        assert!(result.is_ok(), "Should handle nodes in both orientations");
-
-        let graph = result.unwrap();
-        // Both NODE_A and NODE_A' should reference the same node (id=0),
-        // with different orientation markers
-        assert_eq!(graph.nodes.len(), 2);
+    fn duplicate_edges_are_merged() {
+        let graph = parse(b">A:B,B;\nAT\n>B:;\nGG\n").unwrap();
+        assert_eq!(graph.edges.len(), 1);
     }
 
-    /// Test parsing of a complex graph with interconnected nodes.
-    /// Verifies correct behavior on a more realistic graph structure.
     #[test]
-    fn test_fastg_complex_graph() {
-        let data = b">A:B,C;\nAAAA\n>B:D,C';\nTT\n>C:D;\nGGGG\n>D:;\nCC\n";
-        let mut cursor = Cursor::new(data);
-        let codec = FastgCodec;
+    fn invalid_dna_characters() {
+        assert!(err(b">A:;\nATXG\n").contains("invalid character 'X'"));
+    }
 
-        let result = codec.parse(&mut cursor);
-        assert!(result.is_ok());
+    #[test]
+    fn malformed_headers_are_errors() {
+        assert!(err(b">A:B\nATCG\n").contains("';'"));
+        assert!(err(b">;\nAC\n").contains("empty node name"));
+        assert!(err(b">':;\nAC\n").contains("empty node name"));
+        assert!(err(b">A:B,,C;\nAC\n").contains("empty node name"));
+        assert!(err(b">A B;\nAC\n").contains("invalid node name"));
+        assert!(err(b"ACGT\n>A;\nAC\n").contains("before the first header"));
+        assert!(err(b">\nAC\n").contains("';'"));
+    }
 
-        let graph = result.unwrap();
-        assert_eq!(graph.nodes.len(), 4);
-        assert_eq!(graph.edges.len(), 5);
+    #[test]
+    fn referenced_node_without_record() {
+        assert!(err(b">A:B;\nATCG\n").contains("node B"));
+    }
 
-        // Verify structure
-        let a_edges = graph.edges.iter().filter(|e| e.from_node == 0);
-        assert_eq!(a_edges.count(), 2, "Node A should have 2 outgoing edges");
+    fn sample_graph() -> CoreGraphDTO {
+        CoreGraphDTO {
+            nodes: Nodes::from_seq(vec![b"AACG".to_vec(), b"GT".to_vec(), b"T".to_vec()]),
+            edges: vec![edge(0, F, 1, F), edge(1, R, 2, F), edge(2, F, 2, R)],
+            paths: Vec::new(),
+            node_name_map: Some(
+                [
+                    (0, b"s1".to_vec()),
+                    (1, b"s2".to_vec()),
+                    (2, b"s3".to_vec()),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        }
+    }
 
-        let b_edges = graph.edges.iter().filter(|e| e.from_node == 1);
-        assert_eq!(b_edges.count(), 2, "Node B should have 2 outgoing edges");
+    #[test]
+    fn serializes_both_strands_in_spades_style() {
+        let expected = "\
+>EDGE_s1_length_4_cov_1:EDGE_s2_length_2_cov_1;\nAACG\n\
+>EDGE_s1_length_4_cov_1';\nCGTT\n\
+>EDGE_s2_length_2_cov_1;\nGT\n\
+>EDGE_s2_length_2_cov_1':EDGE_s1_length_4_cov_1',EDGE_s3_length_1_cov_1;\nAC\n\
+>EDGE_s3_length_1_cov_1:EDGE_s3_length_1_cov_1';\nT\n\
+>EDGE_s3_length_1_cov_1':EDGE_s2_length_2_cov_1;\nA\n";
+        assert_eq!(serialize(&sample_graph()), expected);
+    }
+
+    #[test]
+    fn round_trip_keeps_names_sequences_and_edges() {
+        let graph = sample_graph();
+        let back = parse(serialize(&graph).as_bytes()).unwrap();
+        assert_eq!(back.nodes, graph.nodes);
+        assert_eq!(back.node_name_map, graph.node_name_map);
+        let keys = |g: &CoreGraphDTO| g.edges.iter().map(edge_key).collect::<FxHashSet<_>>();
+        assert_eq!(keys(&back), keys(&graph));
+        assert_eq!(back.edges.len(), graph.edges.len());
+    }
+
+    #[test]
+    fn unsafe_names_fall_back_to_numbers() {
+        let mut graph = sample_graph();
+        graph.node_name_map = Some(HashMap::from([(0, b"a_b".to_vec())]));
+        let text = serialize(&graph);
+        assert!(text.starts_with(">EDGE_1_length_4_cov_1:EDGE_2_length_2_cov_1;\n"));
+        let back = parse(text.as_bytes()).unwrap();
+        assert_eq!(name(&back, 0), "1");
+        assert_eq!(back.nodes, graph.nodes);
+    }
+
+    #[test]
+    fn dangling_edge_is_a_serialize_error() {
+        let mut graph = sample_graph();
+        graph.edges.push(edge(0, F, 9, F));
+        assert!(matches!(
+            FastgCodec.serialize(&graph, &mut Vec::new()),
+            Err(PanGraphXError::Serialize(_))
+        ));
     }
 }
