@@ -30,9 +30,9 @@ Every change implement in a separate branch describing the request,  commit your
 ### Component Structure
 - **`pangraphx-core`**: The main library crate.
   - `core/`: Internal graph representation (`CoreGraph`, `CoreGraphDTO`).
-  - `formats/`: Format-specific logic (GFA, GBZ, VG, FastG).
+  - `formats/`: Format-specific logic (GFA, GBZ, VG, FastG, ODGI).
     - Each format has a codec struct (e.g., `GBZCodec`, `GFACodec`) implementing generic traits.
-    - `gfa_parser.rs`: in-house streaming two-pass GFA parser (no external GFA crate); `id_map.rs`: shared external-integer-id → `NodeId` lookup (dense table or hash map) used by VG, GBZ and numeric GFA names.
+    - `gfa_parser.rs`: in-house streaming two-pass GFA parser (no external GFA crate); `odgi_format.rs`: native reader/writer for odgi's binary `.og` layout (format documented in its module docs; no `odgi` dependency); `id_map.rs`: shared external-integer-id → `NodeId` lookup (dense table or hash map) used by VG, GBZ and numeric GFA names.
     - Serializers check `CoreGraphDTO::dangling_reference()` once, then index nodes directly.
   - `de_bruijn_conversion/`: Algorithms for de Bruijn graph construction and k-mer processing.
     - `word.rs` (2-bit `u64`/`u128` words, `RollingWindow`), `extraction.rs` (streaming path / bidirected topology walkers), `kmer_set.rs` (sharded concurrent set), `compaction.rs` (unitigs). `DeBruijn` stores sorted k-mer and canonical (k+1)-mer tables; node id = rank. Keep per-k-mer state to a few bytes and never materialize per-path k-mer vectors.
@@ -78,8 +78,8 @@ Every change implement in a separate branch describing the request,  commit your
   - `utils/download_gfa.sh`: Fetches the large benchmark graphs into `benchmarks/data/`.
   - `benchmarks/`: `compare_tools.sh` (time vs vg/odgi), `peak_memory.sh` (RSS), `dbg.sh` (memory-guarded DBG sweep); shared helpers in `lib.sh`/`ops.sh`. See `benchmarks/README.md`. Never run DBG benchmarks in parallel — memory grows with the number of distinct k-mers (≈ node sequence length), and uncompacted output dominates.
   - `utils/generate_test_files.sh`: Derives the VG/GBZ/FASTG/OG test fixtures from the committed GFA files (gitignored). Use `--external` to build reference files with `vg`/`odgi` for cross-validation.
-  - ODGI (`odgi` feature) goes through `odgi_ffi::{gfa_to_odgi, odgi_to_gfa}` (shells out to `odgi`, temp files, full GFA text in memory on read). It is intentionally simple and slow; keep it that way and keep the README warning in sync.
-  - The project interacts with standard bioinformatics formats (GFA v1.0, GFA v1.1 locally supported extensions, GBZ, VG).
+  - ODGI's `.og` layout is odgi-internal and unversioned: after changing `odgi_format.rs`, run `tests/test_odgi.rs` with `odgi` on `PATH` (it checks our files with `odgi validate`/`odgi view` and parses `odgi build` output; skipped without `odgi`).
+  - The project interacts with standard bioinformatics formats (GFA v1.0, GFA v1.1 locally supported extensions, GBZ, VG, ODGI).
 
 ## Core Data Types
 

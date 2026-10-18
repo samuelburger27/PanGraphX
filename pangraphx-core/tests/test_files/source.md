@@ -25,4 +25,6 @@ Only the `gfa/` files are checked into the repository. The `vg/`, `gbz/`,
 [`utils/generate_test_files.sh`](../../../utils/generate_test_files.sh) (or the
 external `vg`/`odgi` tools for cross-validation) and are gitignored. The
 hand-authored `fastg/assembly_graph.fastg` is the one exception and stays
-in-repo.
+in-repo, as does `odgi/tiny.og`: a small file written by `odgi build` (taken
+from the MIT-licensed [odgi-ffi](https://github.com/caelrith/odgi-ffi) test data)
+used to check that the ODGI parser reads real odgi output.

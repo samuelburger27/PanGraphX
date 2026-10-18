@@ -21,7 +21,7 @@ A fast and efficient Rust library and command-line tool for working with pangeno
 - **GBZ** (Graph Bioinformatics Zipped) - compressed graph format
 - **VG** (Variation Graph) - protobuf-based variation graph format
 - **FASTG** (FASTA Gapped) - sequence format with assembly graph metadata; written in the SPAdes style (both strands, `EDGE_<name>_length_<len>_cov_1` names). Paths and overlaps are dropped
-- **ODGI** (Optimized Dynamic Genome/Graph Implementation) - requires `odgi` feature flag, Linux only; slow, see [ODGI support](#with-odgi-support-linux-only)
+- **ODGI** (Optimized Dynamic Genome/Graph Implementation) - odgi's binary `.og` format, read and written natively (no `odgi` install needed). Node ids are kept when the node names are positive integers, otherwise nodes are numbered `1..=n`; overlaps are dropped
 
 ## Quick Start
 
@@ -38,16 +38,6 @@ cargo build --release
 The compiled binary will be available at `target/release/pangraphx-cli`.
 
 For the fastest binary (fat LTO, used by the benchmarks), build with `cargo build --profile dist`; it is placed at `target/dist/pangraphx-cli`. The build takes noticeably longer.
-
-#### With ODGI Support (Linux Only)
-
-ODGI support requires native C++ libraries that only build on Linux, and the `odgi` executable on `PATH` (conversions run `odgi build` / `odgi view`). Enable it with the `odgi` feature flag:
-
-```bash
-cargo build --workspace --features pangraphx-core/odgi --release
-```
-
-> **Performance warning:** ODGI support is very slow and memory hungry; avoid it for large graphs and convert to GFA with `odgi view` yourself instead. Every ODGI read or write runs the external `odgi` executable and writes the whole graph to temporary ODGI and GFA files, and reading holds the complete GFA text produced by `odgi view` in memory before parsing it.
 
 ### CLI Usage
 
@@ -264,9 +254,6 @@ cargo build --workspace
 
 # Build release version (optimized)
 cargo build --workspace --release
-
-# Build with ODGI support (Linux only)
-cargo build --workspace --features pangraphx-core/odgi --release
 ```
 
 ### Run Tests
