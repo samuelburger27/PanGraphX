@@ -20,7 +20,7 @@ A fast and efficient Rust library and command-line tool for working with pangeno
 - **GFA** (Graphical Fragment Assembly) v1.0, v1.1 with local extensions
 - **GBZ** (Graph Bioinformatics Zipped) - compressed graph format
 - **VG** (Variation Graph) - protobuf-based variation graph format
-- **FASTG** (FASTA Gapped) - sequence format with assembly graph metadata
+- **FASTG** (FASTA Gapped) - sequence format with assembly graph metadata; written in the SPAdes style (both strands, `EDGE_<name>_length_<len>_cov_1` names). Paths and overlaps are dropped
 - **ODGI** (Optimized Dynamic Genome/Graph Implementation) - requires `odgi` feature flag, Linux only; slow, see [ODGI support](#with-odgi-support-linux-only)
 
 ## Quick Start
