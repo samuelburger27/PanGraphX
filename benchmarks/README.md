@@ -128,7 +128,7 @@ How sampling works:
 Prerequisites:
 - `hyperfine`
 - `vg` (bioconda or GitHub release)
-- `odgi` (bioconda, Linux; PanGraphX is then built with `--features odgi`)
+- `odgi` (bioconda or built from source)
 - for peak RSS: GNU time on Linux (`apt install time`). On macOS the built-in
   `/usr/bin/time -l` is used.
 

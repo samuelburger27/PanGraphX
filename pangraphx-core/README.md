@@ -8,8 +8,8 @@ genome graph loading, manipulation, and format conversion.
 - A common graph DTO (`CoreGraphDTO`) and a mutable graph type with lookup/manipulation
   helpers (`CoreGraph`)
 - Parsing and serialization for multiple pangenome graph formats: GFA, VG, GBZ, FASTG
-  (SPAdes dialect, no paths or overlaps),
-  and (optionally) ODGI
+  (SPAdes dialect, no paths or overlaps) and ODGI (native `.og` reader/writer, no
+  overlaps)
 - de Bruijn graph construction, including colored de Bruijn graphs
 - Graph statistics (sequence-length/N50, connected components, degree and path distributions)
 
@@ -35,10 +35,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
-
-## Features
-
-- `odgi` — enables ODGI binary graph support (Linux only, requires native C++ libraries).
 
 ## License
 
