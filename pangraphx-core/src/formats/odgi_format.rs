@@ -719,6 +719,10 @@ impl OdgiWriter<'_> {
         scratch.decoding.clear();
         scratch.decoding_index.clear();
         let steps = &self.steps;
+        if steps.offsets[node] < steps.offsets[node + 1] {
+            // odgi's `create_step` encodes the node itself before linking any step.
+            scratch.encode(own_id, own_id);
+        }
         for &global in &steps.slots[steps.offsets[node]..steps.offsets[node + 1]] {
             let (path_index, position) = steps.locate(global);
             let path = &self.graph.paths[path_index].steps;
