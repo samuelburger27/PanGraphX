@@ -6,8 +6,8 @@
 //! [`common::Source`]). Each group reports throughput in bytes, so criterion
 //! derives MB/s automatically.
 //!
-//! The only on-disk inputs are GFA files (see [`common::gfa_inputs`]); the VG
-//! and GBZ inputs are derived from them by the harness, outside the timed
+//! The only on-disk inputs are GFA files (see [`common::gfa_inputs`]); the VG,
+//! GBZ and FASTG inputs are derived from them by the harness, outside the timed
 //! region, and materialized one at a time to bound peak memory.
 #![allow(clippy::missing_panics_doc, clippy::must_use_candidate)]
 
@@ -18,9 +18,9 @@ use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, c
 use pangraphx_core::{CoreGraphDTO, GraphFormat};
 
 /// The formats derived from each GFA input for the parse benchmarks.
-const DERIVED_FORMATS: [GraphFormat; 2] = [GraphFormat::VG, GraphFormat::GBZ];
+const DERIVED_FORMATS: [GraphFormat; 3] = [GraphFormat::VG, GraphFormat::GBZ, GraphFormat::FASTG];
 
-/// Group `parse`: decode each format across the size range (GFA, VG, GBZ).
+/// Group `parse`: decode each format across the size range (GFA, VG, GBZ, FASTG).
 fn bench_parse(c: &mut Criterion) {
     let mut group = c.benchmark_group("parse");
     for input in gfa_inputs() {
@@ -45,13 +45,18 @@ fn bench_parse(c: &mut Criterion) {
     group.finish();
 }
 
-/// Group `serialize`: encode a parsed graph back to bytes (GFA, VG, and GBZ).
+/// Group `serialize`: encode a parsed graph back to bytes (GFA, VG, GBZ, and FASTG).
 fn bench_serialize(c: &mut Criterion) {
     let mut group = c.benchmark_group("serialize");
     for input in gfa_inputs() {
         let dto = input.parse();
 
-        for format in [GraphFormat::GFA, GraphFormat::VG, GraphFormat::GBZ] {
+        for format in [
+            GraphFormat::GFA,
+            GraphFormat::VG,
+            GraphFormat::GBZ,
+            GraphFormat::FASTG,
+        ] {
             // Serialize once to learn the output size (for throughput + buffer
             // pre-allocation) without timing it.
             let out_len = serialize_bytes(&dto, format).len();
