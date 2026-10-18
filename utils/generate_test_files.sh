@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# generate_test_files.sh — derive VG / GBZ / FASTG (and optionally OG) fixtures
+# generate_test_files.sh — derive VG / GBZ / FASTG / OG fixtures
 # from the committed GFA files under pangraphx-core/tests/test_files/gfa/.
 #
 # The repository commits only GFA files; every derived format is produced here
@@ -18,9 +18,6 @@
 #
 # Options:
 #   --force        Regenerate even when the target already exists.
-#   --with-odgi    Also produce .og files (requires the `odgi` cargo feature,
-#                  which builds on Linux only). In --external mode, `odgi build`
-#                  is used instead when `odgi` is on PATH.
 #   --help         Show this help.
 #
 # Environment:
@@ -36,10 +33,9 @@ BIN="$REPO_ROOT/target/release/pangraphx-cli"
 
 MODE=pangraphx
 FORCE=false
-WITH_ODGI=false
 
 usage() {
-    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -47,7 +43,6 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --external) MODE=external ;;
         --force) FORCE=true ;;
-        --with-odgi) WITH_ODGI=true ;;
         -h|--help) usage ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -65,14 +60,8 @@ if [[ -n "${PANGRAPHX_BIN:-}" ]]; then
     fi
     echo ">>> Using pre-built PanGraphX: $BIN"
 else
-    if $WITH_ODGI; then
-        echo ">>> Building PanGraphX (release, --features pangraphx-core/odgi)..."
-        cargo build --release --features pangraphx-core/odgi \
-            --manifest-path "$REPO_ROOT/Cargo.toml"
-    else
-        echo ">>> Building PanGraphX (release)..."
-        cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml"
-    fi
+    echo ">>> Building PanGraphX (release)..."
+    cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml"
 fi
 
 # --- Helpers ------------------------------------------------------------------
@@ -105,10 +94,7 @@ if [[ ${#GFA_FILES[@]} -eq 0 ]]; then
     exit 1
 fi
 
-mkdir -p "$TEST_FILES_DIR/vg" "$TEST_FILES_DIR/gbz" "$TEST_FILES_DIR/fastg"
-if $WITH_ODGI; then
-    mkdir -p "$TEST_FILES_DIR/og"
-fi
+mkdir -p "$TEST_FILES_DIR/vg" "$TEST_FILES_DIR/gbz" "$TEST_FILES_DIR/fastg" "$TEST_FILES_DIR/og"
 
 # --- Generate -----------------------------------------------------------------
 for gfa in "${GFA_FILES[@]}"; do
@@ -145,17 +131,15 @@ for gfa in "${GFA_FILES[@]}"; do
         convert_px "$gfa" "$fastg_out" fastg
     fi
 
-    # OG (optional)
-    if $WITH_ODGI; then
-        og_out="$TEST_FILES_DIR/og/$base.og"
-        if already_done "$og_out"; then
-            echo "  skip (exists): $og_out"
-        elif [[ "$MODE" == "external" ]] && $HAVE_ODGI; then
-            odgi build -g "$gfa" -o "$og_out"
-            echo "  wrote (odgi): $og_out"
-        else
-            convert_px "$gfa" "$og_out" og
-        fi
+    # OG (`odgi build` only accepts integer segment names; others fall back)
+    og_out="$TEST_FILES_DIR/og/$base.og"
+    if already_done "$og_out"; then
+        echo "  skip (exists): $og_out"
+    elif [[ "$MODE" == "external" ]] && $HAVE_ODGI \
+            && odgi build -g "$gfa" -o "$og_out" 2>/dev/null; then
+        echo "  wrote (odgi): $og_out"
+    else
+        convert_px "$gfa" "$og_out" og
     fi
 done
 
