@@ -382,6 +382,22 @@ fn format_record(
     buf.push(b'\n');
 }
 
+/// Target amount of text formatted per parallel task. Long nodes are written
+/// twice (both strands), so chunks are sized by bytes rather than by count to
+/// keep the buffered output window small.
+const CHUNK_BYTES: usize = 1 << 20;
+
+/// Nodes per parallel task so that a chunk holds about [`CHUNK_BYTES`].
+fn nodes_per_chunk(nodes: &Nodes) -> usize {
+    let sequence_bytes: usize = nodes
+        .as_slice()
+        .par_iter()
+        .map(|node| node.sequence.len())
+        .sum();
+    let average = sequence_bytes / nodes.len().max(1);
+    (CHUNK_BYTES / (2 * average + 1)).clamp(1, RECORDS_PER_CHUNK)
+}
+
 impl GraphSerializer for FastgCodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
         if let Some(message) = graph.dangling_reference() {
@@ -402,7 +418,7 @@ impl GraphSerializer for FastgCodec {
         write_records(
             writer,
             graph.nodes.as_slice(),
-            RECORDS_PER_CHUNK,
+            nodes_per_chunk(&graph.nodes),
             |node, buf| {
                 for orientation in [Orientation::Forward, Orientation::Reverse] {
                     format_record(&graph.nodes, &names, &successors, node, orientation, buf);
