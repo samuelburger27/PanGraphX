@@ -6,8 +6,7 @@
 | `de_bruijn` | criterion | DBG construction time over *k*, and standard vs. colored vs. full-topology |
 | `parallel` | criterion | Rayon thread scaling (1 → all cores) of DBG, GFA parse, GFA serialize |
 | `dbg_memory` | custom bench | Peak **heap** of DBG construction over mode × *k* × threads (deterministic) |
-| `compare_tools.sh` | shell + hyperfine | Wall-clock time of PanGraphX vs. `vg` / `odgi` conversions |
-| `peak_memory.sh` | shell + `time` | Peak RSS for the same conversions |
+| `compare_tools.sh` | shell + hyperfine | Wall-clock time and peak RSS of PanGraphX vs. `vg` / `odgi` conversions |
 | `dbg.sh` | shell + `time` | End-to-end `pangraphx-cli ddb` time + peak RSS over mode × *k* × threads, memory-guarded |
 
 The Criterion benches measure in-process CPU cost with disk I/O excluded. The
@@ -84,7 +83,7 @@ Heap bytes don't depend on the OS or the allocator's page reuse, which makes
 this the number to track when optimizing memory. The CSV goes to
 `target/dbg_memory.csv`.
 
-## 2. External-tool comparison: `compare_tools.sh`, `peak_memory.sh`
+## 2. External-tool comparison: `compare_tools.sh`
 
 | Operation | PanGraphX | Reference tool |
 |-----------|-----------|----------------|
@@ -95,11 +94,10 @@ this the number to track when optimizing memory. The CSV goes to
 | GFA → OG | `convert g.gfa -o g.og` | `odgi build` |
 | OG → GFA | `convert g.og -o g.gfa` | `odgi view -g` |
 
-The table is defined once, in `ops.sh`, and both scripts use it. Before
-measuring a dataset, each script builds the reverse-direction inputs (`.vg`,
-`.gbz`, `.og`) once with the **reference tool**, untimed. Both tools then read
-the same files. Pass the same `WORK=/some/dir` to both scripts to reuse those
-inputs across them.
+The table is defined once, in `ops.sh`. Before measuring a dataset, the script
+builds the reverse-direction inputs (`.vg`, `.gbz`, `.og`) once with the
+**reference tool**, untimed. Both tools then read the same files. Pass
+`WORK=/some/dir` to keep those inputs and reuse them across runs.
 
 `vg convert` gets no `-t`: it already defaults to all cores, and GFA ↔ VG
 conversion is single-threaded anyway.
@@ -115,22 +113,20 @@ compares the same output format.
 benchmarks/compare_tools.sh                         # default datasets (lib.sh)
 benchmarks/compare_tools.sh mycoplasma_genitalium ecoli50
 OPS="gfa_to_vg vg_to_gfa" RUNS=20 benchmarks/compare_tools.sh merged
-MEM_REPS=5 benchmarks/peak_memory.sh merged
 ```
 
 How sampling works:
 - hyperfine's sample count scales with input size: 20 runs under 1 MiB, down to
   3 runs at 256 MiB and above. `WARMUP` / `RUNS` override this.
-- `peak_memory.sh` reports the median of `MEM_REPS` runs (default 3).
-- hyperfine ≥ 2 also prints memory, but `peak_memory.sh` also works with
-  hyperfine 1.x and writes a CSV.
+- hyperfine ≥ 2 records the peak RSS of every run alongside its wall-clock
+  time (`getrusage` of the child, the same number `time -l` / `time -v`
+  reports). `summary.md` gets a time table and a peak-RSS table (median and
+  mean, MiB) per comparison; the raw per-run values are in the JSON.
 
 Prerequisites:
-- `hyperfine`
+- `hyperfine` ≥ 2 (`cargo install hyperfine`)
 - `vg` (bioconda or GitHub release)
 - `odgi` (bioconda or built from source)
-- for peak RSS: GNU time on Linux (`apt install time`). On macOS the built-in
-  `/usr/bin/time -l` is used.
 
 A missing external tool is skipped with a warning. A failing step is written to
 `failures.txt` and the run carries on. Common variables:
@@ -152,6 +148,8 @@ K_VALUES="31" THREADS="1 2 4 8" MODES="standard colored compact" benchmarks/dbg.
 This runs `pangraphx-cli ddb` for each dataset × mode × *k* × thread count
 (`RAYON_NUM_THREADS`). For every configuration it records peak RSS and wall
 time, both to `dbg.csv` and to `dbg.md`.
+Peak RSS comes from GNU time on Linux (`apt install time`) or the built-in
+`/usr/bin/time -l` on macOS.
 
 ### DBG memory: why it's guarded
 
@@ -232,10 +230,10 @@ benchmarks/results/                    (gitignored)
   compare_tools/<YYYYmmdd-HHMMSS>-<host>/
       env.txt          machine, commit (+dirty), tool versions, env
       summary.md       every table, ready for the thesis
-      <op>_<ds>.md     per comparison (hyperfine Markdown)
+      <op>_<ds>.md     per comparison (hyperfine Markdown, time)
+      <op>_<ds>.csv    per comparison (hyperfine CSV, time + peak RSS)
       <op>_<ds>.json   raw hyperfine samples
       failures.txt     only if something failed
-  peak_memory/<run>/   peak_memory.md, peak_memory.csv, env.txt
   dbg/<run>/           dbg.md, dbg.csv, env.txt
   <suite>/latest -> most recent run
   legacy/              results from before this layout
@@ -247,5 +245,5 @@ benchmarks/results/                    (gitignored)
 |------|------|
 | `lib.sh` | Shared helpers: paths, dataset lookup, tool discovery, build, run directories, sampling, `measure` (peak RSS + watchdog) |
 | `ops.sh` | The conversion-operation table + `prepare_inputs` |
-| `compare_tools.sh`, `peak_memory.sh`, `dbg.sh` | Entry points |
+| `compare_tools.sh`, `dbg.sh` | Entry points |
 | `../pangraphx-core/benches/` | Criterion benches + `dbg_memory`; shared helpers in `common/mod.rs` |

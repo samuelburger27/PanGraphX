@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# compare_tools.sh — wall-clock comparison of PanGraphX against `vg` and `odgi`
-# for equivalent format conversions, using hyperfine.
+# compare_tools.sh — wall-clock time and peak memory (RSS) of PanGraphX against
+# `vg` and `odgi` for equivalent format conversions, using hyperfine (>= 2).
 #
 # Usage:
 #   benchmarks/compare_tools.sh [DATASET ...]
@@ -24,7 +24,7 @@
 #   WORK           directory for intermediate files (default: temporary)
 #   RESULTS_DIR    output directory (default: results/compare_tools/<run>/)
 #
-# Output (in the run directory): <op>_<dataset>.{md,json} per comparison,
+# Output (in the run directory): <op>_<dataset>.{md,csv,json} per comparison,
 # summary.md with every table, and env.txt describing the machine and versions.
 
 set -euo pipefail
@@ -46,7 +46,21 @@ fi
 read -r -a OPS_SELECTED <<<"${OPS:-${ALL_OPS[*]}}"
 
 SUMMARY="$RUN_DIR/summary.md"
-echo "# PanGraphX vs. vg / odgi — wall-clock time" >"$SUMMARY"
+echo "# PanGraphX vs. vg / odgi — wall-clock time and peak memory" >"$SUMMARY"
+
+# memory_table <csv> — Markdown table of peak RSS (MiB) from a hyperfine CSV
+# export; hyperfine's Markdown export only covers the first metric (time).
+memory_table() {
+    awk -F, '
+        NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
+        NR == 2 {
+            print "| Command | Median peak RSS [MiB] | Mean peak RSS [MiB] |"
+            print "|:---|---:|---:|"
+        }
+        { printf "| `%s` | %.1f | %.1f ± %.1f |\n", $1,
+              $col["memory_peak_resident_median"], $col["memory_peak_resident_mean"],
+              $col["memory_peak_resident_stddev"] }' "$1"
+}
 
 for ds in "${DATASETS[@]}"; do
     if ! gfa="$(resolve_dataset "$ds")"; then skip_banner "$ds"; continue; fi
@@ -70,15 +84,19 @@ for ds in "${DATASETS[@]}"; do
         echo
         echo "=== $(op_title "$op") ($name) ==="
         # An explicit --shell is required by hyperfine >= 2 for the '>' in
-        # the reference-tool commands.
+        # the reference-tool commands. Peak RSS is per run (the largest
+        # process, as reported by `time`), so both tools are measured alike.
         if hyperfine --shell sh --warmup "$HF_WARMUP" --runs "$HF_RUNS" \
-            --export-markdown "$out.md" --export-json "$out.json" \
+            --metrics time_wall_clock,memory_peak_resident:MiB \
+            --export-markdown "$out.md" --export-csv "$out.csv" --export-json "$out.json" \
             --command-name pangraphx "$(op_px_cmd "$op" "$dir" "$gfa")" \
             --command-name "$tool" "$(op_tool_cmd "$op" "$dir" "$gfa")"; then
             printf '\n### %s\n\n' "$(op_title "$op")" >>"$SUMMARY"
             cat "$out.md" >>"$SUMMARY"
+            echo >>"$SUMMARY"
+            memory_table "$out.csv" >>"$SUMMARY"
         else
-            rm -f "$out.md" "$out.json"
+            rm -f "$out.md" "$out.csv" "$out.json"
             record_failure "$op $name" "hyperfine exited non-zero"
         fi
     done

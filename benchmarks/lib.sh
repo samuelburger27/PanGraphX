@@ -314,10 +314,3 @@ measure() {
     rm -f "$err" "$err.guard"
 }
 
-# median <values...> -> median of numeric values (ignores "NA").
-median() {
-    printf '%s\n' "$@" | grep -v '^NA$' | sort -g |
-        awk '{ v[NR] = $1 } END { if (NR == 0) print "NA";
-              else if (NR % 2) print v[(NR + 1) / 2];
-              else printf "%.3f\n", (v[NR / 2] + v[NR / 2 + 1]) / 2 }'
-}

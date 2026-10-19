@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 #
 # ops.sh — the conversion operations compared against vg / odgi. Sourced after
-# lib.sh by compare_tools.sh (timing) and peak_memory.sh (memory), so both
-# measure exactly the same commands on exactly the same inputs.
+# lib.sh by compare_tools.sh, which measures time and peak memory of exactly the
+# same commands on exactly the same inputs.
 #
 # Every operation is either a forward conversion (GFA -> X) reading the dataset
 # GFA, or a reverse conversion (X -> GFA) reading the X file produced by the
