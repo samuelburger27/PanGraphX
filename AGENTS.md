@@ -76,7 +76,7 @@ Every change implement in a separate branch describing the request,  commit your
 - **External Tools**:
   - `utils/generate_gfa.py`: Helper script to generate GFA files for testing.
   - `utils/download_gfa.sh`: Fetches the large benchmark graphs into `benchmarks/data/`.
-  - `benchmarks/`: `compare_tools.sh` (time + peak RSS vs vg/odgi via hyperfine), `dbg.sh` (memory-guarded DBG sweep); shared helpers in `lib.sh`/`ops.sh`. See `benchmarks/README.md`. Never run DBG benchmarks in parallel — memory grows with the number of distinct k-mers (≈ node sequence length), and uncompacted output dominates.
+  - `benchmarks/`: `compare_tools.sh` (time + peak RSS vs vg/odgi via hyperfine), `dbg.sh` (memory-guarded DBG sweep), `setup_ubuntu.sh` (fresh Ubuntu: deps, pinned vg/odgi, dist build, graph downloads); shared helpers in `lib.sh`/`ops.sh`. See `benchmarks/README.md`. Never run DBG benchmarks in parallel — memory grows with the number of distinct k-mers (≈ node sequence length), and uncompacted output dominates.
   - `utils/generate_test_files.sh`: Derives the VG/GBZ/FASTG/OG test fixtures from the committed GFA files (gitignored). Use `--external` to build reference files with `vg`/`odgi` for cross-validation.
   - ODGI's `.og` layout is odgi-internal and unversioned: after changing `odgi_format.rs`, run `tests/test_odgi.rs` with `odgi` on `PATH` (it checks our files with `odgi validate`/`odgi view` and parses `odgi build` output; skipped without `odgi`).
   - The project interacts with standard bioinformatics formats (GFA v1.0, GFA v1.1 locally supported extensions, GBZ, VG, ODGI).

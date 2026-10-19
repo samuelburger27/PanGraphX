@@ -12,6 +12,21 @@
 The Criterion benches measure in-process CPU cost with disk I/O excluded. The
 shell scripts measure whole CLI runs the way a user experiences them.
 
+## Setting up a fresh Ubuntu machine
+
+```bash
+benchmarks/setup_ubuntu.sh               # everything
+benchmarks/setup_ubuntu.sh --skip-data   # without the large graph downloads
+```
+
+This installs the system packages, Rust (rustup), hyperfine ≥ 2 (cargo), vg
+(release binary, x86_64 only) and odgi (built from source). It then builds
+`target/dist/pangraphx-cli` and downloads the large graphs with
+`utils/download_gfa.sh`. vg and odgi are pinned to the versions the thesis
+results were measured with: `VG_VERSION` and `ODGI_REF` override them. Re-running
+the script skips every step that is already done. Afterwards, run the
+benchmarks with `SKIP_BUILD=1`.
+
 ## Datasets
 
 | Location | Contents |
@@ -127,6 +142,8 @@ Prerequisites:
 - `hyperfine` ≥ 2 (`cargo install hyperfine`)
 - `vg` (bioconda or GitHub release)
 - `odgi` (bioconda or built from source)
+
+On Ubuntu, `setup_ubuntu.sh` installs all of these.
 
 A missing external tool is skipped with a warning. A failing step is written to
 `failures.txt` and the run carries on. Common variables:
@@ -246,4 +263,5 @@ benchmarks/results/                    (gitignored)
 | `lib.sh` | Shared helpers: paths, dataset lookup, tool discovery, build, run directories, sampling, `measure` (peak RSS + watchdog) |
 | `ops.sh` | The conversion-operation table + `prepare_inputs` |
 | `compare_tools.sh`, `dbg.sh` | Entry points |
+| `setup_ubuntu.sh` | Installs dependencies, vg, odgi, builds the binary, downloads the graphs |
 | `../pangraphx-core/benches/` | Criterion benches + `dbg_memory`; shared helpers in `common/mod.rs` |
