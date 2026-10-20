@@ -13,10 +13,16 @@
 #                  that, use --external.
 #   --external     Use the reference tools `vg` and `odgi` where available to
 #                  produce files that PanGraphX can later be cross-validated
-#                  against (the CI path). Missing tools are skipped with a
-#                  warning and fall back to PanGraphX.
+#                  against. Missing tools are skipped with a warning and fall
+#                  back to PanGraphX.
+#   --reference    Write the committed golden files that
+#                  tests/test_reference_files.rs reads: vg/odgi output for the
+#                  small fixtures plus MANIFEST.tsv, into
+#                  tests/test_files/reference/ (or --out DIR). Fails when a
+#                  tool is missing; never falls back to PanGraphX.
 #
 # Options:
+#   --out DIR      Output directory for --reference.
 #   --force        Regenerate even when the target already exists.
 #   --help         Show this help.
 #
@@ -33,15 +39,18 @@ BIN="$REPO_ROOT/target/release/pangraphx-cli"
 
 MODE=pangraphx
 FORCE=false
+OUT_DIR="$TEST_FILES_DIR/reference"
 
 usage() {
-    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --external) MODE=external ;;
+        --reference) MODE=reference ;;
+        --out) OUT_DIR="${2:?--out needs a directory}"; shift ;;
         --force) FORCE=true ;;
         -h|--help) usage ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
@@ -50,6 +59,68 @@ while [[ $# -gt 0 ]]; do
 done
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# --- Golden reference files (--reference) ---------------------------------------
+# Fixtures small enough to commit, and the formats each tool cannot write:
+# `vg convert` rejects overlaps (tiny), `odgi build` needs integer names
+# (names_mixed). `vg gbwt --max-node 0` keeps nodes unchopped.
+REFERENCE_FIXTURES=(tiny names_mixed random phix escherichia_phage_lambda)
+reference_skips() {
+    case "$1:$2" in
+        tiny:vg|names_mixed:og) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+sha256() {
+    if have sha256sum; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
+}
+
+generate_reference() {
+    local tool
+    for tool in vg odgi; do
+        if ! have "$tool"; then
+            echo "ERROR: --reference needs '$tool' on PATH" >&2
+            exit 1
+        fi
+    done
+    local vg_version odgi_version
+    vg_version="$(vg version | head -1)"
+    odgi_version="$(odgi version | head -1)"
+
+    mkdir -p "$OUT_DIR/vg" "$OUT_DIR/gbz" "$OUT_DIR/og"
+    local manifest="$OUT_DIR/MANIFEST.tsv"
+    printf 'file\tsource_gfa\tsha256\ttool\ttool_version\tcommand\n' > "$manifest"
+
+    local base fmt gfa out cmd tool version
+    for base in "${REFERENCE_FIXTURES[@]}"; do
+        gfa="$GFA_DIR/$base.gfa"
+        for fmt in vg gbz og; do
+            reference_skips "$base" "$fmt" && continue
+            out="$fmt/$base.$fmt"
+            case "$fmt" in
+                vg)  tool=vg;   version="$vg_version"
+                     cmd="vg convert --gfa-in --vg-out gfa/$base.gfa > $out"
+                     vg convert --gfa-in --vg-out "$gfa" 2>/dev/null > "$OUT_DIR/$out" ;;
+                gbz) tool=vg;   version="$vg_version"
+                     cmd="vg gbwt -G gfa/$base.gfa --max-node 0 --gbz-format -g $out"
+                     vg gbwt -G "$gfa" --max-node 0 --gbz-format -g "$OUT_DIR/$out" ;;
+                og)  tool=odgi; version="$odgi_version"
+                     cmd="odgi build -g gfa/$base.gfa -o $out"
+                     odgi build -g "$gfa" -o "$OUT_DIR/$out" ;;
+            esac
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$out" "gfa/$base.gfa" \
+                "$(sha256 "$OUT_DIR/$out")" "$tool" "$version" "$cmd" >> "$manifest"
+            echo "  wrote ($tool): $OUT_DIR/$out"
+        done
+    done
+    echo "Done. Manifest: $manifest"
+}
+
+if [[ "$MODE" == "reference" ]]; then
+    generate_reference
+    exit 0
+fi
 
 # --- Build (or reuse) PanGraphX -----------------------------------------------
 if [[ -n "${PANGRAPHX_BIN:-}" ]]; then
@@ -117,7 +188,7 @@ for gfa in "${GFA_FILES[@]}"; do
     if already_done "$gbz_out"; then
         echo "  skip (exists): $gbz_out"
     elif [[ "$MODE" == "external" ]] && $HAVE_VG; then
-        vg gbwt -G "$gfa" -g "$gbz_out"
+        vg gbwt -G "$gfa" --max-node 0 -g "$gbz_out"
         echo "  wrote (vg): $gbz_out"
     else
         convert_px "$gfa" "$gbz_out" gbz

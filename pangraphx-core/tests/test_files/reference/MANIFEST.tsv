@@ -1,0 +1,14 @@
+file	source_gfa	sha256	tool	tool_version	command
+gbz/tiny.gbz	gfa/tiny.gfa	914a944dfa11604d09e316d919e703128490f993526b98096822f67cd76e3fca	vg	vg version v1.73.0-31-g8bbdf10c4 "Ducky"	vg gbwt -G gfa/tiny.gfa --max-node 0 --gbz-format -g gbz/tiny.gbz
+og/tiny.og	gfa/tiny.gfa	53818336ca9878d44786b3b84cfb148313b70b49726950f589ccf278bdd3e3bb	odgi	v0.9.4-92-gfb43f081	odgi build -g gfa/tiny.gfa -o og/tiny.og
+vg/names_mixed.vg	gfa/names_mixed.gfa	2a79e3ef46c00ad4bc21aeb4f81111308b5db0c1414e6496f854d980a2b09ad5	vg	vg version v1.73.0-31-g8bbdf10c4 "Ducky"	vg convert --gfa-in --vg-out gfa/names_mixed.gfa > vg/names_mixed.vg
+gbz/names_mixed.gbz	gfa/names_mixed.gfa	05071c885547f45457f5abad135eb35cc917802dc8fd2292175e4245459f6c00	vg	vg version v1.73.0-31-g8bbdf10c4 "Ducky"	vg gbwt -G gfa/names_mixed.gfa --max-node 0 --gbz-format -g gbz/names_mixed.gbz
+vg/random.vg	gfa/random.gfa	02a2cb04530c52af00b3a66ed0d03046fd903ec6de6a272ab6a3fc82c1ae94b4	vg	vg version v1.73.0-31-g8bbdf10c4 "Ducky"	vg convert --gfa-in --vg-out gfa/random.gfa > vg/random.vg
+gbz/random.gbz	gfa/random.gfa	beb6b0f541643eb96197c8f9ad64b34744f48529a338d91e7b1439e71417dc73	vg	vg version v1.73.0-31-g8bbdf10c4 "Ducky"	vg gbwt -G gfa/random.gfa --max-node 0 --gbz-format -g gbz/random.gbz
+og/random.og	gfa/random.gfa	dd4b48fd8ab98802db08f48c83ec5c3131517b7fe5c2fbf8fe4a10d69e422fee	odgi	v0.9.4-92-gfb43f081	odgi build -g gfa/random.gfa -o og/random.og
+vg/phix.vg	gfa/phix.gfa	8027a34133dafe3c9f68d11cea1429239065dd11b3c2ce216e053779d5a372eb	vg	vg version v1.73.0-31-g8bbdf10c4 "Ducky"	vg convert --gfa-in --vg-out gfa/phix.gfa > vg/phix.vg
+gbz/phix.gbz	gfa/phix.gfa	a1e7daf82b1df008cf71cc2b6b0638693b2482c5943022f82f74b2a92dc80ff9	vg	vg version v1.73.0-31-g8bbdf10c4 "Ducky"	vg gbwt -G gfa/phix.gfa --max-node 0 --gbz-format -g gbz/phix.gbz
+og/phix.og	gfa/phix.gfa	44f5e99ca82f78a467db7cc26aa3d8e9f50745b947021f350e2e10e47ea004ec	odgi	v0.9.4-92-gfb43f081	odgi build -g gfa/phix.gfa -o og/phix.og
+vg/escherichia_phage_lambda.vg	gfa/escherichia_phage_lambda.gfa	6a3d92abc89e5e93916d28ad0a6c3baa3c641f9882492f7c3ee47014a48f2c4b	vg	vg version v1.73.0-31-g8bbdf10c4 "Ducky"	vg convert --gfa-in --vg-out gfa/escherichia_phage_lambda.gfa > vg/escherichia_phage_lambda.vg
+gbz/escherichia_phage_lambda.gbz	gfa/escherichia_phage_lambda.gfa	be00f1e778c599c74529b2b2305b5d83d771d987be151e86149582d2594b71f2	vg	vg version v1.73.0-31-g8bbdf10c4 "Ducky"	vg gbwt -G gfa/escherichia_phage_lambda.gfa --max-node 0 --gbz-format -g gbz/escherichia_phage_lambda.gbz
+og/escherichia_phage_lambda.og	gfa/escherichia_phage_lambda.gfa	93f2d6689fa4b5a66ffe7785ee6b139a35bcb66e218bf8e8023651fca793eca8	odgi	v0.9.4-92-gfb43f081	odgi build -g gfa/escherichia_phage_lambda.gfa -o og/escherichia_phage_lambda.og
