@@ -310,6 +310,17 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
         // Build node ID mapping: VG i64 IDs → 0-based usize
         // Sort by original ID to maintain a deterministic ordering
         proto_nodes.sort_by_key(|n| n.id);
+        // A node repeated across chunks is merged; an id reused for a different
+        // node is an error rather than silently dropping one of them.
+        if let Some(pair) = proto_nodes
+            .windows(2)
+            .find(|pair| pair[0].id == pair[1].id && pair[0] != pair[1])
+        {
+            return Err(PanGraphXError::Parse(format!(
+                "Duplicate VG node ID {} with conflicting sequence or name",
+                pair[0].id
+            )));
+        }
         proto_nodes.dedup_by_key(|n| n.id);
         let vg_ids: Vec<i64> = proto_nodes.iter().map(|n| n.id).collect();
         // Ids were deduplicated above, so a duplicate cannot occur here.
@@ -901,6 +912,39 @@ mod tests {
     fn test_mixed_names_are_renumbered() {
         // Per-node ids would give both `2` and `x` (index 1) the VG id 2.
         assert_eq!(written_ids(&named_chain(&["2", "x"])), vec![1, 2]);
+    }
+
+    /// Parses a stream of one-node chunks.
+    fn parse_chunks(nodes: &[(i64, &str)]) -> PanResult<CoreGraphDTO> {
+        let graphs: Vec<vg_proto::Graph> = nodes
+            .iter()
+            .map(|&(id, sequence)| vg_proto::Graph {
+                node: vec![vg_proto::Node {
+                    id,
+                    sequence: sequence.to_string(),
+                    name: String::new(),
+                }],
+                ..Default::default()
+            })
+            .collect();
+        let mut buf = Vec::new();
+        write_vg_graphs(&mut buf, &graphs).unwrap();
+        VGCodec.parse(&mut Cursor::new(&buf))
+    }
+
+    #[test]
+    fn test_identical_repeated_node_is_merged() {
+        let parsed = parse_chunks(&[(1, "ACGT"), (2, "GG"), (1, "ACGT")]).unwrap();
+        assert_eq!(parsed.nodes.len(), 2);
+    }
+
+    #[test]
+    fn test_conflicting_duplicate_id_is_rejected() {
+        let error = parse_chunks(&[(1, "ACGT"), (1, "CCCC")]).unwrap_err();
+        assert!(
+            error.to_string().contains("Duplicate VG node ID 1"),
+            "{error}"
+        );
     }
 
     #[test]
