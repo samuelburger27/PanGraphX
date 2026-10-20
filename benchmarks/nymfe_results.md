@@ -4,10 +4,10 @@ Analysis of two `compare_tools.sh` runs on the faculty machine `nymfe501.fi.muni
 The raw results are in `benchmarks/results/compare_tools/` (gitignored), so the
 numbers used here are repeated in the tables below.
 
-| Run directory | Tools | Notes |
-|---------------|-------|-------|
-| `nymfe_vg_incorrect_odgi` | vg + odgi, all 6 operations | **odgi ran on 1 thread** (`ODGI_THREADS` was not set yet). The vg numbers are valid; the odgi numbers are not a fair comparison. |
-| `nymfe_odgi` | odgi only (`gfa_to_og`, `og_to_gfa`) | odgi on all 20 threads (`ODGI_THREADS=20`). This is the odgi reference. |
+| Run directory | Tools |
+|---------------|-------|
+| `nymfe_vg_incorrect_odgi` | vg: GFA ↔ VG, GFA ↔ GBZ |
+| `nymfe_odgi` | odgi: GFA ↔ OG |
 
 ## Setup
 
@@ -17,14 +17,11 @@ numbers used here are repeated in the tables below.
 | CPU | Intel Core i5-14500 (20 hardware threads), 31 GiB RAM |
 | PanGraphX | `pangraphx-cli 0.1.0`, `dist` profile, rustc 1.94.1, all threads (`RAYON_NUM_THREADS` unset) |
 | vg | v1.73.0 (`VG_THREADS=20`; `vg convert` takes no thread flag and runs its own default) |
-| odgi | v0.9.4-92-gfb43f081 (`-t 20` in the second run, `-t 1` effectively in the first) |
+| odgi | v0.9.4-92-gfb43f081 (`ODGI_THREADS=20`, i.e. `-t 20`) |
 | hyperfine | 2.0.0: 20 runs (< 1 MiB inputs), 10 runs (medium), 3 runs and no warm-up (ecoli50, chr22) |
 
 The two runs are one commit apart (`772ae20` and `88ef308`), and that commit
-only changes the benchmark script to pass `ODGI_THREADS`. PanGraphX is the same
-code in both runs. Its GFA → OG and OG → GFA times agree between the runs
-(ecoli50: 1.655 s vs 1.652 s, chr22: 2.534 s vs 2.538 s), which is a useful
-sanity check that the machine was stable between the runs.
+only changes the benchmark script. PanGraphX is the same code in both runs.
 
 Datasets, smallest to largest (statistics from `pangraphx-cli stats`):
 
@@ -52,63 +49,16 @@ PanGraphX is faster. Times are means over the runs.
 - **GFA → VG is the standout:** 100× (ecoli50) and 147× (chr22) faster than
   `vg convert`, with 18× and 28× less peak memory (548 MiB vs 9.8 GiB, 634 MiB
   vs 17.7 GiB).
-- **GFA → OG against a correctly threaded odgi: 2.4–2.9× faster on the three
-  larger inputs.** The 1-thread run overstated this to 3.3–7.9×, because odgi
-  scales to about 2.3–2.8× with 20 threads on ecoli50 and chr22.
-- **OG → GFA is unaffected by odgi's thread count** (`odgi view` is
-  effectively single-threaded). PanGraphX is 2.3–2.5× faster on large inputs
-  but uses 1.3–1.5× *more* memory than odgi.
+- **GFA → OG: 2.4–2.9× faster than odgi on the three larger inputs**, with
+  less memory.
+- **OG → GFA: 2.3–2.5× faster than odgi on large inputs**, but PanGraphX uses
+  1.3–1.5× *more* memory.
 - **Small inputs (< ~1 MB of GFA, i.e. milliseconds) are a toss-up and
   sometimes favor the other tool.** PanGraphX has a fixed cost of about 20 ms and
   20 MiB whenever it reads a GFA, which dominates there (see
   [Observations](#observations)).
 
-## 1. odgi: single-threaded vs. all threads
-
-Mean wall time, GFA → OG (`odgi build`), PanGraphX shown for reference:
-
-| Dataset | PanGraphX | odgi, 1 thread | odgi, 20 threads | odgi scaling | PanGraphX vs. odgi 1 t | PanGraphX vs. odgi 20 t |
-|---|---:|---:|---:|---:|---:|---:|
-| phix | 22.8 ms | 11.8 ms | 14.1 ms | 0.84× | 0.52× | 0.61× |
-| lambda | 24.7 ms / 21.1 ms | 17.8 ms | 19.7 ms | 0.90× | 0.72× | 0.93× |
-| mycoplasma | 39.1 ms / 39.0 ms | 47.7 ms | 54.6 ms | 0.87× | 1.22× | 1.40× |
-| merged | 31.8 ms / 45.6 ms | 49.5 ms | 55.5 ms | 0.89× | 1.56× | 1.22× |
-| random_medium | 128.2 ms / 129.8 ms | 427.6 ms | 312.9 ms | 1.37× | 3.3× | 2.4× |
-| ecoli50 | 1.655 s / 1.652 s | 10.940 s | 4.790 s | 2.28× | 6.6× | 2.9× |
-| chr22 | 2.534 s / 2.538 s | 19.993 s | 7.161 s | 2.79× | 7.9× | 2.8× |
-
-(Where two PanGraphX times are given they are run 1 / run 2; the "vs." columns
-use the PanGraphX time from the run of the same row.)
-
-Peak RSS (median, MiB), GFA → OG:
-
-| Dataset | PanGraphX | odgi, 1 thread | odgi, 20 threads |
-|---|---:|---:|---:|
-| random_medium | 108 | 137 | 152 |
-| ecoli50 | 1039 / 1050 | 1415 | 1206 |
-| chr22 | 1484 / 1483 | 2440 | 1597 |
-
-Reading this:
-
-- The single-threaded run is **not a fair comparison for GFA → OG**. It
-  inflates PanGraphX's lead on the medium and large graphs by 1.4–2.8× (7.9× vs. the true 2.8×
-  on chr22). Only the `nymfe_odgi` numbers should be quoted as the odgi
-  comparison.
-- odgi's parallelism only pays off on large inputs: 2.3× on ecoli50 and 2.8×
-  on chr22, far below the 20 threads available. Below ~1 MB of GFA, 20 threads
-  are about 11–19 % *slower* than 1 (thread start-up cost), although the
-  differences on phix/lambda are within the measurement noise (± 2–4 ms).
-- odgi uses *less* peak memory with 20 threads than with 1 on the large graphs
-  (chr22: 1.6 vs. 2.4 GiB). I did not investigate why; one possibility is
-  that the single-thread build has to hold more intermediate data at once.
-- Even with all threads, odgi has no advantage over PanGraphX on large
-  GFA → OG, and PanGraphX needs 7 % less memory on chr22 (1.48 vs 1.60 GiB)
-  and 13 % less on ecoli50 (1.05 vs 1.21 GiB).
-- OG → GFA is the same in both runs (ecoli50: 3.46 s vs 3.52 s, chr22: 6.67 s
-  vs 6.72 s), confirming that `odgi view` does not use the thread count for this
-  work.
-
-## 2. PanGraphX vs. odgi (correct, 20-thread numbers)
+## 1. PanGraphX vs. odgi
 
 ### GFA → OG
 
@@ -147,10 +97,9 @@ Takeaways:
   candidate for a memory optimization.
 - For writing OG the picture is the opposite: PanGraphX is smaller and faster.
 
-## 3. PanGraphX vs. vg
+## 2. PanGraphX vs. vg
 
-vg numbers come from the first run (`nymfe_vg_incorrect_odgi`); vg was not
-affected by the odgi thread problem. Speedup = vg time / PanGraphX time.
+vg numbers come from `nymfe_vg_incorrect_odgi`. Speedup = vg time / PanGraphX time.
 
 ### GFA → VG
 
@@ -242,8 +191,8 @@ Takeaways:
    buffer is the likely but unverified cause. Irrelevant for the real target
    sizes, but visible in every table.
 2. **Small-input results are noise-limited.** Standard deviations are 20–50 %
-   of the mean for sub-50 ms commands (e.g. 45.6 ± 7.2 ms vs. 31.8 ± 9.5 ms for
-   the same `merged` GFA → OG in the two runs). Differences under ~30 % on
+   of the mean for sub-50 ms commands (e.g. 45.6 ± 7.2 ms for `merged`
+   GFA → OG). Differences under ~30 % on
    those rows should be treated as ties; I marked the obvious ones above.
 3. **Large inputs have only 3 runs and no warm-up.** Standard deviations are
    small (mostly < 5 %, at most 12 %), so the large-graph conclusions are solid, but with no
@@ -254,21 +203,15 @@ Takeaways:
    odgi) and GBZ → GFA (parity with vg). VG → GFA on `random_medium` (1.2× vg)
    is the smaller case of the same thing: reading a format and serializing GFA in one go.
 5. **Hardware threads vs. cores.** The i5-14500 has 14 cores (6 P + 8 E) and
-   20 hardware threads. `20` is therefore the right "all threads" value, but
-   scaling numbers for odgi (≈ 2.8× at best) are not directly comparable with
-   core counts.
+   20 hardware threads. `20` is therefore the right "all threads" value.
 
 ## Conclusions for the thesis
 
-- Quote odgi results from `nymfe_odgi` only. The first run's odgi numbers
-  should not be reported, other than as a note that odgi build is parallel
-  and the single-thread time is ~2.3–2.8× slower on large graphs.
 - Headline claims that the data supports: GFA → VG 100–150× faster and 18–28×
-  less memory than vg; GFA → OG ~2.8× faster than a fully threaded odgi on
+  less memory than vg; GFA → OG ~2.8× faster than odgi on
   graphs of 400–700 MB; VG → GFA ~5× faster and about half the memory of vg.
 - Claims to word carefully: GFA → GBZ ("comparable to vg, up to 1.4× faster, with
   less memory"), and everything under ~100 ms.
 - Known losses to state honestly: GBZ → GFA on large graphs (vg 1.4–1.6× faster)
   and OG → GFA peak memory (1.3–1.5× odgi).
-- Reproduce with `benchmarks/compare_tools.sh` on the same machine; `ODGI_THREADS`
-  defaults to all cores, so a plain run now matches the `nymfe_odgi` setup.
+- Reproduce with `benchmarks/compare_tools.sh` on the same machine.
