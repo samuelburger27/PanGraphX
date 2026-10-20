@@ -29,6 +29,15 @@ in-repo, as does `odgi/tiny.og`: a small file written by `odgi build` (taken
 from the MIT-licensed [odgi-ffi](https://github.com/caelrith/odgi-ffi) test data)
 used to check that the ODGI parser reads real odgi output.
 
+`reference/` holds golden files written by the external tools themselves
+(`vg convert`, `vg gbwt --max-node 0`, `odgi build`) for the small GFA fixtures.
+They are committed so that `tests/test_reference_files.rs` checks our readers
+against real vg/odgi output on every `cargo test`, without the tools installed.
+`reference/MANIFEST.tsv` records the source GFA, checksum, tool version and
+command of each file. Regenerate them with
+`utils/generate_test_files.sh --reference` (vg and odgi on `PATH`) after
+changing a fixture or the pinned tool versions.
+
 `gfa/names_mixed.gfa` is hand-authored: it mixes numeric and non-numeric
 segment names, including `0` and `007`, and is a regression test for node-id
 collisions in formats that need integer ids (VG, ODGI).
