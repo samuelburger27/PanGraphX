@@ -7,6 +7,8 @@
 //! orientation, since `a+ -> b+` and its mirror `b- -> a-` are the same link.
 #![allow(dead_code)]
 
+pub mod tools;
+
 use pangraphx_core::{CoreGraphDTO, GraphFormat, NodeId, Orientation};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
@@ -57,6 +59,12 @@ impl Fidelity {
         path_overlaps: false,
         ..Self::GFA
     };
+    /// `vg view` of a VG file: ids as the VG writer chose them, no overlaps.
+    pub const VG_VIEW: Self = Self {
+        names: Names::Renumbered,
+        overlaps: false,
+        ..Self::VG
+    };
     /// GBZ derives the graph from the paths in the GBWT.
     pub const GBZ: Self = Self {
         overlaps: false,
@@ -77,6 +85,18 @@ impl Fidelity {
         paths: false,
         ..Self::GFA
     };
+
+    /// A VG file written by vg from `source`: vg keeps integer names as ids
+    /// and renumbers other names in its own order.
+    #[must_use]
+    pub fn written_by_vg(source: &CoreGraphDTO) -> Self {
+        let names = if has_numeric_names(source) {
+            Names::Renumbered
+        } else {
+            Names::BySequence
+        };
+        Self::VG.with_names(names)
+    }
 
     #[must_use]
     pub const fn with_names(self, names: Names) -> Self {

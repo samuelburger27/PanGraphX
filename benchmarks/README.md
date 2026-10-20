@@ -23,7 +23,8 @@ This installs the system packages, Rust (rustup), hyperfine ≥ 2 (cargo), vg
 (release binary, x86_64 only) and odgi (built from source). It then builds
 `target/dist/pangraphx-cli` and downloads the large graphs with
 `utils/download_gfa.sh`. vg and odgi are pinned to the versions the thesis
-results were measured with: `VG_VERSION` and `ODGI_REF` override them. Re-running
+results were measured with (set in `utils/install_external_tools.sh`, which the
+CI cross-validation job uses too): `VG_VERSION` and `ODGI_REF` override them. Re-running
 the script skips every step that is already done. Afterwards, run the
 benchmarks with `SKIP_BUILD=1`.
 

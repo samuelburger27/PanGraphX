@@ -6,7 +6,7 @@
 //! instead of the committed ones, which CI uses to detect tool drift.
 mod common;
 
-use common::{Fidelity, Names, assert_equivalent, fixture, has_numeric_names, load};
+use common::{Fidelity, assert_equivalent, fixture, load};
 use pangraphx_core::*;
 use std::collections::BTreeSet;
 use std::fs;
@@ -44,9 +44,7 @@ fn manifest() -> Vec<Entry> {
 /// What the tool's file keeps of `source`.
 fn fidelity(format: GraphFormat, source: &CoreGraphDTO) -> Fidelity {
     match format {
-        // vg renumbers non-numeric names in its own order.
-        GraphFormat::VG if has_numeric_names(source) => Fidelity::VG.with_names(Names::Renumbered),
-        GraphFormat::VG => Fidelity::VG.with_names(Names::BySequence),
+        GraphFormat::VG => Fidelity::written_by_vg(source),
         GraphFormat::GBZ => Fidelity::GBZ,
         GraphFormat::ODGI => Fidelity::ODGI,
         other => panic!("no reference files for {other}"),

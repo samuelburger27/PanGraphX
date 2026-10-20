@@ -23,11 +23,10 @@
 set -euo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# Pinned vg/odgi versions and install_vg / install_odgi (shared with CI).
+# shellcheck source=../utils/install_external_tools.sh
+source "$REPO_ROOT/utils/install_external_tools.sh"
 
-VG_VERSION="${VG_VERSION:-v1.73.0}"
-ODGI_REF="${ODGI_REF:-fb43f0817d8f3b81ce854f111d6daed8c4c8cbf4}"
-PREFIX="${PREFIX:-/usr/local}"
-SRC_DIR="${SRC_DIR:-$HOME/.cache/pangraphx-setup}"
 MIN_RUST="1.85" # edition 2024
 MIN_FREE_GIB=20 # graphs (~1 GiB) + vg/odgi intermediates + target/
 
@@ -110,53 +109,6 @@ install_hyperfine() {
     log "Installing hyperfine >= 2 (cargo)..."
     cargo install --locked hyperfine
     log "$(hyperfine --version)"
-}
-
-install_vg() {
-    if have vg && vg version 2>/dev/null | head -1 | grep -qF "$VG_VERSION"; then
-        log "vg $VG_VERSION already installed"
-        return
-    fi
-    if [[ "$(uname -m)" != x86_64 ]]; then
-        warn "vg releases are x86_64 only; skipping vg (its comparisons will be skipped)."
-        return
-    fi
-    log "Installing vg $VG_VERSION to $PREFIX/bin..."
-    local tmp
-    tmp="$(mktemp)"
-    curl -L --fail -o "$tmp" "https://github.com/vgteam/vg/releases/download/$VG_VERSION/vg"
-    $SUDO install -m 755 "$tmp" "$PREFIX/bin/vg"
-    rm -f "$tmp"
-    log "$(vg version | head -1)"
-}
-
-install_odgi() {
-    local short="${ODGI_REF:0:7}"
-    if have odgi && odgi version 2>/dev/null | grep -qF "$short"; then
-        log "odgi $short already installed"
-        return
-    fi
-    local src="$SRC_DIR/odgi" jobs
-    # odgi's heaviest translation units need ~2 GiB each.
-    jobs="${JOBS:-$(cpu_count)}"
-    if [[ -z "${JOBS:-}" ]] && (( jobs > $(total_ram_mib) / 2048 )); then
-        jobs=$(( $(total_ram_mib) / 2048 ))
-        (( jobs >= 1 )) || jobs=1
-    fi
-
-    log "Building odgi $ODGI_REF in $src ($jobs jobs)..."
-    mkdir -p "$SRC_DIR"
-    if [[ ! -d "$src/.git" ]]; then
-        git clone https://github.com/pangenome/odgi.git "$src"
-    fi
-    git -C "$src" fetch --tags origin
-    git -C "$src" checkout --quiet "$ODGI_REF"
-    git -C "$src" submodule update --init --recursive
-    cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release
-    cmake --build "$src/build" -- -j "$jobs"
-    # odgi's CMakeLists puts the executable in <source>/bin, not the build dir.
-    $SUDO install -m 755 "$src/bin/odgi" "$PREFIX/bin/odgi"
-    log "$(odgi version | head -1)"
 }
 
 build_pangraphx() {
