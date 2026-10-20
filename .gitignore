@@ -32,12 +32,3 @@ benchmarks/data/
 
 # benchmark runs (one timestamped directory per run, see benchmarks/README.md)
 benchmarks/results/
-
-# Derived test fixtures (VG/GBZ/FASTG/OG) are generated from the committed GFA
-# files by utils/generate_test_files.sh; only GFA is checked in.
-pangraphx-core/tests/test_files/vg/
-pangraphx-core/tests/test_files/gbz/
-pangraphx-core/tests/test_files/og/
-pangraphx-core/tests/test_files/fastg/*.fastg
-# Hand-authored FASTG source fixture (not derived from GFA) stays in-repo.
-!pangraphx-core/tests/test_files/fastg/assembly_graph.fastg

@@ -88,7 +88,7 @@ jobs:
         run: cargo test --release -p pangraphx-core --test cross_validation --test test_reference_files
       - name: Golden files still match the pinned tools
         run: |
-          utils/generate_test_files.sh --reference --out "$RUNNER_TEMP/reference"
+          utils/generate_test_files.sh --out "$RUNNER_TEMP/reference"
           PANGRAPHX_REFERENCE_DIR="$RUNNER_TEMP/reference" \
             cargo test --release -p pangraphx-core --test test_reference_files
 

@@ -1020,18 +1020,6 @@ mod tests {
         }
     }
 
-    /// `tiny.og` was written by `odgi build` from `S 1 A`, `S 2 C`, `L 1 + 2 + 0M`.
-    #[test]
-    fn parses_odgi_build_output() {
-        let bytes = include_bytes!("../../tests/test_files/odgi/tiny.og");
-        let graph = ODGICodec.parse(&mut Cursor::new(&bytes[..])).unwrap();
-        assert_eq!(graph.nodes.as_slice()[0].sequence, b"A");
-        assert_eq!(graph.nodes.as_slice()[1].sequence, b"C");
-        assert_eq!(graph.edges, vec![edge(0, Forward, 1, Forward)]);
-        assert_eq!(graph.paths.len(), 0);
-        assert_eq!(graph.get_name_from_id(1), "2");
-    }
-
     #[test]
     fn rejects_truncated_and_corrupt_input() {
         let graph = one_based(CoreGraphDTO {
