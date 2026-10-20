@@ -114,6 +114,8 @@ builds the reverse-direction inputs (`.vg`, `.gbz`, `.og`) once with the
 **reference tool**, untimed. Both tools then read the same files. Pass
 `WORK=/some/dir` to keep those inputs and reuse them across runs.
 
+`odgi build` and `odgi view` get `-t N` (all cores, override with
+`ODGI_THREADS`); without it odgi runs on one thread.
 `vg convert` gets no `-t`: it already defaults to all cores, and GFA ↔ VG
 conversion is single-threaded anyway.
 `vg gbwt` gets all cores (`N`, override with `VG_THREADS`): it has no

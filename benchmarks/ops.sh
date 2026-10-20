@@ -9,6 +9,7 @@
 # *reference* tool (vg/odgi, not PanGraphX) in prepare_inputs. Outputs go to
 # $WORK/<dataset>/ and are overwritten on each run.
 #
+# odgi gets `-t $ODGI_THREADS` (all cores; without -t it runs on one thread).
 # `vg convert` gets no -t: it already defaults to all cores, and GFA <-> VG
 # conversion is single-threaded anyway. GBZ construction uses all cores via
 # `vg gbwt --num-jobs` (VG_THREADS overrides; vg gbwt has no -t/--threads). VG files
@@ -17,6 +18,7 @@
 # vg otherwise chops segments to 1024 bp, which PanGraphX does not do.
 
 VG_THREADS="${VG_THREADS:-$(cpu_count)}"
+ODGI_THREADS="${ODGI_THREADS:-$(cpu_count)}"
 
 ALL_OPS=(gfa_to_vg vg_to_gfa gfa_to_gbz gbz_to_gfa gfa_to_og og_to_gfa)
 
@@ -65,8 +67,8 @@ op_tool_cmd() {
         vg_to_gfa)  echo "vg convert --gfa-out $in > $dir/tool_out.gfa" ;;
         gfa_to_gbz) echo "vg gbwt -G $in -g $dir/tool_out.gbz --max-node 0 --num-jobs $VG_THREADS" ;;
         gbz_to_gfa) echo "vg convert --gfa-out $in > $dir/tool_out.gfa" ;;
-        gfa_to_og)  echo "odgi build -g $in -o $dir/tool_out.og" ;;
-        og_to_gfa)  echo "odgi view -i $in -g > $dir/tool_out.gfa" ;;
+        gfa_to_og)  echo "odgi build -t $ODGI_THREADS -g $in -o $dir/tool_out.og" ;;
+        og_to_gfa)  echo "odgi view -t $ODGI_THREADS -i $in -g > $dir/tool_out.gfa" ;;
     esac
 }
 
@@ -82,7 +84,7 @@ prepare_inputs() {
         case "$fmt" in
             vg)  $HAVE_VG   || continue; cmd="vg convert --gfa-in --vg-out $gfa > $dir/ref.vg" ;;
             gbz) $HAVE_VG   || continue; cmd="vg gbwt -G $gfa -g $dir/ref.gbz --max-node 0 --num-jobs $VG_THREADS" ;;
-            og)  $HAVE_ODGI || continue; cmd="odgi build -g $gfa -o $dir/ref.og" ;;
+            og)  $HAVE_ODGI || continue; cmd="odgi build -t $ODGI_THREADS -g $gfa -o $dir/ref.og" ;;
         esac
         log "Preparing reference input ref.$fmt"
         if ! sh -c "$cmd" >/dev/null; then

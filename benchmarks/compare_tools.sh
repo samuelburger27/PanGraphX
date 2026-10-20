@@ -21,6 +21,7 @@
 #   WARMUP, RUNS   fixed hyperfine sampling (default: scaled by input size)
 #   OPS            space-separated subset of operations (default: all)
 #   VG_THREADS     jobs given to vg gbwt (default: all cores)
+#   ODGI_THREADS   threads given to odgi build/view (default: all cores)
 #   WORK           directory for intermediate files (default: temporary)
 #   RESULTS_DIR    output directory (default: results/compare_tools/<run>/)
 #
