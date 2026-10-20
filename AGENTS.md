@@ -1,138 +1,130 @@
-# PanGraphX 
-## Project Guidelines
+# PanGraphX
 
-PanGraphX is a Rust workspace consisting of a core library (`pangraphx-core`) and a CLI tool (`pangraphx-cli`) for converting, inspecting, and manipulating Pangenome Graph formats.
+Rust workspace (edition 2024) for converting, inspecting and transforming
+pangenome graphs. Two crates:
 
-- **Key Crates**: `anyhow` (CLI error handling), `thiserror` (Library error definitions), `clap` (CLI argument parsing), `log` (logging).
+- `pangraphx-core` — the library: graph model, format codecs, statistics, de Bruijn construction.
+- `pangraphx-cli` — the `pangraphx-cli` binary built on the library.
 
-## Rules
-Every change implement in a separate branch describing the request,  commit your work with short descriptive commit messages, **do not push your changes**
+Supported formats: GFA 1.0 (plus locally supported 1.1 extensions), VG (protobuf), GBZ, ODGI (`.og`), FASTG.
 
-## Code Style
+## Git workflow
 
-### Error Handling
-- **Library (`pangraphx-core`)**: 
-  - Define errors using `thiserror` in `pangraphx-core/src/error.rs`.
-  - Public APIs must return `PanResult<T>` (alias for `Result<T, PanGraphXError>`).
-  - **Do not panic**: Avoid `unwrap()` and `expect()` in library code; check constraints and return `PanGraphXError`.
-  - Convert external errors (e.g., `std::io::Error`, Parser errors) into specific variants of `PanGraphXError`.
-- **CLI (`pangraphx-cli`)**: 
-  - Use `anyhow::Result` in `main.rs` and command handlers to catch errors at the top level.
-  - Report usage errors user-friendly via `clap`.
+- **New feature or fix**: create a new branch from `main` whose name describes the request, and commit the work there.
+- **Refining that work** (follow-ups, review fixes, tweaks): stay on the same branch and add commits to it.
+- Commit with short, descriptive, imperative messages (e.g. `Reject VG node ids reused for different nodes`).
+- **Never push.** Do not commit unrelated untracked files.
 
-### Logging
-- Use standard `log` macros (`debug!`, `info!`, `warn!`, `error!`).
-- Do not use `println!` for logging unless it is direct CLI output (e.g., `info` command result).
-- Enable logging via `RUST_LOG` environment variable (CLI uses `env_logger`).
+## Build, lint, test
 
-## Architecture
-
-### Component Structure
-- **`pangraphx-core`**: The main library crate.
-  - `core/`: Internal graph representation (`CoreGraph`, `CoreGraphDTO`).
-  - `formats/`: Format-specific logic (GFA, GBZ, VG, FastG, ODGI).
-    - Each format has a codec struct (e.g., `GBZCodec`, `GFACodec`) implementing generic traits.
-    - `gfa_parser.rs`: in-house streaming two-pass GFA parser (no external GFA crate); `odgi_format.rs`: native reader/writer for odgi's binary `.og` layout (format spec in `docs/odgi_format.md`, `utils/dump_odgi.py` dumps a file; no `odgi` dependency); `id_map.rs`: shared external-integer-id → `NodeId` lookup (dense table or hash map) used by VG, GBZ and numeric GFA names.
-    - Serializers check `CoreGraphDTO::dangling_reference()` once, then index nodes directly.
-  - `de_bruijn_conversion/`: Algorithms for de Bruijn graph construction and k-mer processing.
-    - `word.rs` (2-bit `u64`/`u128` words, `RollingWindow`), `extraction.rs` (streaming path / bidirected topology walkers), `kmer_set.rs` (sharded concurrent set), `compaction.rs` (unitigs). `DeBruijn` stores sorted k-mer and canonical (k+1)-mer tables; node id = rank. Keep per-k-mer state to a few bytes and never materialize per-path k-mer vectors.
-  - `traits/`: Defines `GraphParser` and `GraphSerializer`.
-- **`pangraphx-cli`**: The command-line interface.
-  - `cli/args_parser.rs`: `clap` definitions for subcommands (`Convert`, `DBG`, `Info`, `Formats`).
-  - `src/main.rs`: Entry point dispatching commands to handlers in `src/`.
-
-### Key Abstractions
-- **Format Handling**: Centralized in `GraphFormat` enum (`pangraphx-core/src/lib.rs`).
-- **Traits**:
-  - `GraphParser<R>`: Parse from a reader.
-  - `GraphSerializer<W>`: Serialize to a writer.
-
-## Build and Test
-
-- **Build**:
-  ```bash
-  cargo build --workspace
-  ```
-  Benchmarks use the `dist` profile (fat LTO, `panic = "abort"`): `cargo build --profile dist` → `target/dist/pangraphx-cli`. Optional `mimalloc` CLI feature trades peak RSS for speed.
-- **Test**:
-  - Run all tests:
-    ```bash
-    cargo test --workspace
-    ```
-  - Run specific format tests:
-    ```bash
-    cargo test --package pangraphx-core -- formats::gfa_format
-    ```
-
-## Project Conventions
-
-### Integration Points
-- **New Format Support**:
-  1. Create a module in `pangraphx-core/src/formats/`.
-  2. Implement `GraphParser` and/or `GraphSerializer`.
-  3. Register in `GraphFormat` enum (`pangraphx-core/src/lib.rs`).
-  4. Export via `pangraphx-core/src/formats/mod.rs`.
-
-- **External Tools**:
-  - `utils/generate_gfa.py`: Helper script to generate GFA files for testing.
-  - `utils/download_gfa.sh`: Fetches the large benchmark graphs into `benchmarks/data/`.
-  - `benchmarks/`: `compare_tools.sh` (time + peak RSS vs vg/odgi via hyperfine), `dbg.sh` (memory-guarded DBG sweep), `setup_ubuntu.sh` (fresh Ubuntu: deps, pinned vg/odgi, dist build, graph downloads); shared helpers in `lib.sh`/`ops.sh`. See `benchmarks/README.md`. Never run DBG benchmarks in parallel — memory grows with the number of distinct k-mers (≈ node sequence length), and uncompacted output dominates.
-  - `utils/generate_test_files.sh`: Writes the committed `tests/test_files/{vg,gbz,og}/` files and `MANIFEST.tsv` with `vg`/`odgi` from the GFA fixtures (never with PanGraphX).
-  - ODGI's `.og` layout is odgi-internal and unversioned: after changing `odgi_format.rs` (or the VG/GBZ codecs), run `cargo test --release -p pangraphx-core --test cross_validation` with `vg`/`odgi` on `PATH` or in `PANGRAPHX_VG`/`PANGRAPHX_ODGI`. It checks our files with `vg validate`/`vg view`/`vg convert -f`/`odgi validate`/`odgi view` and parses files written by `vg convert`/`vg gbwt`/`odgi build`; without a tool it prints `SKIPPED`, and `PANGRAPHX_REQUIRE_EXTERNAL=1` turns a skip into a failure (CI job `cross-validate`). Pinned tool versions live in `utils/install_external_tools.sh`.
-  - Test comparisons go through `pangraphx-core/tests/common` (`canonical` + `Fidelity` per format), not `CoreGraphDTO::isomorphic`. The vg/odgi-written files in `tests/test_files/{vg,gbz,og}/` are checked by `tests/test_reference_files.rs` without the tools; writer tests round-trip in memory.
-  - The project interacts with standard bioinformatics formats (GFA v1.0, GFA v1.1 locally supported extensions, GBZ, VG, ODGI).
-
-## Core Data Types
-
-### Identity and Sequences
-- **`NodeId` (type alias `usize`)**: Unique identifier for a node/segment. Always corresponds to the index in the `Nodes` vector.
-- **`Sequence`** (type alias `Vec<u8>`): DNA sequence data. Stored as UTF-8 bytes.
-- **`NodeName`** and **`PathName`** (type alias `Vec<u8>`): Identifiers for nodes and paths, stored as bytes.
-- **`Orientation`** (enum): Represents traversal direction—`Forward` (+) or `Reverse` (-).
-
-### Node
-[Node](pangraphx-core/src/core/core_types.rs#L43-L46) represents a segment in the graph with a DNA sequence and unique ID. Used as the fundamental building block of the pangenome graph.
-```rust
-pub struct Node {
-    pub sequence: Sequence,
-    pub id: NodeId,
-}
+```bash
+cargo build --workspace
+cargo build --profile dist                  # fat LTO, panic=abort → target/dist/pangraphx-cli (benchmarks)
+cargo fmt --all --check
+cargo clippy --all-targets --all-features   # must be clean
+cargo test --workspace                      # all tests
+cargo test -p pangraphx-core --test test_gfa
+cargo bench -p pangraphx-core -- --test     # smoke-run the criterion benches
 ```
 
-### Edge
-[Edge](pangraphx-core/src/core/core_types.rs#L49-L55) connects two nodes with specific orientations and overlap. Edges are directed and include overlap metadata for variant representation.
-```rust
-pub struct Edge {
-    pub from_node: NodeId,
-    pub from_orient: Orientation,
-    pub to_node: NodeId,
-    pub to_orient: Orientation,
-    pub overlap: u32,
-}
+- `rustc` warnings and clippy `pedantic`, `nursery` and `perf` are **deny** at workspace level. Fix lints rather than silencing them; when an `#[allow]` is justified, scope it tightly and say why in a comment.
+- `pangraphx-core/build.rs` compiles `proto/vg.proto` with `prost-build`, so `protoc` must be installed.
+- CLI feature `mimalloc` (opt-in) is faster but raises peak RSS by ~50 %.
+- CI (`.github/workflows/ci.yml`): fmt, clippy, test, cross-validate (vg/odgi), bench compile, coverage, `cargo audit`.
+
+## Layout
+
+```
+pangraphx-core/src/
+  lib.rs                 GraphFormat enum (dispatch, extensions, descriptions) + re-exports
+  error.rs               PanGraphXError (thiserror) and PanResult<T>
+  traits.rs              GraphParser<R: Read + Seek>, GraphSerializer
+  proto_gen.rs           generated VG protobuf types
+  core/
+    core_types.rs        NodeId, Sequence, Orientation, Node, Edge, Step, Path, Nodes
+    graph_dto.rs         CoreGraphDTO (transfer object), dangling_reference(), isomorphic()
+    graph.rs             CoreGraph (mutable; adjacency list + path map)
+    graph_utils.rs       path sequence helpers
+    serialization.rs     CoreGraphDTO::load/load_from_file/save/save_to_file
+    stats.rs             CoreGraph::compute_stats → GraphStats (N50, components, degrees, paths)
+  formats/
+    gfa_format.rs        GFACodec; parallel chunked writer
+    gfa_parser.rs        in-house streaming two-pass GFA parser (no external GFA crate)
+    vg_format.rs         VGCodec; libvgio framing, chunked Graph messages
+    gbz_format.rs        GBZCodec via the `gbz` crate (fork); writes GBZ version 2 for vg compatibility
+    odgi_format.rs       ODGICodec; native .og reader/writer (no odgi dependency)
+    fastg_format.rs      FastgCodec; SPAdes/Bandage dialect, paths and overlaps dropped
+    id_map.rs            external integer id → NodeId (dense table or hash map)
+  de_bruijn_conversion/
+    de_bruijn_graph.rs   DeBruijn (paths or full topology), compaction to DTO
+    colored_dbg.rs       ColoredDBG (keeps input paths as walks through k-mers)
+    extraction.rs        streaming path / bidirected-topology k-mer walkers
+    word.rs              2-bit u64/u128 words, RollingWindow
+    kmer_set.rs          sharded concurrent k-mer set
+    compaction.rs        unitig construction
+    k_mers.rs            public Kmer type, validate_k (1..=63)
+pangraphx-cli/src/
+  main.rs                env_logger init, dispatch, user-facing error printing
+  cli/args_parser.rs     clap: convert, ddb, info, stats, format (alias formats)
+  handle_*.rs            one handler per subcommand
 ```
 
-### Path
-[Path](pangraphx-core/src/core/core_types.rs#L67-L71) represents a named, ordered traversal through nodes. Paths are essential for representing genome sequences or haplotypes in the pangenome.
-```rust
-pub struct Path {
-    pub name: PathName,
-    pub steps: Vec<Step>,     // Sequence of node traversals
-    pub overlaps: Vec<u32>,   // Overlaps between consecutive steps
-}
-```
-**Step** (within a Path): A node traversed in an orientation, packed into a `u32` handle (`node_id << 1 | is_reverse`). Build with `Step::new(node_id, orientation)` (fails with `NodeIdTooLarge` above `Step::MAX_NODE_ID` = 2^31 − 1) and read with `node_id()`, `orientation()`, `is_reverse()`.
+Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture and tool scripts), `benchmarks/` (see its README), `pangraphx-core/benches/` (criterion), `temp/` (gitignored scratch).
 
-### Collections
-- **[`Nodes`](pangraphx-core/src/core/core_types.rs#L75-L76)**: A wrapper collection enforcing the invariant that node IDs correspond to their vector indices. Always use this instead of raw `Vec<Node>`.
-- **[`CoreGraphDTO`](pangraphx-core/src/core/graph_dto.rs)**: Immutable transfer object containing `nodes`, `edges`, `paths`, and optional `node_name_map`.
-- **[`CoreGraph`](pangraphx-core/src/core/graph.rs)**: Mutable graph type with an `adjacency_list` HashMap for efficient edge lookup. Use for graph manipulation.
+## Data model
 
-### Key Invariants
-1. **Node Index Consistency**: In `Nodes`, `node.id` must always equal its index in the vector. The `from_node_vec()` constructor enforces this.
-2. **NodeId Validity**: All `NodeId` references in edges and paths must point to valid nodes. Constructors validate this.
-3. **Adjacency List Sync**: In `CoreGraph`, the adjacency list is built at construction time. Keep it in sync when adding/removing edges.
+- `NodeId = usize` is always the node's index in `Nodes`; `Nodes` enforces this (`from_node_vec` validates, `push` assigns). Never use a raw `Vec<Node>`.
+- Original node names live in the optional `node_name_map: HashMap<NodeId, NodeName>`; nodes without an entry are named by their id.
+- `Sequence`, `NodeName`, `PathName` are `Vec<u8>`.
+- `Edge { from_node, from_orient, to_node, to_orient, overlap }`. `a+ → b+` and `b- → a-` are the same link.
+- `Step` packs a node and orientation into a `u32` (`id << 1 | is_reverse`). Build with `Step::new` (fails with `NodeIdTooLarge` above `Step::MAX_NODE_ID` = 2^31 − 1).
+- `Path { name, steps, overlaps }`.
+- `CoreGraphDTO` is what parsers return and serializers take. Its fields are public, so serializers call `dangling_reference()` once and then index nodes directly.
+- `CoreGraph` is the mutable form (built with `CoreGraph::new(dto)`, back with `CoreGraphDTO::from`). Keep `adjacency_list` and `path_map` in sync when editing.
 
-## Security
+## Format notes
 
-- **Input Validation**: Validate file formats strictly against specifications during parsing.
-- **Safe Rust**: Prefer safe Rust. Avoid `unsafe` blocks unless strictly necessary for performance in hot loops, and document safety contracts clearly.
+- **IDs**: VG and ODGI keep node ids only when every name is a distinct, positive, canonically written integer; otherwise nodes are numbered `1..=n`. `id_map.rs` is shared by VG, GBZ and numeric GFA names.
+- **Fidelity**: VG drops per-step path overlaps; GBZ keeps only what its paths imply (no overlaps, no off-path or repeated edges); ODGI drops overlaps; FASTG drops paths and overlaps.
+- **ODGI**: the `.og` layout is odgi-internal and unversioned. `docs/odgi_format.md` documents it; `utils/dump_odgi.py` dumps a file.
+- **GBZ**: unlike `vg gbwt`, we do not chop nodes to 1024 bp, and all paths are written as generic paths.
+
+## de Bruijn construction
+
+- Nodes are distinct canonical k-mers, edges distinct canonical (k+1)-mers, stored as sorted 2-bit tables; node id = rank, so output is independent of thread count. `k ≤ 31` uses `u64` words, `k ≤ 63` uses `u128`.
+- Modes: paths (default), full topology (`-t`, every walk of the bidirected graph), colored (`-c`, keeps paths); `-u/--compact` merges non-branching chains into unitigs.
+- Memory is the constraint: keep per-k-mer state to a few bytes and never materialize per-path k-mer vectors. Output is dominated by uncompacted node count.
+
+## Code style
+
+- **Library errors**: return `PanResult<T>`. Add variants to `PanGraphXError` in `error.rs`; convert external errors (I/O, protobuf, gbz) into them. Malformed input is `Parse` with enough context (e.g. line number) to locate it.
+- **No panics in the library**: no `unwrap`/`expect`/unchecked indexing on untrusted data; validate and return an error. Tests may unwrap.
+- **CLI errors**: `anyhow::Result` in handlers with `.context(...)`; `main.rs` prints the chain. Usage errors go through clap.
+- **Logging**: `log` macros (`debug!`, `info!`, `warn!`); enable with `RUST_LOG`. `println!` only for actual CLI output.
+- **Safety**: safe Rust; any `unsafe` needs a measured reason and a `// SAFETY:` comment.
+- **Performance**: large inputs (e.g. HPRC chr22) are the target. Stream I/O, avoid per-element allocation in hot loops, parallelize with `rayon`, and keep output deterministic.
+- Match surrounding code: doc comments on public items (`# Errors` sections where clippy asks), module-level `//!` docs describing the algorithm or format.
+
+## Adding a format
+
+1. Add `formats/<name>_format.rs` with a codec struct implementing `GraphParser` and/or `GraphSerializer`.
+2. Export it from `formats/mod.rs`.
+3. Register it in `GraphFormat` (`lib.rs`): variant, `iter`, `Display`, extension mapping, parser/serializer, description.
+4. Add a `Fidelity` constant in `tests/common/mod.rs`, round-trip tests, and fixtures.
+
+## Testing
+
+- Integration tests live in `pangraphx-core/tests/` (one `test_<format>.rs` per format, plus stats, graph manipulation, DBG oracle) and `pangraphx-cli/tests/cli.rs`.
+- Compare graphs with `tests/common` (`canonical(graph, Fidelity::X)` + `assert_same` / `assert_equivalent`), not `CoreGraphDTO::isomorphic`. Writer tests round-trip in memory (`common::round_trip`).
+- Fixtures: `tests/test_files/gfa/` is the source of truth. `vg/`, `gbz/`, `og/` and `MANIFEST.tsv` are written by real `vg`/`odgi` via `utils/generate_test_files.sh` — never by PanGraphX — and are checked tool-free by `test_reference_files.rs`. `utils/generate_gfa.py` generates synthetic GFA.
+- DBG changes: `test_dbg_oracle.rs` checks construction against a naive oracle.
+- After changing the VG, GBZ or ODGI codecs run
+  `cargo test --release -p pangraphx-core --test cross_validation`
+  with `vg` and `odgi` on `PATH` (or `PANGRAPHX_VG` / `PANGRAPHX_ODGI`). Missing tools print `SKIPPED`; `PANGRAPHX_REQUIRE_EXTERNAL=1` makes that a failure. Pinned versions are in `utils/install_external_tools.sh`.
+
+## Benchmarks
+
+- Criterion suites in `pangraphx-core/benches/`: `formats`, `de_bruijn`, `parallel`, `dbg_memory`.
+- `benchmarks/compare_tools.sh` (time + peak RSS vs vg/odgi via hyperfine), `benchmarks/dbg.sh` (memory-guarded DBG sweep), `benchmarks/setup_ubuntu.sh` (fresh machine setup); helpers in `lib.sh`/`ops.sh`. Details in `benchmarks/README.md`.
+- Large graphs go to gitignored `benchmarks/data/` via `utils/download_gfa.sh`.
+- Use the `dist` build for timing. **Never run DBG benchmarks in parallel** — memory grows with the number of distinct k-mers.
