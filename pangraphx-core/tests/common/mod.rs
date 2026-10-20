@@ -179,24 +179,26 @@ pub fn canonical(g: &CoreGraphDTO, f: Fidelity) -> CanonicalGraph {
             .or_insert(0) += 1;
     }
 
+    // Without off-path edges, only the links some path traverses survive.
+    let on_path = (!f.off_path_edges).then(|| traversed(g));
     let mut links = BTreeMap::new();
-    if f.off_path_edges {
-        for e in &g.edges {
-            let overlap = if f.overlaps { e.overlap } else { 0 };
-            let key = link(
-                &label[e.from_node],
-                is_rev(e.from_orient),
-                &label[e.to_node],
-                is_rev(e.to_orient),
-                overlap,
-            );
-            *links.entry(key).or_insert(0) += 1;
+    for e in &g.edges {
+        let (a, ar, b, br) = (
+            e.from_node,
+            is_rev(e.from_orient),
+            e.to_node,
+            is_rev(e.to_orient),
+        );
+        if on_path
+            .as_ref()
+            .is_some_and(|kept| !kept.contains(&(a, ar, b, br).min((b, !br, a, !ar))))
+        {
+            continue;
         }
-    } else {
-        // The format rebuilds links from the paths; their overlap is lost.
-        for (a, ar, b, br) in traversed(g) {
-            links.insert(link(&label[a], ar, &label[b], br, 0), 1);
-        }
+        let overlap = if f.overlaps { e.overlap } else { 0 };
+        *links
+            .entry(link(&label[a], ar, &label[b], br, overlap))
+            .or_insert(0) += 1;
     }
     if !f.multi_edges {
         for m in links.values_mut() {
@@ -342,13 +344,24 @@ pub fn assert_same(expected: &CanonicalGraph, actual: &CanonicalGraph, context: 
 
 /// Asserts that `actual` keeps everything of `expected` that fidelity `f` can
 /// represent.
+///
+/// Off-path links are dropped from `expected` only: a format that cannot
+/// store them must not invent them either.
 pub fn assert_equivalent(
     expected: &CoreGraphDTO,
     actual: &CoreGraphDTO,
     f: Fidelity,
     context: &str,
 ) {
-    assert_same(&canonical(expected, f), &canonical(actual, f), context);
+    let all_links = Fidelity {
+        off_path_edges: true,
+        ..f
+    };
+    assert_same(
+        &canonical(expected, f),
+        &canonical(actual, all_links),
+        context,
+    );
 }
 
 /// A file under `tests/test_files/`.
