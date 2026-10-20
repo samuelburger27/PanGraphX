@@ -61,13 +61,14 @@ impl CoreGraphDTO {
 }
 
 impl CoreGraphDTO {
-    /// Checks if two `CoreGraphDTO` instances are isomorphic, meaning they represent
-    /// the same graph structure and contain the same sequences, regardless of the
-    /// internal ordering of nodes, edges, and paths.
+    /// Checks whether two graphs are equal up to node, edge and path order.
     ///
-    /// Uses node names (from `node_name_map` or stringified IDs) as the canonical
-    /// identity for building a bijection between the two graphs. This correctly
-    /// handles graphs with duplicate sequences.
+    /// Despite the name this is *name-based*, not a graph isomorphism: nodes
+    /// are matched by name (from `node_name_map` or stringified IDs), so
+    /// duplicate sequences are handled. Edges are compared as a set in their
+    /// stored direction (`a+ -> b+` differs from its mirror `b- -> a-`, and
+    /// repeated edges are not counted), and path overlaps are ignored. The
+    /// integration tests compare graphs with `tests/common::canonical` instead.
     #[must_use]
     pub fn isomorphic(&self, other: &Self) -> bool {
         // Quick cardinality checks

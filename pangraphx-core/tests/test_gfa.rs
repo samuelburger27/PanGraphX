@@ -1,31 +1,19 @@
+mod common;
+
+use common::{load, round_trip};
 use pangraphx_core::*;
-use std::fs;
-use tempfile::NamedTempFile;
+use rstest::rstest;
+use std::path::PathBuf;
 
-#[test]
-fn test_gfa_format() {
-    // Test all GFA files in the test_files/gfa directory
-    // Read each file, parse it, serialize it back, and compare the contents
-    let format = GraphFormat::GFA;
-    let test_files = fs::read_dir("tests/test_files/gfa").unwrap();
-    for entry in test_files {
-        let path = entry.unwrap().path();
-        let path_string = path.to_str().unwrap();
-        println!("Testing GFA file: {path_string}... ");
-        let graph = CoreGraphDTO::load_from_file(path_string, format);
-        assert!(graph.is_ok(), "Failed to parse GFA file: {path_string}");
-        let graph = graph.unwrap();
-        let temp_file = NamedTempFile::new().unwrap();
-        graph
-            .save_to_file(temp_file.path().to_str().unwrap(), format)
-            .unwrap();
-        assert!(temp_file.path().exists());
-
-        let reloaded_graph =
-            CoreGraphDTO::load_from_file(temp_file.path().to_str().unwrap(), format).unwrap();
-        assert_eq!(
-            graph, reloaded_graph,
-            "Graphs do not match after save/load cycle for file: {path_string}"
-        );
-    }
+/// GFA -> GFA reproduces the parsed graph exactly.
+#[rstest]
+fn test_gfa_format(#[files("tests/test_files/gfa/*.gfa")] path: PathBuf) {
+    let graph = load(&path, GraphFormat::GFA);
+    let reloaded = round_trip(&graph, GraphFormat::GFA);
+    assert_eq!(
+        graph,
+        reloaded,
+        "Graphs do not match after save/load cycle for {}",
+        path.display()
+    );
 }
