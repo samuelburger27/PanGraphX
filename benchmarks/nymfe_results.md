@@ -26,11 +26,20 @@ code in both runs. Its GFA → OG and OG → GFA times agree between the runs
 (ecoli50: 1.655 s vs 1.652 s, chr22: 2.534 s vs 2.538 s), which is a useful
 sanity check that the machine was stable between the runs.
 
-Datasets, smallest to largest: `phix`, `escherichia_phage_lambda`,
-`mycoplasma_genitalium`, `merged` (all small fixtures), `random_medium`
-(medium, synthetic), `ecoli50` (390 MB GFA), `chr22.hprc-v1.1-mc-grch38`
-(659 MB GFA). Every reverse-direction input (`.vg`, `.gbz`, `.og`) was built by
-the reference tool, so both tools read identical files.
+Datasets, smallest to largest (statistics from `pangraphx-cli stats`):
+
+| Dataset | GFA size | Nodes | Edges | Node bp | Paths | Path bp | Path steps |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `phix` | 9.9 KB | 169 | 168 | 5.4 k | 1 | 5.4 k | 169 |
+| `escherichia_phage_lambda` | 94 KB | 1,516 | 1,515 | 48.5 k | 1 | 48.5 k | 1,516 |
+| `mycoplasma_genitalium` | 1.2 MB | 18,128 | 18,127 | 580 k | 1 | 580 k | 18,128 |
+| `merged` (λ + *M. genitalium*) | 1.3 MB | 19,644 | 19,642 | 629 k | 2 | 629 k | 19,644 |
+| `random_medium` (synthetic) | 59 MB | 50,000 | 234,280 | 50.0 M | 25 | 500 M | 0.50 M |
+| `ecoli50` | 390 MB | 1,553,667 | 2,120,160 | 18.1 M | 50 | 250 M | 36.9 M |
+| `chr22.hprc-v1.1-mc-grch38` | 659 MB | 1,279,333 | 1,780,739 | 54.0 M | 512 | 3.23 G | 67.8 M |
+
+Every reverse-direction input (`.vg`, `.gbz`, `.og`) was built by the reference
+tool, so both tools read identical files.
 
 "Speedup" below is `other tool time / PanGraphX time`, so values above 1 mean
 PanGraphX is faster. Times are means over the runs.
@@ -87,7 +96,7 @@ Reading this:
   comparison.
 - odgi's parallelism only pays off on large inputs: 2.3× on ecoli50 and 2.8×
   on chr22, far below the 20 threads available. Below ~1 MB of GFA, 20 threads
-  are about 10–15 % *slower* than 1 (thread start-up cost), although the
+  are about 11–19 % *slower* than 1 (thread start-up cost), although the
   differences on phix/lambda are within the measurement noise (± 2–4 ms).
 - odgi uses *less* peak memory with 20 threads than with 1 on the large graphs
   (chr22: 1.6 vs. 2.4 GiB). I did not investigate why; one possibility is
@@ -131,10 +140,11 @@ Takeaways:
   of GFA, in both directions.
 - **Memory is the weak spot for reading OG.** From `random_medium` upward,
   PanGraphX's OG → GFA peaks 1.3–1.5× higher than odgi's (chr22: 1.33 vs
-  0.90 GiB). odgi streams the succinct representation out. PanGraphX
-  most likely materializes the whole graph before serializing; the architecture notes say
-  the GFA serializer formats all lines first. This is the best candidate for a
-  memory optimization.
+  0.90 GiB). odgi writes the GFA from its compact in-memory graph. PanGraphX
+  first loads the whole graph into a `CoreGraphDTO` (one allocation per node
+  sequence, a name table, 4-byte path steps); the GFA writer itself only holds
+  one window of formatted chunks at a time. The DTO is therefore the best
+  candidate for a memory optimization.
 - For writing OG the picture is the opposite: PanGraphX is smaller and faster.
 
 ## 3. PanGraphX vs. vg
@@ -193,7 +203,7 @@ affected by the odgi thread problem. Speedup = vg time / PanGraphX time.
 Takeaways:
 
 - **GFA → VG:** the gap grows with input size, from "vg is faster" on
-  3–4 KB graphs to two orders of magnitude on the large ones. vg's memory
+  10–94 KB graphs to two orders of magnitude on the large ones. vg's memory
   at 9.8–17.7 GiB means it would not run on a smaller machine; PanGraphX
   stays under 650 MiB. It is worth
   stating the cause only after checking it (it is not measured here), but the
@@ -219,19 +229,27 @@ Takeaways:
 
 1. **Fixed cost when reading a GFA.** PanGraphX takes 21–25 ms and about 20 MiB
    for phix and lambda on every operation that reads a GFA (→ VG, → GBZ,
-   → OG), but 1.6–6 ms and 4–5 MiB for ones that read VG/GBZ/OG. The input
-   file is a few KB, so this is overhead, not work. It is the reason vg and
-   odgi win the smallest cases. It looks like start-up cost of the
-   two-pass parser (large buffers, a thread pool, or similar); finding it
-   would turn the "small input" losses into wins. Irrelevant for the real
-   target sizes, but visible in every table.
+   → OG), but 1.6–6 ms and 4–5 MiB for ones that read VG/GBZ/OG. The inputs
+   are 10 KB and 94 KB, so this is overhead, not work. It is the reason vg and
+   odgi win the smallest cases. The memory part has a clear cause: the GFA
+   parser's `BlockReader` resizes its buffer to `BLOCK_SIZE` (16 MiB) and
+   zero-fills it before the first read, whatever the file size
+   (`gfa_parser.rs`). The RSS floor stays at ~20 MiB with
+   `RAYON_NUM_THREADS=1`, so the thread pool is not the cause. Capping the
+   block at the file size should remove most of the floor. The time part is
+   machine-dependent: on an 8-core MacBook the same phix GFA → VG takes 5.2 ms
+   (vs. 2.9 ms for VG → GFA), on nymfe 22 ms; page-faulting the 16 MiB
+   buffer is the likely but unverified cause. Irrelevant for the real target
+   sizes, but visible in every table.
 2. **Small-input results are noise-limited.** Standard deviations are 20–50 %
    of the mean for sub-50 ms commands (e.g. 45.6 ± 7.2 ms vs. 31.8 ± 9.5 ms for
    the same `merged` GFA → OG in the two runs). Differences under ~30 % on
    those rows should be treated as ties; I marked the obvious ones above.
 3. **Large inputs have only 3 runs and no warm-up.** Standard deviations are
-   small (mostly < 5 %), so the large-graph conclusions are solid, but with no
-   warm-up the first run may hit a cold page cache. The chr22 GFA → GBZ (± 1.2 s) is the noisiest large row.
+   small (mostly < 5 %, at most 12 %), so the large-graph conclusions are solid, but with no
+   warm-up the first run may hit a cold page cache. The noisiest large rows are
+   chr22 GFA → VG with PanGraphX (± 12 %) and chr22 GFA → GBZ (± 1.2 s, the
+   one where this matters, since the two tools are 9 % apart).
 4. **Memory is the main PanGraphX weakness**, as the sections above show: the OG → GFA direction (1.3–1.5×
    odgi) and GBZ → GFA (parity with vg). VG → GFA on `random_medium` (1.2× vg)
    is the smaller case of the same thing: reading a format and serializing GFA in one go.
