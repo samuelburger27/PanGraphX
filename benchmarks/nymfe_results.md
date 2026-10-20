@@ -82,7 +82,7 @@ Peak RSS (median, MiB), GFA → OG:
 Reading this:
 
 - The single-threaded run is **not a fair comparison for GFA → OG**. It
-  inflates PanGraphX's lead on large graphs by 1.2–2.8× (7.9× vs. the true 2.8×
+  inflates PanGraphX's lead on the medium and large graphs by 1.4–2.8× (7.9× vs. the true 2.8×
   on chr22). Only the `nymfe_odgi` numbers should be quoted as the odgi
   comparison.
 - odgi's parallelism only pays off on large inputs: 2.3× on ecoli50 and 2.8×
@@ -230,9 +230,8 @@ Takeaways:
    the same `merged` GFA → OG in the two runs). Differences under ~30 % on
    those rows should be treated as ties; I marked the obvious ones above.
 3. **Large inputs have only 3 runs and no warm-up.** Standard deviations are
-   small (mostly < 5 %), so the large-graph conclusions are solid, but the
-   first run reads the input from a cold cache in the case of a freshly built
-   reverse input. The chr22 GFA → GBZ (± 1.2 s) is the noisiest large row.
+   small (mostly < 5 %), so the large-graph conclusions are solid, but with no
+   warm-up the first run may hit a cold page cache. The chr22 GFA → GBZ (± 1.2 s) is the noisiest large row.
 4. **Memory is the main PanGraphX weakness**, as the sections above show: the OG → GFA direction (1.3–1.5×
    odgi) and GBZ → GFA (parity with vg). VG → GFA on `random_medium` (1.2× vg)
    is the smaller case of the same thing: reading a format and serializing GFA in one go.
