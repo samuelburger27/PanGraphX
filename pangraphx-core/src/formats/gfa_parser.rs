@@ -16,7 +16,7 @@
 use crate::core::core_types::{Edge, NodeId, NodeName, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
-use crate::formats::id_map::IdMap;
+use crate::formats::id_map::{IdMap, parse_canonical_int};
 use log::{debug, warn};
 use memchr::{memchr, memchr_iter, memrchr};
 use rayon::prelude::*;
@@ -346,17 +346,6 @@ fn parse_segment(line: &[u8]) -> RecordResult<(&[u8], &[u8])> {
 // ---------------------------------------------------------------------------
 // Segment name lookup
 // ---------------------------------------------------------------------------
-
-/// Parses a canonical non-negative decimal integer: digits only, no leading
-/// zeros (except `0` itself), at most 18 digits so it always fits an `i64`.
-fn parse_canonical_int(name: &[u8]) -> Option<i64> {
-    if name.is_empty() || name.len() > 18 || (name.len() > 1 && name[0] == b'0') {
-        return None;
-    }
-    name.iter().try_fold(0_i64, |value, &b| {
-        b.is_ascii_digit().then(|| value * 10 + i64::from(b - b'0'))
-    })
-}
 
 /// Resolves segment names to node ids.
 enum SegmentIndex<'a> {

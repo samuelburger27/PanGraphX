@@ -1,7 +1,7 @@
 use crate::core::core_types::{Edge, Node, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
-use crate::formats::id_map::IdMap;
+use crate::formats::id_map::{IdMap, parse_canonical_int};
 use crate::proto_gen::vg as vg_proto;
 use crate::traits::{GraphParser, GraphSerializer};
 use log::debug;
@@ -451,20 +451,25 @@ struct VgWriteContext<'a> {
     clippy::cast_sign_loss
 )]
 impl<'a> VgWriteContext<'a> {
+    /// Keeps the node names as VG ids when every name is a distinct, positive,
+    /// canonically written integer; otherwise all nodes get ids `1..=n`.
+    ///
+    /// Choosing per node would let a kept id collide with an assigned one (`2`
+    /// and `x` at index 1 both becoming id 2). Renumbered nodes keep their
+    /// names in the VG `name` field.
     fn new(graph: &'a CoreGraphDTO) -> Self {
-        // Original VG IDs are kept when the node names are numeric.
-        let vg_ids = (0..graph.nodes.len())
-            .into_par_iter()
-            .map(|id| {
-                graph
-                    .node_name_map
-                    .as_ref()
-                    .and_then(|map| map.get(&id))
-                    .and_then(|name| std::str::from_utf8(name).ok())
-                    .and_then(|name| name.parse::<i64>().ok())
-                    .unwrap_or((id + 1) as i64)
-            })
-            .collect();
+        let n = graph.nodes.len();
+        let named = graph.node_name_map.as_ref().and_then(|map| {
+            let ids: Option<Vec<i64>> = (0..n)
+                .into_par_iter()
+                .map(|id| parse_canonical_int(map.get(&id)?).filter(|&vg_id| vg_id > 0))
+                .collect();
+            ids.filter(|ids| IdMap::from_ids(ids).is_ok())
+        });
+        let vg_ids = named.unwrap_or_else(|| {
+            debug!("Node names are not distinct positive integers; VG ids are 1..={n}");
+            (1..=n as i64).collect()
+        });
         Self { graph, vg_ids }
     }
 
@@ -845,6 +850,64 @@ mod tests {
         assert_eq!(parsed.nodes.len(), 1);
         assert_eq!(parsed.nodes[0].sequence, b"GATTACA");
         assert_eq!(parsed.edges.len(), 0);
+    }
+
+    /// A chain of single-base nodes named `names`, with a path through all of them.
+    fn named_chain(names: &[&str]) -> CoreGraphDTO {
+        let bases = [b"A", b"C", b"G", b"T"];
+        CoreGraphDTO {
+            nodes: Nodes::from_seq((0..names.len()).map(|i| bases[i % 4].to_vec()).collect()),
+            edges: (1..names.len())
+                .map(|i| Edge {
+                    from_node: i - 1,
+                    from_orient: Orientation::Forward,
+                    to_node: i,
+                    to_orient: Orientation::Forward,
+                    overlap: 0,
+                })
+                .collect(),
+            paths: vec![Path {
+                name: b"p".to_vec(),
+                steps: (0..names.len())
+                    .map(|i| Step::new(i, Orientation::Forward).unwrap())
+                    .collect(),
+                overlaps: vec![],
+            }],
+            node_name_map: Some(
+                names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| (i, name.as_bytes().to_vec()))
+                    .collect(),
+            ),
+        }
+    }
+
+    /// The VG ids `graph` is written with; also checks the graph round-trips.
+    fn written_ids(graph: &CoreGraphDTO) -> Vec<i64> {
+        let mut buf = Vec::new();
+        VGCodec.serialize(graph, &mut buf).unwrap();
+        let parsed = VGCodec.parse(&mut Cursor::new(&buf)).unwrap();
+        assert!(parsed.isomorphic(graph), "VG round-trip changed the graph");
+        VgWriteContext::new(graph).vg_ids
+    }
+
+    #[test]
+    fn test_distinct_positive_names_keep_ids() {
+        assert_eq!(written_ids(&named_chain(&["7", "3", "1"])), vec![7, 3, 1]);
+    }
+
+    #[test]
+    fn test_mixed_names_are_renumbered() {
+        // Per-node ids would give both `2` and `x` (index 1) the VG id 2.
+        assert_eq!(written_ids(&named_chain(&["2", "x"])), vec![1, 2]);
+    }
+
+    #[test]
+    fn test_invalid_or_repeated_ids_force_renumbering() {
+        for names in [&["0", "5"][..], &["-3", "5"], &["007", "5"], &["7", "007"]] {
+            assert_eq!(written_ids(&named_chain(names)), vec![1, 2], "{names:?}");
+        }
     }
 
     #[test]

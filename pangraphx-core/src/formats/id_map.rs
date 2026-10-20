@@ -18,6 +18,17 @@ pub enum IdMap {
 /// Marks an unused slot in [`IdMap::Dense`].
 const VACANT: NodeId = NodeId::MAX;
 
+/// Parses a canonical non-negative decimal integer: digits only, no leading
+/// zeros (except `0` itself), at most 18 digits so it always fits an `i64`.
+pub fn parse_canonical_int(name: &[u8]) -> Option<i64> {
+    if name.is_empty() || name.len() > 18 || (name.len() > 1 && name[0] == b'0') {
+        return None;
+    }
+    name.iter().try_fold(0_i64, |value, &b| {
+        b.is_ascii_digit().then(|| value * 10 + i64::from(b - b'0'))
+    })
+}
+
 impl IdMap {
     /// Builds the map from external ids in internal-id order.
     ///
