@@ -220,6 +220,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Performance
+
+Wall-clock time (mean of 3 runs) and peak RSS (median) of `pangraphx-cli convert`
+against vg v1.73.0 and odgi v0.9.4 on the two large benchmark graphs, measured
+with `benchmarks/compare_tools.sh` on an Intel Core i5-14500 (20 hardware threads,
+31 GiB RAM, Linux). All tools ran with all threads available; every input in a
+non-GFA format was written by the reference tool.
+
+- `ecoli50`: 50 *E. coli* genomes, 390 MB GFA, 1.55 M nodes, 250 Mbp of paths
+- `chr22`: HPRC v1.1 Minigraph-Cactus chr22, 659 MB GFA, 1.28 M nodes, 512 paths, 3.2 Gbp of paths
+
+| Conversion | Reference tool | ecoli50 PanGraphX | ecoli50 reference | chr22 PanGraphX | chr22 reference |
+|---|---|---:|---:|---:|---:|
+| GFA → VG | `vg convert` | **1.3 s** / 0.5 GiB | 127.7 s / 9.6 GiB | **1.8 s** / 0.6 GiB | 269.8 s / 17.3 GiB |
+| VG → GFA | `vg convert` | **4.0 s** / 1.3 GiB | 22.7 s / 2.4 GiB | **7.2 s** / 2.0 GiB | 38.2 s / 4.2 GiB |
+| GFA → GBZ | `vg gbwt` | **17.5 s** / 1.3 GiB | 24.3 s / 1.6 GiB | **33.4 s** / 1.3 GiB | 36.3 s / 1.8 GiB |
+| GBZ → GFA | `vg convert` | 1.0 s / 0.6 GiB | **0.7 s** / 0.6 GiB | 1.5 s / 0.7 GiB | **1.0 s** / 0.6 GiB |
+| GFA → OG | `odgi build` | **1.7 s** / 1.0 GiB | 4.8 s / 1.2 GiB | **2.5 s** / 1.4 GiB | 7.2 s / 1.6 GiB |
+| OG → GFA | `odgi view` | **1.5 s** / 0.8 GiB | 3.5 s / 0.6 GiB | **2.6 s** / 1.3 GiB | 6.7 s / 0.9 GiB |
+
+PanGraphX is faster on five of the six conversions (on chr22 GFA → GBZ only by
+9 %); vg's GBZ → GFA is
+1.4–1.6× faster, and odgi needs less memory to write GFA from `.og`. On inputs
+below ~1 MB, where every tool finishes in tens of milliseconds, the results are
+mixed. See [`benchmarks/nymfe_results.md`](benchmarks/nymfe_results.md) for every
+dataset and the analysis, and [`benchmarks/README.md`](benchmarks/README.md) to
+reproduce the measurements.
+
 ## Project Structure
 
 ``` text
