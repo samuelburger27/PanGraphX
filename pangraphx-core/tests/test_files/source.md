@@ -28,3 +28,7 @@ hand-authored `fastg/assembly_graph.fastg` is the one exception and stays
 in-repo, as does `odgi/tiny.og`: a small file written by `odgi build` (taken
 from the MIT-licensed [odgi-ffi](https://github.com/caelrith/odgi-ffi) test data)
 used to check that the ODGI parser reads real odgi output.
+
+`gfa/names_mixed.gfa` is hand-authored: it mixes numeric and non-numeric
+segment names, including `0` and `007`, and is a regression test for node-id
+collisions in formats that need integer ids (VG, ODGI).
