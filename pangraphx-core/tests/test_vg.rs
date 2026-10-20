@@ -1,4 +1,5 @@
 use pangraphx_core::*;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use tempfile::NamedTempFile;
 
@@ -46,6 +47,36 @@ fn test_vg_roundtrip_from_gfa() {
             "Graphs not isomorphic after VG round-trip for {path_string}"
         );
     }
+}
+
+/// Regression: numeric and non-numeric node names must not be mapped to the
+/// same VG id (`2` kept its id while `x` at index 1 also got id 2), and `0` /
+/// `007` are not valid VG ids.
+#[test]
+fn test_vg_names_mixed_regression() {
+    let original =
+        CoreGraphDTO::load_from_file("tests/test_files/gfa/names_mixed.gfa", GraphFormat::GFA)
+            .unwrap();
+    let vg_file = NamedTempFile::new().unwrap();
+    original
+        .save_to_file(vg_file.path().to_str().unwrap(), GraphFormat::VG)
+        .unwrap();
+    let reloaded =
+        CoreGraphDTO::load_from_file(vg_file.path().to_str().unwrap(), GraphFormat::VG).unwrap();
+
+    let by_name = |g: &CoreGraphDTO| -> HashMap<String, Vec<u8>> {
+        g.nodes
+            .iter()
+            .map(|n| (g.get_node_name(n), n.sequence.clone()))
+            .collect()
+    };
+    assert_eq!(reloaded.nodes.len(), 6);
+    assert_eq!(by_name(&reloaded), by_name(&original));
+
+    let steps = &reloaded.paths[0].steps;
+    let distinct: HashSet<_> = steps.iter().map(|s| s.node_id()).collect();
+    assert_eq!((steps.len(), distinct.len()), (6, 6));
+    assert!(original.isomorphic(&reloaded));
 }
 
 /// Test VG self round-trip: serialize to VG → parse → serialize again → parse

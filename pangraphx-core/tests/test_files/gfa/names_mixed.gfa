@@ -1,0 +1,13 @@
+H	VN:Z:1.0
+S	2	AAAA
+S	x	CCCC
+S	0	GGGG
+S	007	TTTT
+S	7	ACGT
+S	segB	GATTACA
+L	2	+	x	+	0M
+L	x	+	0	-	0M
+L	0	-	007	+	0M
+L	007	+	7	+	0M
+L	7	+	segB	-	0M
+P	p1	2+,x+,0-,007+,7+,segB-	*
