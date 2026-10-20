@@ -7,7 +7,8 @@ segment with probability `--visit-prob` and occasionally in reverse
 consecutive path steps is joined by an `L` line, so paths respect the graph
 topology (`odgi validate` accepts the output). By default every link lies on a
 path, as in a graph built from haplotypes, which GBZ (a path-based format) can
-represent exactly; `--extra-links` adds links that no path walks.
+represent exactly; `--extra-links` adds links that no path walks. Segments are
+named 1..=n, since `odgi build` only accepts integer names.
 
 Fixtures:
   utils/generate_gfa.py --file random.gfa --segments 100 --avg-len 50 --num-paths 2
@@ -71,11 +72,11 @@ def generate_gfa(filename, segment_count=1000, avg_len=500, num_paths=2,
         f.write("H\tVN:Z:1.0\n")
         for i in range(1, segment_count + 1):
             seq = random_seq(random.randint(avg_len // 2, avg_len * 3 // 2))
-            f.write(f"S\tS{i}\t{seq}\n")
+            f.write(f"S\t{i}\t{seq}\n")
         for a, oa, b, ob in sorted(links.values()):
-            f.write(f"L\tS{a}\t{oa}\tS{b}\t{ob}\t0M\n")
+            f.write(f"L\t{a}\t{oa}\t{b}\t{ob}\t0M\n")
         for p, path in enumerate(paths, start=1):
-            steps = ",".join(f"S{i}{o}" for i, o in path)
+            steps = ",".join(f"{i}{o}" for i, o in path)
             f.write(f"P\tpath{p}\t{steps}\t*\n")
     return len(links)
 
