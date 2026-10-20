@@ -1,6 +1,6 @@
-//! Golden reference files: graphs written by vg and odgi
-//! (`utils/generate_test_files.sh --reference`), read with our codecs and
-//! compared with the GFA they were built from. Runs without the tools.
+//! The committed VG/GBZ/ODGI test files: graphs written by vg and odgi
+//! (`utils/generate_test_files.sh`), read with our codecs and compared with
+//! the GFA they were built from. Runs without the tools.
 //!
 //! `PANGRAPHX_REFERENCE_DIR` points the tests at freshly generated files
 //! instead of the committed ones, which CI uses to detect tool drift.
@@ -18,8 +18,11 @@ struct Entry {
     tool: String,
 }
 
+/// The subdirectories the manifest covers.
+const TOOL_FORMATS: [&str; 3] = ["vg", "gbz", "og"];
+
 fn reference_dir() -> PathBuf {
-    std::env::var_os("PANGRAPHX_REFERENCE_DIR").map_or_else(|| fixture("reference"), PathBuf::from)
+    std::env::var_os("PANGRAPHX_REFERENCE_DIR").map_or_else(|| fixture(""), PathBuf::from)
 }
 
 fn manifest() -> Vec<Entry> {
@@ -78,18 +81,15 @@ fn test_reference_files_match_source() {
     }
 }
 
-/// The manifest lists exactly the files in the reference directory.
+/// The manifest lists exactly the files in the `vg/`, `gbz/` and `og/`
+/// directories.
 #[test]
 fn test_reference_manifest_is_complete() {
     let dir = reference_dir();
     let listed: BTreeSet<String> = manifest().into_iter().map(|e| e.file).collect();
     let mut present = BTreeSet::new();
-    for sub in fs::read_dir(&dir).unwrap() {
-        let sub = sub.unwrap().path();
-        if !sub.is_dir() {
-            continue;
-        }
-        for file in fs::read_dir(&sub).unwrap() {
+    for sub in TOOL_FORMATS {
+        for file in fs::read_dir(dir.join(sub)).unwrap() {
             let file = file.unwrap().path();
             let rel = file.strip_prefix(&dir).unwrap();
             present.insert(rel.to_string_lossy().replace('\\', "/"));

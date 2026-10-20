@@ -427,11 +427,14 @@ HPRC chr22: 679 vs 710 MB).
 
 ## Testing
 
-- `cargo test -p pangraphx-core odgi` runs the unit tests, including parsing
-  `pangraphx-core/tests/test_files/odgi/tiny.og`, a file written by `odgi build`.
+- `cargo test -p pangraphx-core odgi` runs the unit tests.
 - [`pangraphx-core/tests/test_odgi.rs`](../pangraphx-core/tests/test_odgi.rs)
-  round-trips every GFA fixture through ODGI. With `odgi` on `PATH`, it also
-  checks PanGraphX output with `odgi validate` and `odgi view -g`, and parses
-  `odgi build` output. Run it after every change to the codec.
+  round-trips every GFA fixture through ODGI, and
+  [`test_reference_files.rs`](../pangraphx-core/tests/test_reference_files.rs)
+  parses the committed `test_files/og/*.og` files written by `odgi build`.
+- [`cross_validation.rs`](../pangraphx-core/tests/cross_validation.rs) checks
+  PanGraphX output with `odgi validate` and `odgi view -g`, and parses fresh
+  `odgi build` output, when `odgi` is on `PATH` or in `PANGRAPHX_ODGI`. Run it
+  after every change to the codec.
 - `utils/dump_odgi.py graph.og` prints every field of a file, which helps when
   comparing PanGraphX output with odgi's.
