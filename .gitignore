@@ -17,18 +17,15 @@ temp
 
 .vscode
 
-# merged file for LLM analysis
-pangraphx-core/merged.rs
-
 .Ds_Store
 
 .idea
 .claude
 
-# giant gfa files are downloaded with a script and are not needed in the repo
+# giant gfa files are downloaded with a script
 ecoli50.gfa
 chr22.hprc-v1.1-mc-grch38.gfa
 benchmarks/data/
 
-# benchmark runs (one timestamped directory per run, see benchmarks/README.md)
+# benchmark runs
 benchmarks/results/
