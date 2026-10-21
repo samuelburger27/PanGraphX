@@ -3,11 +3,11 @@ use colored::Colorize;
 use log::debug;
 use pangraphx_core::{CoreGraph, CoreGraphDTO, GraphStats};
 
-use crate::{cli::args_parser::StatsArgs, handle_convert::infer_graph_format};
+use crate::{cli::args_parser::StatsArgs, handle_convert::infer_input_format};
 
 pub fn handle_stats(args: &StatsArgs) -> Result<()> {
     debug!("Arguments for stats: {args:#?}");
-    let format = infer_graph_format(&args.file, args.format.as_ref()).ok_or_else(|| {
+    let format = infer_input_format(&args.file, args.format.as_ref()).ok_or_else(|| {
         anyhow::anyhow!(
             "Input graph format is not supported or couldn't be inferred: {}",
             args.file

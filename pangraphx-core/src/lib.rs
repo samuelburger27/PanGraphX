@@ -80,7 +80,7 @@ pub use error::PanResult;
 use std::fmt::Display;
 
 use crate::error::PanGraphXError;
-use crate::formats::{FastgCodec, GBZCodec, GFACodec, ODGICodec, VGCodec};
+use crate::formats::{FastgCodec, GBZCodec, GFACodec, ODGICodec, PackedGraphCodec, VGCodec};
 use crate::traits::{GraphParser, GraphSerializer};
 use std::io::{Read, Seek};
 
@@ -91,8 +91,11 @@ pub enum GraphFormat {
     GBZ,
     /// Graphical Fragment Assembly format.
     GFA,
-    /// Variation Graph format.
+    /// vg's Protobuf format (written); reading also accepts `PackedGraph` and
+    /// `HashGraph`, which current vg writes into `.vg` files.
     VG,
+    /// vg's `PackedGraph` format, the default of current vg.
+    PackedGraph,
     /// FASTG graph format.
     FASTG,
     /// ODGI binary graph format.
@@ -105,6 +108,7 @@ impl Display for GraphFormat {
             Self::GBZ => write!(f, "GBZ"),
             Self::GFA => write!(f, "GFA"),
             Self::VG => write!(f, "VG"),
+            Self::PackedGraph => write!(f, "PackedGraph"),
             Self::FASTG => write!(f, "FASTG"),
             Self::ODGI => write!(f, "ODGI"),
         }
@@ -114,7 +118,15 @@ impl Display for GraphFormat {
 impl GraphFormat {
     /// Returns an iterator over all supported formats.
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::GFA, Self::GBZ, Self::VG, Self::FASTG, Self::ODGI].into_iter()
+        [
+            Self::GFA,
+            Self::GBZ,
+            Self::VG,
+            Self::PackedGraph,
+            Self::FASTG,
+            Self::ODGI,
+        ]
+        .into_iter()
     }
 
     /// Returns the conventional filename extension for this format.
@@ -124,6 +136,7 @@ impl GraphFormat {
             Self::GBZ => "gbz",
             Self::GFA => "gfa",
             Self::VG => "vg",
+            Self::PackedGraph => "pg",
             Self::FASTG => "fastg",
             Self::ODGI => "og",
         }
@@ -139,6 +152,7 @@ impl GraphFormat {
         match extension.to_lowercase().as_str() {
             "gfa" => Ok(Self::GFA),
             "vg" => Ok(Self::VG),
+            "pg" => Ok(Self::PackedGraph),
             "gbz" => Ok(Self::GBZ),
             "fastg" => Ok(Self::FASTG),
             "og" => Ok(Self::ODGI),
@@ -152,6 +166,7 @@ impl GraphFormat {
         match self {
             Self::GFA => Box::new(GFACodec),
             Self::VG => Box::new(VGCodec),
+            Self::PackedGraph => Box::new(PackedGraphCodec),
             Self::GBZ => Box::new(GBZCodec),
             Self::FASTG => Box::new(FastgCodec),
             Self::ODGI => Box::new(ODGICodec),
@@ -164,6 +179,7 @@ impl GraphFormat {
         match self {
             Self::GFA => Box::new(GFACodec),
             Self::VG => Box::new(VGCodec),
+            Self::PackedGraph => Box::new(PackedGraphCodec),
             Self::GBZ => Box::new(GBZCodec),
             Self::FASTG => Box::new(FastgCodec),
             Self::ODGI => Box::new(ODGICodec),
@@ -177,7 +193,10 @@ impl GraphFormat {
                 "Graphical Fragment Assembly (v1.0): An interoperable, text-based standard for representing pangenome nodes, edges, and paths."
             }
             Self::VG => {
-                "VG Protobuf: A serialized binary format used by the vg toolkit; supports rich metadata but can be storage-intensive."
+                "VG Protobuf: vg's original binary format, deprecated for output by current vg but still read by it. When reading, PackedGraph and HashGraph content (what current vg writes into .vg files) is detected automatically."
+            }
+            Self::PackedGraph => {
+                "PackedGraph: vg's default graph format (vg convert -p); compact and bit-packed. Note: sequences are stored as ACGTN only, other bases become N."
             }
             Self::GBZ => "GBZ: A highly compressed format for large pangenomes.",
             Self::FASTG => {

@@ -8,7 +8,7 @@ use std::path::Path;
 pub fn handle_conversion(args: &ConvertArgs) -> Result<()> {
     // Handle conversion command
     debug!("Arguments for conversion: {args:#?}");
-    let input_format = infer_graph_format(&args.input, args.from.as_ref()).ok_or_else(|| {
+    let input_format = infer_input_format(&args.input, args.from.as_ref()).ok_or_else(|| {
         anyhow::anyhow!(
             "Input graph format is not supported or couldn't be inferred: {}",
             args.input
@@ -90,5 +90,22 @@ pub fn infer_graph_format(path: &str, specified_format: Option<&String>) -> Opti
             return None;
         }
         GraphFormat::from_extension(&extension).ok()
+    }
+}
+
+/// Like [`infer_graph_format`], for a file to read: vg's `HashGraph` (`hg`)
+/// has no format of its own and is read by the VG parser, which recognizes
+/// it by its magic number.
+pub fn infer_input_format(path: &str, specified_format: Option<&String>) -> Option<GraphFormat> {
+    let is_hash_graph = |ext: &str| ext.eq_ignore_ascii_case("hg");
+    let extension = Path::new(path).extension().and_then(|ext| ext.to_str());
+    let hash_graph = specified_format.map_or_else(
+        || extension.is_some_and(is_hash_graph),
+        |format| is_hash_graph(format),
+    );
+    if hash_graph {
+        Some(GraphFormat::VG)
+    } else {
+        infer_graph_format(path, specified_format)
     }
 }

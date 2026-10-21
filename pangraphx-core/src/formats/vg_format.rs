@@ -1,15 +1,26 @@
 use crate::core::core_types::{Edge, Node, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
+use crate::formats::binio;
+use crate::formats::hash_graph_format::{HASH_GRAPH_MAGIC, read_hash_graph};
 use crate::formats::id_map::{IdMap, parse_canonical_int};
+use crate::formats::packed_graph_format::{
+    MAPPED_PACKED_GRAPH_MAGIC, PACKED_GRAPH_MAGIC, read_packed_graph,
+};
 use crate::proto_gen::vg as vg_proto;
 use crate::traits::{GraphParser, GraphSerializer};
 use log::debug;
 use prost::Message;
 use rayon::prelude::*;
 use std::collections::HashMap;
-use std::io::{Read, Seek, Write};
+use std::io::{BufReader, Cursor, Read, Seek, SeekFrom, Write};
 
+/// Codec for vg's `.vg` files.
+///
+/// Writes the Protobuf format. Reads whatever vg itself accepts in a `.vg`
+/// file: the Protobuf stream, `PackedGraph` (the default of current vg) and
+/// `HashGraph`, recognized by their magic numbers, also when older vg wrapped
+/// them in VG framing.
 pub struct VGCodec;
 
 // ---------------------------------------------------------------------------
@@ -299,110 +310,212 @@ impl VgStream {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Format detection
+// ---------------------------------------------------------------------------
+
+/// Type tags under which older vg wrapped bare graph formats in VG framing.
+const ENCAPSULATED_TAGS: [&[u8]; 2] = [b"PackedGraph", b"HashGraph"];
+
+/// Bytes inspected to tell the formats apart.
+const SNIFF_LEN: u64 = 64;
+
+/// Parses any graph file vg reads as a `.vg`: a bare `PackedGraph` or
+/// `HashGraph`, recognized by its magic number as vg does; one of those wrapped
+/// in VG framing; otherwise the Protobuf stream.
+pub(crate) fn parse_vg_family<R: Read + Seek>(reader: &mut R) -> PanResult<CoreGraphDTO> {
+    let start = reader.stream_position()?;
+    let mut head = Vec::new();
+    reader.by_ref().take(SNIFF_LEN).read_to_end(&mut head)?;
+    reader.seek(SeekFrom::Start(start))?;
+
+    if let Some(graph) = parse_bare(&head, reader)? {
+        return Ok(graph);
+    }
+    if let Some(tag) = encapsulated_tag(&head) {
+        let tag_name = String::from_utf8_lossy(tag);
+        debug!("VG stream wraps a bare {tag_name} file");
+        let bytes = read_encapsulated(reader, tag)?;
+        return parse_bare(&bytes, &mut Cursor::new(&bytes))?.ok_or_else(|| {
+            PanGraphXError::Parse(format!(
+                "VG stream tagged {tag_name} does not hold a {tag_name} file"
+            ))
+        });
+    }
+    debug!("Reading a VG Protobuf stream");
+    parse_protobuf(reader)
+}
+
+/// Parses a bare `PackedGraph` or `HashGraph` whose magic number starts `head`,
+/// or returns `None` without reading when `head` starts with neither.
+fn parse_bare<R: Read>(head: &[u8], reader: &mut R) -> PanResult<Option<CoreGraphDTO>> {
+    let Some(&[a, b, c, d]) = head.first_chunk::<4>() else {
+        return Ok(None);
+    };
+    match u32::from_be_bytes([a, b, c, d]) {
+        PACKED_GRAPH_MAGIC => {
+            debug!("Reading a PackedGraph file");
+            read_packed_graph(&mut BufReader::with_capacity(1 << 20, reader)).map(Some)
+        }
+        HASH_GRAPH_MAGIC => {
+            debug!("Reading a HashGraph file");
+            read_hash_graph(&mut BufReader::with_capacity(1 << 20, reader)).map(Some)
+        }
+        MAPPED_PACKED_GRAPH_MAGIC => Err(PanGraphXError::Parse(
+            "MappedPackedGraph files are not supported; convert with `vg convert -p`".to_string(),
+        )),
+        _ => Ok(None),
+    }
+}
+
+/// The tag of the first framing group in `head`, if it marks a wrapped bare
+/// graph format.
+fn encapsulated_tag(head: &[u8]) -> Option<&'static [u8]> {
+    let mut cursor = Cursor::new(head);
+    read_varint(&mut cursor).ok()??;
+    let len = usize::try_from(read_varint(&mut cursor).ok()??).ok()?;
+    let start = usize::try_from(cursor.position()).ok()?;
+    let tag = head.get(start..start.checked_add(len)?)?;
+    ENCAPSULATED_TAGS.into_iter().find(|&known| known == tag)
+}
+
+/// Concatenates the messages of a VG-framed stream whose groups are all
+/// tagged `tag`: the bytes of the wrapped file.
+fn read_encapsulated<R: Read>(reader: &mut R, tag: &[u8]) -> PanResult<Vec<u8>> {
+    let mut bytes = Vec::new();
+    while let Some(count) = read_varint(reader)? {
+        for index in 0..count {
+            let len = read_varint(reader)?.ok_or_else(|| {
+                PanGraphXError::Parse("Unexpected EOF reading message length".to_string())
+            })?;
+            if len > VG_MAX_MESSAGE_LEN {
+                return Err(PanGraphXError::Parse(format!(
+                    "VG message length {len} exceeds the limit of {VG_MAX_MESSAGE_LEN} bytes"
+                )));
+            }
+            let message = binio::read_bytes(reader, len, "VG")?;
+            if index == 0 {
+                if message != tag {
+                    return Err(PanGraphXError::Parse(format!(
+                        "VG stream mixes type tags {} and {}",
+                        String::from_utf8_lossy(tag),
+                        String::from_utf8_lossy(&message)
+                    )));
+                }
+                continue;
+            }
+            bytes.extend_from_slice(&message);
+        }
+    }
+    Ok(bytes)
+}
+
 impl<R: Read + Seek> GraphParser<R> for VGCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
-        let VgStream {
-            nodes: mut proto_nodes,
-            edges: proto_edges,
-            paths: vg_paths,
-        } = VgStream::read(reader)?;
-
-        // Build node ID mapping: VG i64 IDs → 0-based usize
-        // Sort by original ID to maintain a deterministic ordering
-        proto_nodes.sort_by_key(|n| n.id);
-        // A node repeated across chunks is merged; an id reused for a different
-        // node is an error rather than silently dropping one of them.
-        if let Some(pair) = proto_nodes
-            .windows(2)
-            .find(|pair| pair[0].id == pair[1].id && pair[0] != pair[1])
-        {
-            return Err(PanGraphXError::Parse(format!(
-                "Duplicate VG node ID {} with conflicting sequence or name",
-                pair[0].id
-            )));
-        }
-        proto_nodes.dedup_by_key(|n| n.id);
-        let vg_ids: Vec<i64> = proto_nodes.iter().map(|n| n.id).collect();
-        // Ids were deduplicated above, so a duplicate cannot occur here.
-        let id_map = IdMap::from_ids(&vg_ids)
-            .map_err(|id| PanGraphXError::Parse(format!("Duplicate VG node ID {id}")))?;
-        drop(vg_ids);
-
-        let mut node_name_map: HashMap<usize, Vec<u8>> = HashMap::with_capacity(proto_nodes.len());
-        let mut nodes = Nodes::new();
-        for (idx, proto_node) in proto_nodes.into_iter().enumerate() {
-            // Store original name or ID as the node name
-            let name = if proto_node.name.is_empty() {
-                itoa::Buffer::new()
-                    .format(proto_node.id)
-                    .as_bytes()
-                    .to_vec()
-            } else {
-                proto_node.name.into_bytes()
-            };
-            node_name_map.insert(idx, name);
-            nodes.push(proto_node.sequence.into_bytes());
-        }
-
-        // Convert edges
-        #[allow(clippy::cast_sign_loss)]
-        let edges: Vec<Edge> = proto_edges
-            .par_iter()
-            .map(|pe| {
-                let from_id = id_map.get(pe.from).ok_or_else(|| {
-                    PanGraphXError::Parse(format!(
-                        "Edge references unknown from-node ID {}",
-                        pe.from
-                    ))
-                })?;
-                let to_id = id_map.get(pe.to).ok_or_else(|| {
-                    PanGraphXError::Parse(format!("Edge references unknown to-node ID {}", pe.to))
-                })?;
-                let (from_orient, to_orient) = vg_edge_to_orientations(pe.from_start, pe.to_end);
-                Ok(Edge {
-                    from_node: from_id,
-                    from_orient,
-                    to_node: to_id,
-                    to_orient,
-                    overlap: pe.overlap as u32,
-                })
-            })
-            .collect::<PanResult<Vec<Edge>>>()?;
-        drop(proto_edges);
-
-        // Convert paths
-        let paths = vg_paths
-            .into_par_iter()
-            .map(|mut vg_path| {
-                vg_path.sort_by_rank();
-                let steps = vg_path
-                    .steps
-                    .iter()
-                    .map(|step| {
-                        let node_id = id_map.get(step.node_id).ok_or_else(|| {
-                            PanGraphXError::Parse(format!(
-                                "Path mapping references unknown node ID {}",
-                                step.node_id
-                            ))
-                        })?;
-                        Step::new(node_id, step.is_reverse.into())
-                    })
-                    .collect::<PanResult<Vec<Step>>>()?;
-                Ok(Path {
-                    name: vg_path.name.into_bytes(),
-                    steps,
-                    overlaps: Vec::new(),
-                })
-            })
-            .collect::<PanResult<Vec<Path>>>()?;
-
-        Ok(CoreGraphDTO {
-            nodes,
-            edges,
-            paths,
-            node_name_map: Some(node_name_map),
-        })
+        parse_vg_family(reader)
     }
+}
+
+/// Parses a VG Protobuf stream.
+fn parse_protobuf<R: Read>(reader: &mut R) -> PanResult<CoreGraphDTO> {
+    let VgStream {
+        nodes: mut proto_nodes,
+        edges: proto_edges,
+        paths: vg_paths,
+    } = VgStream::read(reader)?;
+
+    // Build node ID mapping: VG i64 IDs → 0-based usize
+    // Sort by original ID to maintain a deterministic ordering
+    proto_nodes.sort_by_key(|n| n.id);
+    // A node repeated across chunks is merged; an id reused for a different
+    // node is an error rather than silently dropping one of them.
+    if let Some(pair) = proto_nodes
+        .windows(2)
+        .find(|pair| pair[0].id == pair[1].id && pair[0] != pair[1])
+    {
+        return Err(PanGraphXError::Parse(format!(
+            "Duplicate VG node ID {} with conflicting sequence or name",
+            pair[0].id
+        )));
+    }
+    proto_nodes.dedup_by_key(|n| n.id);
+    let vg_ids: Vec<i64> = proto_nodes.iter().map(|n| n.id).collect();
+    // Ids were deduplicated above, so a duplicate cannot occur here.
+    let id_map = IdMap::from_ids(&vg_ids)
+        .map_err(|id| PanGraphXError::Parse(format!("Duplicate VG node ID {id}")))?;
+    drop(vg_ids);
+
+    let mut node_name_map: HashMap<usize, Vec<u8>> = HashMap::with_capacity(proto_nodes.len());
+    let mut nodes = Nodes::new();
+    for (idx, proto_node) in proto_nodes.into_iter().enumerate() {
+        // Store original name or ID as the node name
+        let name = if proto_node.name.is_empty() {
+            itoa::Buffer::new()
+                .format(proto_node.id)
+                .as_bytes()
+                .to_vec()
+        } else {
+            proto_node.name.into_bytes()
+        };
+        node_name_map.insert(idx, name);
+        nodes.push(proto_node.sequence.into_bytes());
+    }
+
+    // Convert edges
+    #[allow(clippy::cast_sign_loss)]
+    let edges: Vec<Edge> = proto_edges
+        .par_iter()
+        .map(|pe| {
+            let from_id = id_map.get(pe.from).ok_or_else(|| {
+                PanGraphXError::Parse(format!("Edge references unknown from-node ID {}", pe.from))
+            })?;
+            let to_id = id_map.get(pe.to).ok_or_else(|| {
+                PanGraphXError::Parse(format!("Edge references unknown to-node ID {}", pe.to))
+            })?;
+            let (from_orient, to_orient) = vg_edge_to_orientations(pe.from_start, pe.to_end);
+            Ok(Edge {
+                from_node: from_id,
+                from_orient,
+                to_node: to_id,
+                to_orient,
+                overlap: pe.overlap as u32,
+            })
+        })
+        .collect::<PanResult<Vec<Edge>>>()?;
+    drop(proto_edges);
+
+    // Convert paths
+    let paths = vg_paths
+        .into_par_iter()
+        .map(|mut vg_path| {
+            vg_path.sort_by_rank();
+            let steps = vg_path
+                .steps
+                .iter()
+                .map(|step| {
+                    let node_id = id_map.get(step.node_id).ok_or_else(|| {
+                        PanGraphXError::Parse(format!(
+                            "Path mapping references unknown node ID {}",
+                            step.node_id
+                        ))
+                    })?;
+                    Step::new(node_id, step.is_reverse.into())
+                })
+                .collect::<PanResult<Vec<Step>>>()?;
+            Ok(Path {
+                name: vg_path.name.into_bytes(),
+                steps,
+                overlaps: Vec::new(),
+            })
+        })
+        .collect::<PanResult<Vec<Path>>>()?;
+
+    Ok(CoreGraphDTO {
+        nodes,
+        edges,
+        paths,
+        node_name_map: Some(node_name_map),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1241,5 +1354,46 @@ mod tests {
             err.to_string().contains("exceeds the protobuf limit"),
             "{err}"
         );
+    }
+
+    /// Wraps `bytes` in VG framing under `tag`, split over two groups.
+    fn encapsulate(tag: &[u8], bytes: &[u8]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        for part in bytes.chunks(bytes.len().div_ceil(2)) {
+            write_varint(&mut buf, 2).unwrap();
+            for message in [tag, part] {
+                write_varint(&mut buf, message.len() as u64).unwrap();
+                buf.extend_from_slice(message);
+            }
+        }
+        buf
+    }
+
+    #[test]
+    fn test_vg_files_holding_other_formats() {
+        let mut graph = make_simple_graph();
+        // PackedGraph has no overlaps.
+        for edge in &mut graph.edges {
+            edge.overlap = 0;
+        }
+        let mut packed = Vec::new();
+        crate::formats::PackedGraphCodec
+            .serialize(&graph, &mut packed)
+            .unwrap();
+        let mut protobuf = Vec::new();
+        VGCodec.serialize(&graph, &mut protobuf).unwrap();
+        let expected = VGCodec.parse(&mut Cursor::new(protobuf)).unwrap();
+
+        let wrapped = encapsulate(b"PackedGraph", &packed);
+        for bytes in [packed, wrapped] {
+            let parsed = VGCodec.parse(&mut Cursor::new(bytes)).unwrap();
+            assert!(parsed.isomorphic(&expected));
+        }
+
+        let mapped = MAPPED_PACKED_GRAPH_MAGIC.to_be_bytes().to_vec();
+        let err = VGCodec.parse(&mut Cursor::new(mapped)).unwrap_err();
+        assert!(err.to_string().contains("MappedPackedGraph"), "{err}");
+        let mislabeled = encapsulate(b"HashGraph", b"not a graph");
+        assert!(VGCodec.parse(&mut Cursor::new(mislabeled)).is_err());
     }
 }

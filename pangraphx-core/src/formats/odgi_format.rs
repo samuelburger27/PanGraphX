@@ -29,12 +29,14 @@
 use crate::core::core_types::{Edge, NodeId, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
+use crate::formats::binio::{self, MAX_PREALLOC};
+use crate::formats::id_map::Numbering;
 use crate::traits::{GraphParser, GraphSerializer};
 use log::warn;
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::HashMap;
-use std::io::{self, BufReader, Read, Seek, Write};
+use std::io::{BufReader, Read, Seek, Write};
 
 /// Codec for odgi's binary graph format.
 ///
@@ -61,10 +63,6 @@ const STEP_REV: u64 = 1;
 const STEP_START: u64 = 1 << 1;
 const STEP_END: u64 = 1 << 2;
 
-/// Largest buffer reserved up front for a length read from the input, so a
-/// corrupt length fails with a parse error instead of a huge allocation.
-const MAX_PREALLOC: usize = 1 << 20;
-
 /// Marks a deleted node rank.
 const VACANT: NodeId = NodeId::MAX;
 
@@ -75,38 +73,23 @@ const CHUNK_BYTES: usize = 1 << 20;
 // Reading
 // ---------------------------------------------------------------------------
 
-fn truncated(error: io::Error) -> PanGraphXError {
-    if error.kind() == io::ErrorKind::UnexpectedEof {
-        PanGraphXError::Parse("Truncated ODGI file".to_string())
-    } else {
-        PanGraphXError::Io(error)
-    }
-}
+/// Format name used in error messages.
+const FORMAT: &str = "ODGI";
 
 fn read_u64<R: Read>(reader: &mut R) -> PanResult<u64> {
-    let mut buf = [0u8; 8];
-    reader.read_exact(&mut buf).map_err(truncated)?;
-    Ok(u64::from_le_bytes(buf))
+    Ok(u64::from_le_bytes(binio::read_array(reader, FORMAT)?))
 }
 
 fn read_u8<R: Read>(reader: &mut R) -> PanResult<u8> {
-    let mut buf = [0u8; 1];
-    reader.read_exact(&mut buf).map_err(truncated)?;
-    Ok(buf[0])
+    Ok(binio::read_array::<1, _>(reader, FORMAT)?[0])
 }
 
 fn to_usize(value: u64, what: &str) -> PanResult<usize> {
-    usize::try_from(value)
-        .map_err(|_| PanGraphXError::Parse(format!("ODGI {what} {value} is too large")))
+    binio::to_usize(value, FORMAT, what)
 }
 
 fn read_bytes<R: Read>(reader: &mut R, len: u64) -> PanResult<Vec<u8>> {
-    let mut buf = Vec::with_capacity(to_usize(len, "length")?.min(MAX_PREALLOC));
-    reader.by_ref().take(len).read_to_end(&mut buf)?;
-    if buf.len() as u64 != len {
-        return Err(PanGraphXError::Parse("Truncated ODGI file".to_string()));
-    }
-    Ok(buf)
+    binio::read_bytes(reader, len, FORMAT)
 }
 
 /// A DYNAMIC `hacked_vector`: fixed-width integers packed into 64-bit words.
@@ -404,7 +387,9 @@ impl<R: Read + Seek> GraphParser<R> for ODGICodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
         let mut reader = BufReader::with_capacity(1 << 20, reader);
         let mut magic = [0u8; 4];
-        reader.read_exact(&mut magic).map_err(truncated)?;
+        reader
+            .read_exact(&mut magic)
+            .map_err(|e| binio::truncated(FORMAT, e))?;
         if u32::from_be_bytes(magic) != ODGI_MAGIC {
             // odgi accepts files without the magic number (older versions), so do we.
             warn!("ODGI magic number not found; reading the file anyway");
@@ -452,78 +437,6 @@ fn push_packed(buf: &mut Vec<u8>, values: &[u64]) {
     push_u64(buf, values.len() as u64);
     buf.push(width as u8);
     buf.push(per_word as u8);
-}
-
-/// Assignment of odgi node ranks (`odgi id - 1`) to nodes.
-struct Numbering {
-    /// odgi id of every node, `None` for `1..=n` in node order.
-    ids: Option<Vec<u64>>,
-    /// Node at every rank (`VACANT` for gaps), `None` for `1..=n` in node order.
-    by_rank: Option<Vec<NodeId>>,
-    /// Number of node records, including gaps.
-    records: usize,
-}
-
-impl Numbering {
-    /// Keeps numeric node names as odgi ids when they are distinct, positive,
-    /// written canonically and dense enough that the gaps stay small.
-    fn new(graph: &CoreGraphDTO) -> Self {
-        let n = graph.nodes.len();
-        let sequential = Self {
-            ids: None,
-            by_rank: None,
-            records: n,
-        };
-        let Some(map) = &graph.node_name_map else {
-            return sequential;
-        };
-        let ids: Option<Vec<u64>> = (0..n)
-            .into_par_iter()
-            .map(|node| {
-                let name = map.get(&node)?;
-                let id = std::str::from_utf8(name).ok()?.parse::<u64>().ok()?;
-                (id > 0 && itoa::Buffer::new().format(id).as_bytes() == name.as_slice())
-                    .then_some(id)
-            })
-            .collect();
-        let named = ids.and_then(|ids| {
-            let max = usize::try_from(*ids.iter().max()?).ok()?;
-            if max > n.saturating_mul(2).saturating_add(1024) {
-                return None;
-            }
-            let mut by_rank = vec![VACANT; max];
-            for (node, &id) in ids.iter().enumerate() {
-                let slot = &mut by_rank[usize::try_from(id - 1).ok()?];
-                if *slot != VACANT {
-                    return None;
-                }
-                *slot = node;
-            }
-            Some(Self {
-                ids: Some(ids),
-                by_rank: Some(by_rank),
-                records: max,
-            })
-        });
-        named.unwrap_or_else(|| {
-            if map.values().any(|name| !name.is_empty()) {
-                warn!(
-                    "ODGI needs positive integer node ids; node names are replaced by ids 1..={n}"
-                );
-            }
-            sequential
-        })
-    }
-
-    fn id(&self, node: NodeId) -> u64 {
-        self.ids.as_ref().map_or(node as u64 + 1, |ids| ids[node])
-    }
-
-    fn node_at(&self, rank: usize) -> Option<NodeId> {
-        self.by_rank.as_ref().map_or(Some(rank), |by_rank| {
-            Some(by_rank[rank]).filter(|&node| node != VACANT)
-        })
-    }
 }
 
 /// Edge records of every node, as odgi stores them on both endpoints.
@@ -849,7 +762,7 @@ impl GraphSerializer for ODGICodec {
         let node_count = graph.nodes.len();
         let odgi = OdgiWriter {
             graph,
-            numbering: Numbering::new(graph),
+            numbering: Numbering::new(graph, FORMAT),
             edges: EdgeIndex::new(node_count, &graph.edges),
             steps: StepIndex::new(node_count, &graph.paths)?,
         };

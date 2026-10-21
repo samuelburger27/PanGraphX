@@ -20,10 +20,11 @@ Download them with [`utils/download_gfa.sh`](../../../utils/download_gfa.sh),
 which puts them in `benchmarks/data/` (they are benchmark inputs, not test
 fixtures).
 
-The GFA files in `gfa/` are the source of every other test graph. The `vg/`,
-`gbz/` and `og/` files are written from them by the external tools themselves
-(`vg convert`, `vg gbwt --max-node 0`, `odgi build`), never by PanGraphX, for
-the small fixtures. They are committed so that `tests/test_reference_files.rs`
+The GFA files in `gfa/` are the source of every other test graph. The `vg/`
+(Protobuf), `pg/` (PackedGraph), `hg/` (HashGraph), `gbz/` and `og/` files are
+written from them by the external tools themselves (`vg convert`,
+`vg gbwt --max-node 0`, `odgi build`), never by PanGraphX, for the small
+fixtures. They are committed so that `tests/test_reference_files.rs`
 checks our readers against real vg/odgi output on every `cargo test`, without
 the tools installed; tests of our own writers round-trip in memory instead.
 `MANIFEST.tsv` records the source GFA, checksum, tool version and command of

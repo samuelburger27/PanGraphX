@@ -1,7 +1,10 @@
 //! Lookup from external integer node ids (VG ids, GBZ ids, numeric GFA segment names)
-//! to dense internal [`NodeId`]s.
+//! to dense internal [`NodeId`]s, and the reverse choice of integer ids when writing.
 
 use crate::core::core_types::NodeId;
+use crate::core::graph_dto::CoreGraphDTO;
+use log::warn;
+use rayon::prelude::*;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 
 /// Maps external integer ids to dense internal ids; the internal id of an
@@ -77,6 +80,83 @@ impl IdMap {
             }
             Self::Sparse(map) => map.get(&id).copied(),
         }
+    }
+}
+
+/// Positive integer ids for writing a graph to a format that indexes node
+/// records by id (ODGI, `PackedGraph`). Rank `r` is the record of id `r + 1`.
+pub struct Numbering {
+    /// Id of every node, `None` for `1..=n` in node order.
+    ids: Option<Vec<u64>>,
+    /// Node at every rank (`VACANT` for gaps), `None` for `1..=n` in node order.
+    by_rank: Option<Vec<NodeId>>,
+    /// Number of ranks, including gaps: the largest id.
+    pub records: usize,
+}
+
+impl Numbering {
+    /// Keeps numeric node names as ids when they are distinct, positive,
+    /// written canonically and dense enough that the gaps stay small;
+    /// otherwise numbers nodes `1..=n`. `format` names the target in the
+    /// warning about replaced names.
+    pub fn new(graph: &CoreGraphDTO, format: &str) -> Self {
+        let n = graph.nodes.len();
+        let sequential = Self {
+            ids: None,
+            by_rank: None,
+            records: n,
+        };
+        let Some(map) = &graph.node_name_map else {
+            return sequential;
+        };
+        let ids: Option<Vec<u64>> = (0..n)
+            .into_par_iter()
+            .map(|node| {
+                let name = map.get(&node)?;
+                let id = std::str::from_utf8(name).ok()?.parse::<u64>().ok()?;
+                (id > 0 && itoa::Buffer::new().format(id).as_bytes() == name.as_slice())
+                    .then_some(id)
+            })
+            .collect();
+        let named = ids.and_then(|ids| {
+            let max = usize::try_from(*ids.iter().max()?).ok()?;
+            if max > n.saturating_mul(2).saturating_add(1024) {
+                return None;
+            }
+            let mut by_rank = vec![VACANT; max];
+            for (node, &id) in ids.iter().enumerate() {
+                let slot = &mut by_rank[usize::try_from(id - 1).ok()?];
+                if *slot != VACANT {
+                    return None;
+                }
+                *slot = node;
+            }
+            Some(Self {
+                ids: Some(ids),
+                by_rank: Some(by_rank),
+                records: max,
+            })
+        });
+        named.unwrap_or_else(|| {
+            if map.values().any(|name| !name.is_empty()) {
+                warn!(
+                    "{format} needs positive integer node ids; node names are replaced by ids 1..={n}"
+                );
+            }
+            sequential
+        })
+    }
+
+    /// The id of `node`.
+    pub fn id(&self, node: NodeId) -> u64 {
+        self.ids.as_ref().map_or(node as u64 + 1, |ids| ids[node])
+    }
+
+    /// The node with id `rank + 1`, if any; `rank` must be below `records`.
+    pub fn node_at(&self, rank: usize) -> Option<NodeId> {
+        self.by_rank.as_ref().map_or(Some(rank), |by_rank| {
+            Some(by_rank[rank]).filter(|&node| node != VACANT)
+        })
     }
 }
 

@@ -29,11 +29,21 @@ pub enum Names {
     BySequence,
 }
 
+/// How node sequences are compared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sequences {
+    /// Byte for byte, ignoring case.
+    Exact,
+    /// Over the alphabet ACGTN: any other base compares as `N` (`PackedGraph`).
+    Acgtn,
+}
+
 /// What a format keeps of a graph.
 #[allow(clippy::struct_excessive_bools)] // one flag per kept feature
 #[derive(Clone, Copy, Debug)]
 pub struct Fidelity {
     pub names: Names,
+    pub sequences: Sequences,
     /// Overlaps of links.
     pub overlaps: bool,
     /// Overlaps between consecutive path steps.
@@ -48,6 +58,7 @@ pub struct Fidelity {
 impl Fidelity {
     pub const GFA: Self = Self {
         names: Names::Kept,
+        sequences: Sequences::Exact,
         overlaps: true,
         path_overlaps: true,
         off_path_edges: true,
@@ -79,6 +90,19 @@ impl Fidelity {
         path_overlaps: false,
         ..Self::GFA
     };
+    /// vg's `PackedGraph`: ids as the VG/ODGI writers choose them, ACGTN only.
+    pub const PACKED_GRAPH: Self = Self {
+        names: Names::Renumbered,
+        sequences: Sequences::Acgtn,
+        overlaps: false,
+        path_overlaps: false,
+        ..Self::GFA
+    };
+    /// vg's `HashGraph` (read only): like `PackedGraph`, but keeps every base.
+    pub const HASH_GRAPH: Self = Self {
+        sequences: Sequences::Exact,
+        ..Self::PACKED_GRAPH
+    };
     pub const FASTG: Self = Self {
         overlaps: false,
         path_overlaps: false,
@@ -86,16 +110,22 @@ impl Fidelity {
         ..Self::GFA
     };
 
-    /// A VG file written by vg from `source`: vg keeps integer names as ids
-    /// and renumbers other names in its own order.
+    /// A VG file written by vg from `source`.
     #[must_use]
     pub fn written_by_vg(source: &CoreGraphDTO) -> Self {
+        Self::VG.named_by_vg(source)
+    }
+
+    /// This fidelity for a file vg wrote from `source`: vg keeps integer
+    /// names as ids and renumbers other names in its own order.
+    #[must_use]
+    pub fn named_by_vg(self, source: &CoreGraphDTO) -> Self {
         let names = if has_numeric_names(source) {
             Names::Renumbered
         } else {
             Names::BySequence
         };
-        Self::VG.with_names(names)
+        self.with_names(names)
     }
 
     #[must_use]
@@ -151,19 +181,30 @@ pub fn has_numeric_names(g: &CoreGraphDTO) -> bool {
         .all(|id| positive_int(&g.get_name_from_id(id)).is_some_and(|n| seen.insert(n)))
 }
 
-fn labels(g: &CoreGraphDTO, names: Names) -> Vec<String> {
+fn labels(g: &CoreGraphDTO, names: Names, sequences: Sequences) -> Vec<String> {
     match names {
         Names::Kept => (0..g.nodes.len())
             .map(|id| g.get_name_from_id(id))
             .collect(),
-        Names::Renumbered if has_numeric_names(g) => labels(g, Names::Kept),
+        Names::Renumbered if has_numeric_names(g) => labels(g, Names::Kept, sequences),
         Names::Renumbered => (1..=g.nodes.len()).map(|id| id.to_string()).collect(),
-        Names::BySequence => g.nodes.iter().map(|n| sequence(&n.sequence)).collect(),
+        Names::BySequence => g
+            .nodes
+            .iter()
+            .map(|n| sequence(&n.sequence, sequences))
+            .collect(),
     }
 }
 
-fn sequence(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).to_ascii_uppercase()
+fn sequence(bytes: &[u8], sequences: Sequences) -> String {
+    let upper = String::from_utf8_lossy(bytes).to_ascii_uppercase();
+    match sequences {
+        Sequences::Exact => upper,
+        Sequences::Acgtn => upper
+            .chars()
+            .map(|c| if "ACGT".contains(c) { c } else { 'N' })
+            .collect(),
+    }
 }
 
 const fn is_rev(o: Orientation) -> bool {
@@ -190,12 +231,15 @@ fn traversed(g: &CoreGraphDTO) -> BTreeSet<(NodeId, bool, NodeId, bool)> {
 /// Projects `g` onto what a format with fidelity `f` keeps.
 #[must_use]
 pub fn canonical(g: &CoreGraphDTO, f: Fidelity) -> CanonicalGraph {
-    let label = labels(g, f.names);
+    let label = labels(g, f.names, f.sequences);
 
     let mut segments = BTreeMap::new();
     for node in g.nodes.iter() {
         *segments
-            .entry((label[node.id].clone(), sequence(&node.sequence)))
+            .entry((
+                label[node.id].clone(),
+                sequence(&node.sequence, f.sequences),
+            ))
             .or_insert(0) += 1;
     }
 

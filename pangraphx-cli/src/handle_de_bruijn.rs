@@ -1,4 +1,4 @@
-use super::handle_convert::infer_graph_format;
+use super::handle_convert::{infer_graph_format, infer_input_format};
 use crate::cli::args_parser::DeBruijnArgs;
 use anyhow::{Context, Result};
 use colored::Colorize;
@@ -6,7 +6,7 @@ use log::{debug, warn};
 use pangraphx_core::{ColoredDBG, CoreGraphDTO, DeBruijn};
 
 pub fn handle_de_bruijn(args: &DeBruijnArgs) -> Result<()> {
-    let input_format = infer_graph_format(&args.input, args.from.as_ref()).ok_or_else(|| {
+    let input_format = infer_input_format(&args.input, args.from.as_ref()).ok_or_else(|| {
         anyhow::anyhow!(
             "Input graph format is not supported or couldn't be inferred: {}",
             args.input

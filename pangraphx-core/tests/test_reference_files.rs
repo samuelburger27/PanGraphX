@@ -1,4 +1,5 @@
-//! The committed VG/GBZ/ODGI test files: graphs written by vg and odgi
+//! The committed VG/`PackedGraph`/`HashGraph`/GBZ/ODGI test files: graphs written
+//! by vg and odgi
 //! (`utils/generate_test_files.sh`), read with our codecs and compared with
 //! the GFA they were built from. Runs without the tools.
 //!
@@ -18,8 +19,8 @@ struct Entry {
     tool: String,
 }
 
-/// The subdirectories the manifest covers.
-const TOOL_FORMATS: [&str; 3] = ["vg", "gbz", "og"];
+/// The subdirectories the manifest covers, named by file extension.
+const TOOL_FORMATS: [&str; 5] = ["vg", "pg", "hg", "gbz", "og"];
 
 fn reference_dir() -> PathBuf {
     std::env::var_os("PANGRAPHX_REFERENCE_DIR").map_or_else(|| fixture(""), PathBuf::from)
@@ -44,13 +45,20 @@ fn manifest() -> Vec<Entry> {
         .collect()
 }
 
-/// What the tool's file keeps of `source`.
-fn fidelity(format: GraphFormat, source: &CoreGraphDTO) -> Fidelity {
-    match format {
-        GraphFormat::VG => Fidelity::written_by_vg(source),
-        GraphFormat::GBZ => Fidelity::GBZ,
-        GraphFormat::ODGI => Fidelity::ODGI,
-        other => panic!("no reference files for {other}"),
+/// The format to parse a file with this extension as, and what the tool's
+/// file keeps of `source`. `HashGraph` has no format of its own: the VG parser
+/// recognizes it.
+fn format_and_fidelity(extension: &str, source: &CoreGraphDTO) -> (GraphFormat, Fidelity) {
+    match extension {
+        "vg" => (GraphFormat::VG, Fidelity::written_by_vg(source)),
+        "pg" => (
+            GraphFormat::PackedGraph,
+            Fidelity::PACKED_GRAPH.named_by_vg(source),
+        ),
+        "hg" => (GraphFormat::VG, Fidelity::HASH_GRAPH.named_by_vg(source)),
+        "gbz" => (GraphFormat::GBZ, Fidelity::GBZ),
+        "og" => (GraphFormat::ODGI, Fidelity::ODGI),
+        other => panic!("no reference files with extension {other}"),
     }
 }
 
@@ -66,13 +74,13 @@ fn test_reference_files_match_source() {
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or_default();
-        let format = GraphFormat::from_extension(extension).unwrap();
         let source = load(&fixture(&entry.source_gfa), GraphFormat::GFA);
+        let (format, fidelity) = format_and_fidelity(extension, &source);
         let parsed = load(&path, format);
         assert_equivalent(
             &source,
             &parsed,
-            fidelity(format, &source),
+            fidelity,
             &format!(
                 "{} (written by {}) vs {}",
                 entry.file, entry.tool, entry.source_gfa
@@ -81,8 +89,7 @@ fn test_reference_files_match_source() {
     }
 }
 
-/// The manifest lists exactly the files in the `vg/`, `gbz/` and `og/`
-/// directories.
+/// The manifest lists exactly the files in the `TOOL_FORMATS` directories.
 #[test]
 fn test_reference_manifest_is_complete() {
     let dir = reference_dir();
@@ -101,4 +108,26 @@ fn test_reference_manifest_is_complete() {
         "MANIFEST.tsv and {} disagree",
         dir.display()
     );
+}
+
+/// Current vg writes `PackedGraph` into `.vg` files by default, and `HashGraph`
+/// with `--hash-out`: the VG parser recognizes both and reads them like the
+/// `PackedGraph` parser.
+#[test]
+fn test_vg_parser_reads_vg_handle_graphs() {
+    let dir = reference_dir();
+    for entry in manifest() {
+        if !(entry.file.starts_with("pg/") || entry.file.starts_with("hg/")) {
+            continue;
+        }
+        let path = dir.join(&entry.file);
+        let via_vg = load(&path, GraphFormat::VG);
+        let direct = load(&path, GraphFormat::PackedGraph);
+        assert_equivalent(
+            &direct,
+            &via_vg,
+            Fidelity::GFA,
+            &format!("{} read as VG and as PackedGraph", entry.file),
+        );
+    }
 }

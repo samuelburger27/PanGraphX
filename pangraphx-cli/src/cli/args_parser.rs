@@ -52,11 +52,11 @@ pub struct ConvertArgs {
     #[arg(short = 'o', long)]
     pub output: String,
 
-    /// Override input format (e.g. gfa, gbz, fastg)
+    /// Override input format (e.g. gfa, gbz, vg, pg, hg, fastg)
     #[arg(long)]
     pub from: Option<String>,
 
-    /// Override output format (e.g. gfa, gbz, fastg)
+    /// Override output format (e.g. gfa, gbz, vg, pg, fastg)
     #[arg(long)]
     pub to: Option<String>,
 }
@@ -66,7 +66,7 @@ pub struct InfoArgs {
     #[arg(help = "Graph file to inspect")]
     pub file: String,
 
-    /// Override input format (e.g. gfa, gbz, fastg)
+    /// Override input format (e.g. gfa, gbz, vg, pg, hg, fastg)
     #[arg(short = 'f', long)]
     pub format: Option<String>,
 }
@@ -76,7 +76,7 @@ pub struct StatsArgs {
     #[arg(help = "Graph file to analyze")]
     pub file: String,
 
-    /// Override input format (e.g. gfa, gbz, fastg)
+    /// Override input format (e.g. gfa, gbz, vg, pg, hg, fastg)
     #[arg(short = 'f', long)]
     pub format: Option<String>,
 }
@@ -112,11 +112,11 @@ pub struct DeBruijnArgs {
     #[arg(short = 'o', long)]
     pub output: String,
 
-    /// Override input format (e.g. gfa, gbz, fastg)
+    /// Override input format (e.g. gfa, gbz, vg, pg, hg, fastg)
     #[arg(long)]
     pub from: Option<String>,
 
-    /// Override output format (e.g. gfa, gbz, fastg)
+    /// Override output format (e.g. gfa, gbz, vg, pg, fastg)
     #[arg(long)]
     pub to: Option<String>,
 }
