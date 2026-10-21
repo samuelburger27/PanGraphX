@@ -6,7 +6,7 @@ pangenome graphs. Two crates:
 - `pangraphx-core` — the library: graph model, format codecs, statistics, de Bruijn construction.
 - `pangraphx-cli` — the `pangraphx-cli` binary built on the library.
 
-Supported formats: GFA 1.0 (plus locally supported 1.1 extensions), VG (protobuf), GBZ, ODGI (`.og`), FASTG.
+Supported formats: GFA 1.0 (plus locally supported 1.1 extensions), VG (protobuf; reading also detects PackedGraph/HashGraph), PackedGraph (`.pg`, vg's default), GBZ, ODGI (`.og`), FASTG.
 
 ## Git workflow
 
@@ -50,11 +50,14 @@ pangraphx-core/src/
   formats/
     gfa_format.rs        GFACodec; parallel chunked writer
     gfa_parser.rs        in-house streaming two-pass GFA parser (no external GFA crate)
-    vg_format.rs         VGCodec; libvgio framing, chunked Graph messages
+    vg_format.rs         VGCodec; libvgio framing, chunked Graph messages; sniffs .vg content (parse_vg_family)
+    packed_graph_format.rs PackedGraphCodec; native libbdsg PackedGraph reader/writer (sdsl vectors)
+    hash_graph_format.rs read-only libbdsg HashGraph reader (big-endian)
     gbz_format.rs        GBZCodec via the `gbz` crate (fork); writes GBZ version 2 for vg compatibility
     odgi_format.rs       ODGICodec; native .og reader/writer (no odgi dependency)
     fastg_format.rs      FastgCodec; SPAdes/Bandage dialect, paths and overlaps dropped
-    id_map.rs            external integer id → NodeId (dense table or hash map)
+    id_map.rs            external integer id → NodeId (dense table or hash map); Numbering for writers
+    binio.rs             shared exact-read / bounded-allocation helpers for binary readers
   de_bruijn_conversion/
     de_bruijn_graph.rs   DeBruijn (paths or full topology), compaction to DTO
     colored_dbg.rs       ColoredDBG (keeps input paths as walks through k-mers)
@@ -69,7 +72,7 @@ pangraphx-cli/src/
   handle_*.rs            one handler per subcommand
 ```
 
-Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture and tool scripts), `benchmarks/` (see its README), `pangraphx-core/benches/` (criterion), `temp/` (gitignored scratch).
+Other directories: `docs/odgi_format.md` (ODGI binary layout), `docs/vg_packed_graph_format.md` (PackedGraph/HashGraph layout), `utils/` (fixture and tool scripts), `benchmarks/` (see its README), `pangraphx-core/benches/` (criterion), `temp/` (gitignored scratch).
 
 ## Data model
 
@@ -84,9 +87,10 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 
 ## Format notes
 
-- **IDs**: VG and ODGI keep node ids only when every name is a distinct, positive, canonically written integer; otherwise nodes are numbered `1..=n`. `id_map.rs` is shared by VG, GBZ and numeric GFA names.
-- **Fidelity**: VG drops per-step path overlaps; GBZ keeps only what its paths imply (no overlaps, no off-path or repeated edges); ODGI drops overlaps; FASTG drops paths and overlaps.
+- **IDs**: VG, PackedGraph and ODGI keep node ids only when every name is a distinct, positive, canonically written integer (PackedGraph and ODGI also need a dense range, `id_map::Numbering`); otherwise nodes are numbered `1..=n`. `id_map.rs` is shared by VG, GBZ and numeric GFA names.
+- **Fidelity**: VG drops per-step path overlaps; PackedGraph drops overlaps and stores only ACGTN (other bases become `N`); GBZ keeps only what its paths imply (no overlaps, no off-path or repeated edges); ODGI drops overlaps; FASTG drops paths and overlaps.
 - **ODGI**: the `.og` layout is odgi-internal and unversioned. `docs/odgi_format.md` documents it; `utils/dump_odgi.py` dumps a file.
+- **vg's `.vg`**: current vg writes PackedGraph into `.vg` by default; the VG parser picks Protobuf, PackedGraph or HashGraph by magic number (as vg does). `.vg` output stays Protobuf; `.pg` writes PackedGraph. Files edited by vg keep unlinked records, so the reader follows linked lists. `docs/vg_packed_graph_format.md` documents both layouts.
 - **GBZ**: unlike `vg gbwt`, we do not chop nodes to 1024 bp, and all paths are written as generic paths.
 
 ## de Bruijn construction
@@ -116,9 +120,9 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 
 - Integration tests live in `pangraphx-core/tests/` (one `test_<format>.rs` per format, plus stats, graph manipulation, DBG oracle) and `pangraphx-cli/tests/cli.rs`.
 - Compare graphs with `tests/common` (`canonical(graph, Fidelity::X)` + `assert_same` / `assert_equivalent`), not `CoreGraphDTO::isomorphic`. Writer tests round-trip in memory (`common::round_trip`).
-- Fixtures: `tests/test_files/gfa/` is the source of truth. `vg/`, `gbz/`, `og/` and `MANIFEST.tsv` are written by real `vg`/`odgi` via `utils/generate_test_files.sh` — never by PanGraphX — and are checked tool-free by `test_reference_files.rs`. `utils/generate_gfa.py` generates synthetic GFA.
+- Fixtures: `tests/test_files/gfa/` is the source of truth. `vg/`, `pg/`, `hg/`, `gbz/`, `og/` and `MANIFEST.tsv` are written by real `vg`/`odgi` via `utils/generate_test_files.sh` — never by PanGraphX — and are checked tool-free by `test_reference_files.rs`. `utils/generate_gfa.py` generates synthetic GFA.
 - DBG changes: `test_dbg_oracle.rs` checks construction against a naive oracle.
-- After changing the VG, GBZ or ODGI codecs run
+- After changing the VG, PackedGraph, GBZ or ODGI codecs run
   `cargo test --release -p pangraphx-core --test cross_validation`
   with `vg` and `odgi` on `PATH` (or `PANGRAPHX_VG` / `PANGRAPHX_ODGI`). Missing tools print `SKIPPED`; `PANGRAPHX_REQUIRE_EXTERNAL=1` makes that a failure. Pinned versions are in `utils/install_external_tools.sh`.
 

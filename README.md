@@ -7,7 +7,7 @@ A fast and efficient Rust library and command-line tool for working with pangeno
 
 ## Features
 
-- **Format Conversion**: Convert between GFA, GBZ, VG, ODGI and FASTG formats
+- **Format Conversion**: Convert between GFA, GBZ, VG, PackedGraph, ODGI and FASTG formats
 - **Graph Inspection**: Query basic information about graph files
 - **Graph Statistics**: Report sequence-length metrics (incl. N50), connected components, degree distribution, and path lengths
 - **Format Validation**: Validate graph structure and format compliance
@@ -19,7 +19,8 @@ A fast and efficient Rust library and command-line tool for working with pangeno
 
 - **GFA** (Graphical Fragment Assembly) v1.0, v1.1 with local extensions
 - **GBZ** (Graph Bioinformatics Zipped) - compressed graph format
-- **VG** (Variation Graph) - protobuf-based variation graph format
+- **VG** (Variation Graph) - vg's protobuf-based format (written for `.vg`). When reading, a `.vg` file holding PackedGraph or HashGraph, as current vg writes it, is detected automatically; `.hg` (HashGraph) files are read the same way
+- **PackedGraph** (`.pg`) - vg's default graph format (`vg convert -p`), read and written natively. Node ids are chosen as for ODGI; overlaps are dropped and bases other than ACGTN become `N`
 - **FASTG** (FASTA Gapped) - sequence format with assembly graph metadata; written in the SPAdes style (both strands, `EDGE_<name>_length_<len>_cov_1` names). Paths and overlaps are dropped
 - **ODGI** (Optimized Dynamic Genome/Graph Implementation) - odgi's binary `.og` format, read and written natively. Node ids are kept when the node names are positive integers, otherwise nodes are numbered `1..=n`; overlaps are dropped
 
