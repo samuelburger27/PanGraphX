@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # dbg.sh — de Bruijn graph construction benchmark (time + peak RSS) of the
-# PanGraphX CLI (`pangraphx-cli ddb`), swept over mode, k and thread count.
+# PanGraphX CLI (`pangraphx-cli dbg`), swept over mode, k and thread count.
 #
 # Usage:
 #   benchmarks/dbg.sh [DATASET ...]
@@ -75,7 +75,7 @@ CSV="$RUN_DIR/dbg.csv"
 MD="$RUN_DIR/dbg.md"
 echo "dataset,path_bp,mode,k,threads,est_mib,rss_mib,wall_s,status" >"$CSV"
 {
-    echo "# de Bruijn graph construction (pangraphx-cli ddb)"
+    echo "# de Bruijn graph construction (pangraphx-cli dbg)"
     echo
     echo "Budget $BUDGET_MIB MiB, timeout ${TIMEOUT_S}s. Output written as GFA (included in time)."
     echo
@@ -171,7 +171,7 @@ for ds in "${DATASETS[@]}"; do
 
                 out="$WORK/${name}_dbg.gfa"
                 RAYON_NUM_THREADS="$t" GUARD_MEM_MIB="$BUDGET_MIB" GUARD_TIME_S="$TIMEOUT_S" \
-                    measure "$PANGRAPHX ddb -k $k $flag $gfa -o $out"
+                    measure "$PANGRAPHX dbg -k $k $flag $gfa -o $out"
                 rm -f "$out"
                 row "$name" "$bp" "$mode" "$k" "$t" "$est" "$M_RSS_MIB" "$M_WALL_S" "$M_STATUS"
                 case "$M_STATUS" in

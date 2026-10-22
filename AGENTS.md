@@ -29,7 +29,6 @@ cargo bench -p pangraphx-core -- --test     # smoke-run the criterion benches
 
 - `rustc` warnings and clippy `pedantic`, `nursery` and `perf` are **deny** at workspace level. Fix lints rather than silencing them; when an `#[allow]` is justified, scope it tightly and say why in a comment.
 - `pangraphx-core/build.rs` compiles `proto/vg.proto` with `prost-build`, so `protoc` must be installed.
-- CLI feature `mimalloc` (opt-in) is faster but raises peak RSS by ~50 %.
 - CI (`.github/workflows/ci.yml`): fmt, clippy, test, cross-validate (vg/odgi), bench compile, coverage, `cargo audit`.
 
 ## Layout
@@ -64,8 +63,9 @@ pangraphx-core/src/
     compaction.rs        unitig construction
     k_mers.rs            public Kmer type, validate_k (1..=63)
 pangraphx-cli/src/
-  main.rs                env_logger init, dispatch, user-facing error printing
-  cli/args_parser.rs     clap: convert, ddb, info, stats, format (alias formats)
+  main.rs                logging, global options (--threads, -v/-q), dispatch, error printing
+  cli/args_parser.rs     clap: convert, dbg, info, stats, format (alias formats)
+  graph_io.rs            load/save with format resolution; `-` = stdin (spooled to a temp file) / stdout
   handle_*.rs            one handler per subcommand
 ```
 
@@ -101,7 +101,7 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 - **Library errors**: return `PanResult<T>`. Add variants to `PanGraphXError` in `error.rs`; convert external errors (I/O, protobuf, gbz) into them. Malformed input is `Parse` with enough context (e.g. line number) to locate it.
 - **No panics in the library**: no `unwrap`/`expect`/unchecked indexing on untrusted data; validate and return an error. Tests may unwrap.
 - **CLI errors**: `anyhow::Result` in handlers with `.context(...)`; `main.rs` prints the chain. Usage errors go through clap.
-- **Logging**: `log` macros (`debug!`, `info!`, `warn!`); enable with `RUST_LOG`. `println!` only for actual CLI output.
+- **Logging**: `log` macros (`debug!`, `info!`, `warn!`). Logs go to stderr; the CLI shows `info` (progress) by default, `-q` / `-v` change that and `RUST_LOG` overrides. stdout is for data only (`println!` only for actual CLI output), since `-o -` writes graphs there.
 - **Safety**: safe Rust; any `unsafe` needs a measured reason and a `// SAFETY:` comment.
 - **Performance**: large inputs (e.g. HPRC chr22) are the target. Stream I/O, avoid per-element allocation in hot loops, parallelize with `rayon`, and keep output deterministic.
 - Match surrounding code: doc comments on public items (`# Errors` sections where clippy asks), module-level `//!` docs describing the algorithm or format.

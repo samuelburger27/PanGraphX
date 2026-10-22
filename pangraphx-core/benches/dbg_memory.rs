@@ -12,7 +12,7 @@
 //! * `build_peak`   — peak while constructing the DBG;
 //! * `dbg_retained` — held by the finished DBG;
 //! * `total_peak`   — peak including conversion to a `CoreGraphDTO` (what
-//!   `pangraphx-cli ddb` does before writing the output);
+//!   `pangraphx-cli dbg` does before writing the output);
 //! * `bytes_per_bp` — `total_peak` per path base, the figure to drive down.
 //!
 //! Modes: `standard`, `colored`, `full_topology`, and `compact` /
@@ -157,7 +157,7 @@ struct Sample {
 
 /// Builds the DBG for one configuration. All figures are heap bytes above the
 /// live heap before the input graph was cloned, so they include the input
-/// (which construction consumes), as in `pangraphx-cli ddb`.
+/// (which construction consumes), as in `pangraphx-cli dbg`.
 fn measure(dto: &CoreGraphDTO, mode: Mode, k: usize) -> Sample {
     let base = PeakAlloc::current();
     let graph = dto.clone();
