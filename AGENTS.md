@@ -6,7 +6,7 @@ pangenome graphs. Two crates:
 - `pangraphx-core` — the library: graph model, format codecs, statistics, de Bruijn construction.
 - `pangraphx-cli` — the `pangraphx-cli` binary built on the library.
 
-Supported formats: GFA 1.0 (plus locally supported 1.1 extensions), VG (protobuf), GBZ, ODGI (`.og`), FASTG.
+Supported formats: GFA 1.0 and 1.1 (walks are read, written as P lines), VG (protobuf), GBZ, ODGI (`.og`), FASTG.
 
 ## Git workflow
 
@@ -86,6 +86,7 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 
 - **IDs**: VG and ODGI keep node ids only when every name is a distinct, positive, canonically written integer; otherwise nodes are numbered `1..=n`. `id_map.rs` is shared by VG, GBZ and numeric GFA names.
 - **Fidelity**: VG drops per-step path overlaps; GBZ keeps only what its paths imply (no overlaps, no off-path or repeated edges); ODGI drops overlaps; FASTG drops paths and overlaps.
+- **GFA walks**: `W` lines become paths named as vg names them (`gfa_parser::walk_path_name`, checked against vg 1.73); the writer emits P lines only. odgi ignores W lines and GBZ keeps only a walk's subrange start, so the `walks` fixture has only a VG reference file.
 - **ODGI**: the `.og` layout is odgi-internal and unversioned. `docs/odgi_format.md` documents it; `utils/dump_odgi.py` dumps a file.
 - **GBZ**: unlike `vg gbwt`, we do not chop nodes to 1024 bp, and all paths are written as generic paths.
 

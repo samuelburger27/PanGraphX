@@ -174,7 +174,7 @@ impl GraphFormat {
     pub const fn get_description(&self) -> &str {
         match self {
             Self::GFA => {
-                "Graphical Fragment Assembly (v1.0): An interoperable, text-based standard for representing pangenome nodes, edges, and paths."
+                "Graphical Fragment Assembly (v1.0/v1.1): An interoperable, text-based standard for representing pangenome nodes, edges, and paths."
             }
             Self::VG => {
                 "VG Protobuf: A serialized binary format used by the vg toolkit; supports rich metadata but can be storage-intensive."

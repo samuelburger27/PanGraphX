@@ -31,6 +31,14 @@ fn has_overlaps(graph: &CoreGraphDTO) -> bool {
     graph.edges.iter().any(|e| e.overlap != 0)
 }
 
+/// The fixture has GFA 1.1 walks (`W` lines).
+fn has_walks(gfa: &Path) -> bool {
+    fs::read_to_string(gfa)
+        .unwrap()
+        .lines()
+        .any(|line| line.starts_with("W\t"))
+}
+
 fn context(check: &str, gfa: &Path) -> String {
     format!("{check}, {}", stem(gfa))
 }
@@ -119,6 +127,13 @@ fn we_read_vg_gbz(
     let Some(vg) = require_tool("vg", "we_read_vg_gbz") else {
         return;
     };
+    if has_walks(&gfa) {
+        notice(&format!(
+            "not applicable for {}: vg gbwt keeps only the start of walk subranges",
+            stem(&gfa)
+        ));
+        return;
+    }
     let source = load(&gfa, GraphFormat::GFA);
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("graph.gbz");
@@ -178,6 +193,13 @@ fn we_read_odgi_og(
     if !has_numeric_names(&source) {
         notice(&format!(
             "not applicable for {}: odgi build needs integer segment names",
+            stem(&gfa)
+        ));
+        return;
+    }
+    if has_walks(&gfa) {
+        notice(&format!(
+            "not applicable for {}: odgi build ignores W lines",
             stem(&gfa)
         ));
         return;

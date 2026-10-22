@@ -36,11 +36,13 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 # Fixtures small enough to commit, and the formats each tool cannot write:
 # `vg convert` rejects overlaps (tiny), `odgi build` needs integer names
-# (names_mixed). `vg gbwt --max-node 0` keeps nodes unchopped.
-FIXTURES=(tiny names_mixed random phix escherichia_phage_lambda)
+# (names_mixed) and ignores W lines (walks), and `vg gbwt` keeps only the
+# start of a walk's `[start-end]` subrange (walks). `vg gbwt --max-node 0`
+# keeps nodes unchopped.
+FIXTURES=(tiny names_mixed random phix escherichia_phage_lambda walks)
 skipped() {
     case "$1:$2" in
-        tiny:vg|names_mixed:og) return 0 ;;
+        tiny:vg|names_mixed:og|walks:gbz|walks:og) return 0 ;;
         *) return 1 ;;
     esac
 }
