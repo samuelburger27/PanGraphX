@@ -9,6 +9,30 @@ transforming pangenome graphs, including de Bruijn graph construction.
 - `pangraphx-core` — the library ([README](pangraphx-core/README.md))
 - `pangraphx-cli` — the command-line tool
 
+## Performance
+
+> **Converts the HPRC chr22 graph to VG in 1.8 s instead of 4.5 minutes:
+> 150× faster than `vg convert` with 29× less memory.**
+> Faster than vg and odgi in 5 of 6 conversions on large graphs.
+
+| Conversion | vs. | chr22 PanGraphX | chr22 reference | Speedup | ecoli50 speedup |
+|---|---|---:|---:|---:|---:|
+| GFA → VG | `vg convert` | **1.8 s** / 0.6 GiB | 269.8 s / 17.3 GiB | **150×** | **98×** |
+| VG → GFA | `vg convert` | **7.2 s** / 2.0 GiB | 38.2 s / 4.2 GiB | **5.3×** | **5.7×** |
+| GFA → OG | `odgi build` | **2.5 s** / 1.4 GiB | 7.2 s / 1.6 GiB | **2.9×** | **2.8×** |
+| OG → GFA | `odgi view` | **2.6 s** / 1.3 GiB | 6.7 s / 0.9 GiB | **2.6×** | **2.3×** |
+| GFA → GBZ | `vg gbwt` | **33.4 s** / 1.3 GiB | 36.3 s / 1.8 GiB | **1.1×** | **1.4×** |
+| GBZ → GFA | `vg convert` | 1.5 s / 0.7 GiB | **1.0 s** / 0.6 GiB | 0.7× | 0.7× |
+
+Wall-clock time (mean of 3 runs) / peak RSS against vg v1.73.0 and odgi
+v0.9.4, all threads, Intel Core i5-14500 (20 threads), Linux.
+
+- `chr22`: HPRC v1.1 Minigraph-Cactus chr22, 659 MB GFA, 1.28 M nodes, 512 paths
+- `ecoli50`: 50 *E. coli* genomes, 390 MB GFA, 1.55 M nodes
+
+Full results: [`benchmarks/nymfe_results.md`](benchmarks/nymfe_results.md);
+how to reproduce them: [`benchmarks/README.md`](benchmarks/README.md).
+
 ## Supported formats
 
 | Format | Extension | Notes |
@@ -82,26 +106,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
-
-## Performance
-
-`pangraphx-cli convert` against vg v1.73.0 and odgi v0.9.4: wall-clock time
-(mean of 3 runs) / peak RSS, Intel Core i5-14500, 20 threads, Linux.
-
-- `ecoli50`: 50 *E. coli* genomes, 390 MB GFA, 1.55 M nodes
-- `chr22`: HPRC v1.1 Minigraph-Cactus chr22, 659 MB GFA, 1.28 M nodes, 512 paths
-
-| Conversion | Reference | ecoli50 PanGraphX | ecoli50 reference | chr22 PanGraphX | chr22 reference |
-|---|---|---:|---:|---:|---:|
-| GFA → VG | `vg convert` | **1.3 s** / 0.5 GiB | 127.7 s / 9.6 GiB | **1.8 s** / 0.6 GiB | 269.8 s / 17.3 GiB |
-| VG → GFA | `vg convert` | **4.0 s** / 1.3 GiB | 22.7 s / 2.4 GiB | **7.2 s** / 2.0 GiB | 38.2 s / 4.2 GiB |
-| GFA → GBZ | `vg gbwt` | **17.5 s** / 1.3 GiB | 24.3 s / 1.6 GiB | **33.4 s** / 1.3 GiB | 36.3 s / 1.8 GiB |
-| GBZ → GFA | `vg convert` | 1.0 s / 0.6 GiB | **0.7 s** / 0.6 GiB | 1.5 s / 0.7 GiB | **1.0 s** / 0.6 GiB |
-| GFA → OG | `odgi build` | **1.7 s** / 1.0 GiB | 4.8 s / 1.2 GiB | **2.5 s** / 1.4 GiB | 7.2 s / 1.6 GiB |
-| OG → GFA | `odgi view` | **1.5 s** / 0.8 GiB | 3.5 s / 0.6 GiB | **2.6 s** / 1.3 GiB | 6.7 s / 0.9 GiB |
-
-Full results: [`benchmarks/nymfe_results.md`](benchmarks/nymfe_results.md);
-how to reproduce them: [`benchmarks/README.md`](benchmarks/README.md).
 
 ## Development
 
