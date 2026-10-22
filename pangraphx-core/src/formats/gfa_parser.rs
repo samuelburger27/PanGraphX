@@ -1,16 +1,20 @@
-//! Streaming GFA 1.0 parser.
+//! Streaming GFA 1.0 / 1.1 parser.
 //!
 //! The input is read twice, in bounded blocks of whole lines, so the file text
 //! is never fully resident:
 //!
 //! 1. **Segments.** `S` lines become nodes (in file order) and their names are
-//!    indexed. `L`/`P` lines are only counted, to reserve exact capacities.
-//! 2. **Links and paths.** With the name index complete and read-only, `L` and
-//!    `P` lines are parsed in parallel. This also makes the parser independent
-//!    of record order: a link or path may precede the segments it uses.
+//!    indexed. `L`/`P`/`W` lines are only counted, to reserve exact capacities,
+//!    and the `RS` tag of `H` lines lists the reference samples.
+//! 2. **Links and paths.** With the name index complete and read-only, `L`,
+//!    `P` and `W` lines are parsed in parallel. This also makes the parser
+//!    independent of record order: a link or path may precede the segments it
+//!    uses.
 //!
-//! Records of other types (`H`, `C`, `W`, `J`, comments, ...) are skipped.
-//! Malformed `S`, `L` and `P` records are reported as
+//! `W` lines (GFA 1.1 walks) become paths in file order among the `P` lines,
+//! named from their sample, haplotype, sequence id and range the way vg names
+//! them (see [`walk_path_name`]). Records of other types (`C`, `J`, comments,
+//! ...) are skipped. Malformed `S`, `L`, `P` and `W` records are reported as
 //! [`PanGraphXError::Parse`] with their line number.
 
 use crate::core::core_types::{Edge, NodeId, NodeName, Nodes, Orientation, Path, Step};
@@ -18,7 +22,7 @@ use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::formats::id_map::{IdMap, parse_canonical_int};
 use log::{debug, warn};
-use memchr::{memchr, memchr_iter, memrchr};
+use memchr::{memchr, memchr_iter, memchr2, memrchr};
 use rayon::prelude::*;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use std::io::{ErrorKind, Read, Seek, SeekFrom};
@@ -26,7 +30,7 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom};
 /// Target size of a block of lines read at once.
 const BLOCK_SIZE: usize = 16 << 20;
 
-/// The step list of a long `P` line is split into pieces of about this many
+/// The step list of a long `P` or `W` line is split into pieces of about this many
 /// bytes, which are parsed in parallel.
 const PATH_PIECE_SIZE: usize = 1 << 20;
 
@@ -67,6 +71,7 @@ fn parse_with_block_size<R: Read + Seek>(
     let (edges, paths) = read_links_and_paths(
         &mut BlockReader::new(reader, block_size),
         &index,
+        &segments.reference_samples,
         segments.link_count,
         segments.path_count,
     )?;
@@ -246,7 +251,10 @@ struct Segments {
     /// Segment names, indexed by node id.
     names: Vec<NodeName>,
     link_count: usize,
+    /// Number of `P` and `W` lines.
     path_count: usize,
+    /// Samples listed in `RS` header tags.
+    reference_samples: Vec<Vec<u8>>,
 }
 
 fn read_segments<R: Read>(blocks: &mut BlockReader<'_, R>) -> PanResult<Segments> {
@@ -255,6 +263,7 @@ fn read_segments<R: Read>(blocks: &mut BlockReader<'_, R>) -> PanResult<Segments
         names: Vec::new(),
         link_count: 0,
         path_count: 0,
+        reference_samples: Vec::new(),
     };
     let mut skipped = Vec::new();
     let mut line_no = 0;
@@ -266,7 +275,8 @@ fn read_segments<R: Read>(blocks: &mut BlockReader<'_, R>) -> PanResult<Segments
             match record_type(line) {
                 b"S" => segment_lines.push((line_no, line)),
                 b"L" => segments.link_count += 1,
-                b"P" => segments.path_count += 1,
+                b"P" | b"W" => segments.path_count += 1,
+                b"H" => add_reference_samples(line, &mut segments.reference_samples),
                 b"" => {}
                 other => note_skipped(&mut skipped, other),
             }
@@ -290,6 +300,20 @@ fn read_segments<R: Read>(blocks: &mut BlockReader<'_, R>) -> PanResult<Segments
         )));
     }
     Ok(segments)
+}
+
+/// Adds the samples of an `RS:Z:` header tag, a space-separated list that
+/// marks the walks of those samples as reference paths.
+fn add_reference_samples(header: &[u8], samples: &mut Vec<Vec<u8>>) {
+    for tag in Split::new(header, b'\t').skip(1) {
+        if let Some(list) = tag.strip_prefix(b"RS:Z:") {
+            samples.extend(
+                Split::new(list, b' ')
+                    .filter(|sample| !sample.is_empty())
+                    .map(<[u8]>::to_vec),
+            );
+        }
+    }
 }
 
 /// Returns the line number of the `S` record that defines node `id`.
@@ -402,6 +426,7 @@ impl<'a> SegmentIndex<'a> {
 fn read_links_and_paths<R: Read>(
     blocks: &mut BlockReader<'_, R>,
     index: &SegmentIndex<'_>,
+    reference_samples: &[Vec<u8>],
     link_count: usize,
     path_count: usize,
 ) -> PanResult<(Vec<Edge>, Vec<Path>)> {
@@ -416,7 +441,7 @@ fn read_links_and_paths<R: Read>(
             line_no += 1;
             match record_type(line) {
                 b"L" => link_lines.push((line_no, line)),
-                b"P" => path_lines.push((line_no, line)),
+                b"P" | b"W" => path_lines.push((line_no, line)),
                 _ => {}
             }
         }
@@ -429,7 +454,14 @@ fn read_links_and_paths<R: Read>(
 
         let block_paths = path_lines
             .par_iter()
-            .map(|&(n, line)| parse_path(line, index).map_err(|e| line_error(n, &e)))
+            .map(|&(n, line)| {
+                let path = if line.starts_with(b"W") {
+                    parse_walk(line, index, reference_samples)
+                } else {
+                    parse_path(line, index)
+                };
+                path.map_err(|e| line_error(n, &e))
+            })
             .collect::<PanResult<Vec<Path>>>()?;
         paths.extend(block_paths);
     }
@@ -544,6 +576,112 @@ fn parse_path(line: &[u8], index: &SegmentIndex<'_>) -> RecordResult<Path> {
     })
 }
 
+/// Parses `W <sample> <haplotype> <sequence id> <start> <end> <walk> [tags]`.
+fn parse_walk(
+    line: &[u8],
+    index: &SegmentIndex<'_>,
+    reference_samples: &[Vec<u8>],
+) -> RecordResult<Path> {
+    let mut fields = Split::new(line, b'\t').skip(1);
+    let mut field = |what: &str| {
+        fields
+            .next()
+            .ok_or_else(|| format!("W line without {what}"))
+    };
+    let sample = field("a sample name")?;
+    let haplotype = field("a haplotype index")?;
+    let seq_id = field("a sequence id")?;
+    let start = field("a start position")?;
+    let end = field("an end position")?;
+    let walk = field("a walk")?;
+
+    check_name(sample, "sample name")?;
+    check_name(seq_id, "sequence id")?;
+    let name = walk_path_name(
+        sample,
+        parse_natural(haplotype, "haplotype index")?,
+        seq_id,
+        parse_position(start, "start position")?,
+        parse_position(end, "end position")?,
+        reference_samples,
+    );
+    let steps = parse_walk_steps(walk, index).map_err(|e| format!("walk {}: {e}", lossy(&name)))?;
+    Ok(Path {
+        name,
+        steps,
+        overlaps: Vec::new(),
+    })
+}
+
+/// Parses a non-negative decimal integer.
+fn parse_natural(field: &[u8], what: &str) -> RecordResult<u64> {
+    let invalid = || format!("invalid {what} {:?}", lossy(field));
+    if field.is_empty() {
+        return Err(invalid());
+    }
+    field
+        .iter()
+        .try_fold(0u64, |value, &b| {
+            if !b.is_ascii_digit() {
+                return None;
+            }
+            value.checked_mul(10)?.checked_add(u64::from(b - b'0'))
+        })
+        .ok_or_else(invalid)
+}
+
+/// Parses a walk start or end: an integer, or `*` if unknown.
+fn parse_position(field: &[u8], what: &str) -> RecordResult<Option<u64>> {
+    if field == b"*" {
+        Ok(None)
+    } else {
+        parse_natural(field, what).map(Some)
+    }
+}
+
+/// Names a walk the way vg's GFA reader does (libhandlegraph
+/// `PathMetadata::create_path_name`; checked against vg 1.73):
+///
+/// - sample `*`: generic path `seq_id`
+/// - sample listed in an `RS` header tag: reference path `sample#haplotype#seq_id`
+/// - any other sample: haplotype path `sample#haplotype#seq_id#0`
+///
+/// followed by the subrange `[start-end]` (`[start]` if the end is `*`), unless
+/// the start is 0 or `*`. The GBZ reader (`gbz_format::path_name`) builds the
+/// same names from GBZ metadata, which keeps only the subrange start.
+fn walk_path_name(
+    sample: &[u8],
+    haplotype: u64,
+    seq_id: &[u8],
+    start: Option<u64>,
+    end: Option<u64>,
+    reference_samples: &[Vec<u8>],
+) -> Vec<u8> {
+    let mut itoa_buf = itoa::Buffer::new();
+    let mut name = Vec::with_capacity(sample.len() + seq_id.len() + 48);
+    let generic = sample == b"*";
+    if !generic {
+        name.extend_from_slice(sample);
+        name.push(b'#');
+        name.extend_from_slice(itoa_buf.format(haplotype).as_bytes());
+        name.push(b'#');
+    }
+    name.extend_from_slice(seq_id);
+    if !generic && !reference_samples.iter().any(|s| s == sample) {
+        name.extend_from_slice(b"#0");
+    }
+    if let Some(start) = start.filter(|&start| start != 0) {
+        name.push(b'[');
+        name.extend_from_slice(itoa_buf.format(start).as_bytes());
+        if let Some(end) = end {
+            name.push(b'-');
+            name.extend_from_slice(itoa_buf.format(end).as_bytes());
+        }
+        name.push(b']');
+    }
+    name
+}
+
 /// Splits a comma-separated list into pieces of about `piece_size` bytes,
 /// cutting only at commas (which are dropped).
 fn split_at_commas(list: &[u8], piece_size: usize) -> Vec<&[u8]> {
@@ -561,15 +699,52 @@ fn split_at_commas(list: &[u8], piece_size: usize) -> Vec<&[u8]> {
     pieces
 }
 
+/// Splits a walk `>name<name...` into pieces of about `piece_size` bytes,
+/// cutting only before an orientation (which stays with its step).
+fn split_at_orientations(walk: &[u8], piece_size: usize) -> Vec<&[u8]> {
+    let mut pieces = Vec::with_capacity(walk.len() / piece_size + 1);
+    let mut rest = walk;
+    while rest.len() > piece_size {
+        let Some(offset) = memchr2(b'>', b'<', &rest[piece_size..]) else {
+            break;
+        };
+        let cut = piece_size + offset;
+        pieces.push(&rest[..cut]);
+        rest = &rest[cut..];
+    }
+    pieces.push(rest);
+    pieces
+}
+
 /// Parses a step list `name+,name-,...`; long lists are parsed in parallel pieces.
 fn parse_steps(list: &[u8], index: &SegmentIndex<'_>) -> RecordResult<Vec<Step>> {
-    let pieces = split_at_commas(list, PATH_PIECE_SIZE);
-    if let [piece] = pieces.as_slice() {
-        return parse_step_piece(piece, index);
+    parse_pieces(&split_at_commas(list, PATH_PIECE_SIZE), |piece| {
+        parse_step_piece(piece, index)
+    })
+}
+
+/// Parses a walk `>name<name...`; long walks are parsed in parallel pieces.
+fn parse_walk_steps(walk: &[u8], index: &SegmentIndex<'_>) -> RecordResult<Vec<Step>> {
+    if walk.is_empty() {
+        return Err("empty walk".to_string());
+    }
+    parse_pieces(&split_at_orientations(walk, PATH_PIECE_SIZE), |piece| {
+        parse_walk_piece(piece, index)
+    })
+}
+
+/// Parses the pieces of a step list, in parallel if there are several, and
+/// concatenates their steps.
+fn parse_pieces<F>(pieces: &[&[u8]], parse_piece: F) -> RecordResult<Vec<Step>>
+where
+    F: Fn(&[u8]) -> RecordResult<Vec<Step>> + Sync,
+{
+    if let [piece] = pieces {
+        return parse_piece(piece);
     }
     let parsed = pieces
         .par_iter()
-        .map(|piece| parse_step_piece(piece, index))
+        .map(|piece| parse_piece(piece))
         .collect::<RecordResult<Vec<Vec<Step>>>>()?;
     let mut steps = Vec::with_capacity(parsed.iter().map(Vec::len).sum());
     for piece in parsed {
@@ -594,6 +769,30 @@ fn parse_step_piece(piece: &[u8], index: &SegmentIndex<'_>) -> RecordResult<Vec<
         }
         let node_id = index.resolve_or_err(name)?;
         steps.push(Step::new(node_id, orientation).map_err(|e| e.to_string())?);
+    }
+    Ok(steps)
+}
+
+fn parse_walk_piece(piece: &[u8], index: &SegmentIndex<'_>) -> RecordResult<Vec<Step>> {
+    // A plain count vectorizes; `memchr2_iter(..).count()` visits every match.
+    let step_count = piece.iter().filter(|&&b| b == b'>' || b == b'<').count();
+    let mut steps = Vec::with_capacity(step_count);
+    let mut rest = piece;
+    while let Some((&orientation, after)) = rest.split_first() {
+        let orientation = match orientation {
+            b'>' => Orientation::Forward,
+            b'<' => Orientation::Reverse,
+            // Pieces are cut before orientations, so only a walk can start this way.
+            _ => return Err("walk does not start with > or <".to_string()),
+        };
+        let end = memchr2(b'>', b'<', after).unwrap_or(after.len());
+        let name = &after[..end];
+        if name.is_empty() {
+            return Err("empty walk step".to_string());
+        }
+        let node_id = index.resolve_or_err(name)?;
+        steps.push(Step::new(node_id, orientation).map_err(|e| e.to_string())?);
+        rest = &after[end..];
     }
     Ok(steps)
 }
@@ -652,6 +851,61 @@ mod tests {
         assert_eq!(g.paths[1].overlaps, Vec::<u32>::new());
     }
 
+    /// Every vg naming case: reference (`RS`), haplotype and generic walks,
+    /// with and without subranges, between `P` lines.
+    const WALKS: &str = "H\tVN:Z:1.1\tRS:Z:GRCh38  CHM13\n\
+        S\t1\tACGT\n\
+        S\t2\tGG\n\
+        P\tfirst\t1+,2+\t*\n\
+        W\tGRCh38\t0\tchr1\t0\t6\t>1>2\n\
+        W\tCHM13\t2\tchr1\t100\t106\t>1>2\n\
+        W\tHG1\t1\tctgA\t0\t6\t<2<1\n\
+        W\tHG1\t2\tctgB\t5\t*\t>2\tSR:i:0\n\
+        W\tHG2\t0\tctgC\t*\t*\t>1<2>1\n\
+        W\t*\t0\tunplaced\t7\t11\t>1\n\
+        P\tlast\t2-\t*\n";
+
+    #[test]
+    fn parses_walks_as_named_paths() {
+        let g = parse_str(WALKS).unwrap();
+        let names: Vec<String> = g.paths.iter().map(|p| lossy(&p.name).into()).collect();
+        assert_eq!(
+            names,
+            [
+                "first",
+                "GRCh38#0#chr1",
+                "CHM13#2#chr1[100-106]",
+                "HG1#1#ctgA#0",
+                "HG1#2#ctgB#0[5]",
+                "HG2#0#ctgC#0",
+                "unplaced[7-11]",
+                "last"
+            ]
+        );
+        assert_eq!(
+            step_names(&g, 3),
+            vec![
+                ("2".into(), Orientation::Reverse),
+                ("1".into(), Orientation::Reverse)
+            ]
+        );
+        assert_eq!(
+            step_names(&g, 5),
+            vec![
+                ("1".into(), Orientation::Forward),
+                ("2".into(), Orientation::Reverse),
+                ("1".into(), Orientation::Forward)
+            ]
+        );
+        assert!(g.paths.iter().all(|p| p.overlaps.is_empty()));
+    }
+
+    #[test]
+    fn walks_without_reference_samples_are_haplotypes() {
+        let g = parse_str("S\ta\tA\nW\tGRCh38\t0\tchr1\t0\t1\t>a\n").unwrap();
+        assert_eq!(g.paths[0].name, b"GRCh38#0#chr1#0");
+    }
+
     #[test]
     fn crlf_and_missing_final_newline() {
         let text = SMALL.replace('\n', "\r\n");
@@ -686,8 +940,7 @@ mod tests {
 
     #[test]
     fn skips_other_record_types() {
-        let text =
-            "# comment\nH\tVN:Z:1.1\nS\t1\tA\n\nW\tx\t0\tc\t0\t1\t>1\nC\t1\t+\t1\t+\t0\t1M\n";
+        let text = "# comment\nH\tVN:Z:1.2\nS\t1\tA\n\nC\t1\t+\t1\t+\t0\t1M\nJ\t1\t+\t1\t+\t*\n";
         let g = parse_str(text).unwrap();
         assert_eq!(g.nodes.len(), 1);
         assert!(g.edges.is_empty() && g.paths.is_empty());
@@ -736,6 +989,42 @@ mod tests {
             ),
             ("S\t1\tA\nP\tp\t1+,,1+\t*\n", "line 2: path p: empty step"),
             ("S\t1\tA\nP\tp\t1+\n", "line 2: path p has no overlap field"),
+            (
+                "S\t1\tA\nW\ts\t1\tc\t0\t1\n",
+                "line 2: W line without a walk",
+            ),
+            (
+                "S\t1\tA\nW\ts\tx\tc\t0\t1\t>1\n",
+                "line 2: invalid haplotype index \"x\"",
+            ),
+            (
+                "S\t1\tA\nW\ts\t1\tc\t-1\t1\t>1\n",
+                "line 2: invalid start position \"-1\"",
+            ),
+            (
+                "S\t1\tA\nW\ts\t1\tc\t0\t99999999999999999999\t>1\n",
+                "line 2: invalid end position",
+            ),
+            (
+                "S\t1\tA\nW\t\t1\tc\t0\t1\t>1\n",
+                "line 2: empty sample name",
+            ),
+            (
+                "S\t1\tA\nW\ts\t1\tc\t0\t1\t*\n",
+                "line 2: walk s#1#c#0: walk does not start with > or <",
+            ),
+            (
+                "S\t1\tA\nW\ts\t1\tc\t0\t1\t>1<\n",
+                "line 2: walk s#1#c#0: empty walk step",
+            ),
+            (
+                "S\t1\tA\nW\ts\t1\tc\t0\t1\t\n",
+                "line 2: walk s#1#c#0: empty walk",
+            ),
+            (
+                "S\t1\tA\nW\ts\t1\tc\t0\t1\t>1>2\n",
+                "line 2: walk s#1#c#0: reference to undefined segment 2",
+            ),
         ];
         for (text, expected) in cases {
             let message = err(text);
@@ -757,10 +1046,13 @@ mod tests {
     #[test]
     fn tiny_blocks_match_default_blocks() {
         // Every block boundary falls inside a line; some lines exceed a block.
-        let reference = parse_str(SMALL).unwrap();
-        for block_size in [1, 2, 7, 16] {
-            let g = parse_with_block_size(&mut Cursor::new(SMALL.as_bytes()), block_size).unwrap();
-            assert_eq!(g, reference, "block size {block_size}");
+        for text in [SMALL, WALKS] {
+            let reference = parse_str(text).unwrap();
+            for block_size in [1, 2, 7, 16] {
+                let g =
+                    parse_with_block_size(&mut Cursor::new(text.as_bytes()), block_size).unwrap();
+                assert_eq!(g, reference, "block size {block_size}");
+            }
         }
     }
 
@@ -785,6 +1077,43 @@ mod tests {
         text.push_str("\t*\n");
         let g = parse_str(&text).unwrap();
         assert!(steps.join(",").len() > PATH_PIECE_SIZE);
+        assert_eq!(g.paths[0].steps.len(), 300_000);
+        assert!(
+            g.paths[0]
+                .steps
+                .iter()
+                .enumerate()
+                .all(|(i, s)| s.node_id() == i && s.is_reverse())
+        );
+    }
+
+    #[test]
+    fn long_walks_are_split_in_pieces() {
+        let walk: Vec<u8> = (0..100)
+            .flat_map(|i| format!("{}{i}", if i % 3 == 0 { '<' } else { '>' }).into_bytes())
+            .collect();
+        for piece_size in [1, 5, 64, walk.len()] {
+            let pieces = split_at_orientations(&walk, piece_size);
+            assert_eq!(pieces.concat(), walk, "piece size {piece_size}");
+            assert!(
+                pieces
+                    .iter()
+                    .all(|p| matches!(p.first(), Some(b'>' | b'<'))),
+                "piece size {piece_size}"
+            );
+        }
+
+        let mut text = String::new();
+        for i in 0..300_000 {
+            writeln!(text, "S\t{i}\tA").unwrap();
+        }
+        text.push_str("W\ts\t1\tc\t0\t*\t");
+        for i in 0..300_000 {
+            write!(text, "<{i}").unwrap();
+        }
+        text.push('\n');
+        let g = parse_str(&text).unwrap();
+        assert!(text.lines().last().unwrap().len() > PATH_PIECE_SIZE);
         assert_eq!(g.paths[0].steps.len(), 300_000);
         assert!(
             g.paths[0]

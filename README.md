@@ -17,7 +17,7 @@ A fast and efficient Rust library and command-line tool for working with pangeno
 
 ## Supported Formats
 
-- **GFA** (Graphical Fragment Assembly) v1.0, v1.1 with local extensions
+- **GFA** (Graphical Fragment Assembly) v1.0 and v1.1. Walks (`W` lines) are read as paths named the way vg names them (`sample#haplotype#contig#0`, `sample#haplotype#contig` for samples listed in the `RS` header tag, plus `[start-end]` when the walk starts past 0) and written as `P` lines; `C` and `J` lines are ignored
 - **GBZ** (Graph Bioinformatics Zipped) - compressed graph format
 - **VG** (Variation Graph) - protobuf-based variation graph format
 - **FASTG** (FASTA Gapped) - sequence format with assembly graph metadata; written in the SPAdes style (both strands, `EDGE_<name>_length_<len>_cov_1` names). Paths and overlaps are dropped
