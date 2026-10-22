@@ -1,41 +1,17 @@
-use anyhow::{Context, Result};
+use crate::cli::args_parser::InputArgs;
+use crate::graph_io::load_graph;
+use crate::utils::group;
+use anyhow::Result;
 use colored::Colorize;
-use log::debug;
-use pangraphx_core::{CoreGraph, CoreGraphDTO, GraphStats};
+use pangraphx_core::{CoreGraph, GraphStats};
 
-use crate::{cli::args_parser::StatsArgs, handle_convert::infer_graph_format};
-
-pub fn handle_stats(args: &StatsArgs) -> Result<()> {
-    debug!("Arguments for stats: {args:#?}");
-    let format = infer_graph_format(&args.file, args.format.as_ref()).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Input graph format is not supported or couldn't be inferred: {}",
-            args.file
-        )
-    })?;
-    println!(
-        "{} {}",
-        "📂".bright_cyan(),
-        format!("Loading file: {}", args.file).bold()
-    );
-    println!("   {} {}", "Format:".dimmed(), format.to_string().green());
-
-    let dto = CoreGraphDTO::load_from_file(&args.file, format).with_context(|| {
-        format!(
-            "failed to load '{}' as {}",
-            args.file,
-            format.to_string().to_uppercase()
-        )
-    })?;
-    let graph = CoreGraph::new(dto);
-    let stats = graph.compute_stats();
-
-    print_graph_stats(&stats);
+pub fn handle_stats(args: &InputArgs) -> Result<()> {
+    let graph = CoreGraph::new(load_graph(args)?);
+    print_graph_stats(&graph.compute_stats());
     Ok(())
 }
 
 fn print_graph_stats(stats: &GraphStats) {
-    println!();
     println!("{}", "Graph Statistics:".bold().bright_cyan());
     println!("{}", format!("{:-<50}", "").dimmed());
 
@@ -121,20 +97,6 @@ fn print_stat(label: &str, value: &str) {
         format!("{label:<18}").yellow(),
         value.bright_white().bold()
     );
-}
-
-/// Formats a number with thousands separators, e.g. `45310` -> `45,310`.
-fn group(n: usize) -> String {
-    let digits = n.to_string();
-    let len = digits.len();
-    let mut out = String::with_capacity(len + len / 3);
-    for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (len - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
 }
 
 /// Renders the total-degree histogram, grouping all degrees `>= CAP` into one bucket

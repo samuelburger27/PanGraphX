@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use pangraphx_core::GraphFormat;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -11,6 +12,35 @@ use clap::{Args, Parser, Subcommand};
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
+
+    /// Number of worker threads [default: all cores]
+    #[arg(
+        long,
+        global = true,
+        display_order = 100,
+        value_name = "N",
+        value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..)
+    )]
+    pub threads: Option<usize>,
+
+    #[arg(
+        short = 'v',
+        long,
+        global = true,
+        display_order = 101,
+        conflicts_with = "quiet",
+        help = "Log debug messages to stderr (RUST_LOG overrides)"
+    )]
+    pub verbose: bool,
+
+    #[arg(
+        short = 'q',
+        long,
+        global = true,
+        display_order = 102,
+        help = "Only log warnings and errors to stderr (RUST_LOG overrides)"
+    )]
+    pub quiet: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -18,71 +48,71 @@ pub enum Commands {
     /// Convert genome graphs between formats
     #[command(
         arg_required_else_help = true,
-        after_help = "Examples:\n  pangraphx-cli convert graph.gfa -o graph.gbz\n  pangraphx-cli convert graph.dat -o graph.vg --from gfa"
+        after_help = "Examples:\n  pangraphx-cli convert graph.gfa -o graph.gbz\n  pangraphx-cli convert graph.dat -o graph.vg --from gfa\n  zcat graph.gfa.gz | pangraphx-cli convert - --from gfa -o - --to vg > graph.vg"
     )]
     Convert(ConvertArgs),
 
-    /// Convert variation graph to De Bruijn graph
+    /// Build a de Bruijn graph from a variation graph
     #[command(
         arg_required_else_help = true,
-        after_help = "Examples:\n  pangraphx-cli ddb graph.vg -k 31 -o dbg.gfa\n  pangraphx-cli ddb graph.gfa -k 21 -c --compact -o unitigs.gfa"
+        after_help = "Examples:\n  pangraphx-cli dbg graph.vg -k 31 -o dbg.gfa\n  pangraphx-cli dbg graph.gfa -k 21 -c --compact -o unitigs.gfa"
     )]
-    Ddb(DeBruijnArgs),
+    Dbg(DbgArgs),
 
     /// Show basic information about a graph file
     #[command(arg_required_else_help = true)]
-    Info(InfoArgs),
+    Info(InputArgs),
 
     /// Show detailed statistics about a graph file
     #[command(arg_required_else_help = true)]
-    Stats(StatsArgs),
+    Stats(InputArgs),
 
     /// List supported graph formats
     #[command(visible_alias = "formats")]
     Format,
 }
 
+/// Graph to read; `-` reads standard input.
 #[derive(Args, Debug)]
-pub struct ConvertArgs {
-    /// Input file path (format inferred from suffix)
+pub struct InputArgs {
+    /// Input file, or - for stdin (format inferred from the extension)
     #[arg(value_name = "INPUT")]
     pub input: String,
 
-    /// Output file path (format inferred from suffix)
-    #[arg(short = 'o', long)]
+    /// Input format (gfa, gbz, vg, fastg, og); required for stdin
+    #[arg(short = 'f', long, alias = "format", value_name = "FORMAT", value_parser = parse_format)]
+    pub from: Option<GraphFormat>,
+}
+
+/// Graph to write; `-` writes standard output.
+#[derive(Args, Debug)]
+pub struct OutputArgs {
+    /// Output file, or - for stdout (format inferred from the extension)
+    #[arg(short = 'o', long, value_name = "OUTPUT")]
     pub output: String,
 
-    /// Override input format (e.g. gfa, gbz, fastg)
-    #[arg(long)]
-    pub from: Option<String>,
-
-    /// Override output format (e.g. gfa, gbz, fastg)
-    #[arg(long)]
-    pub to: Option<String>,
+    /// Output format (gfa, gbz, vg, fastg, og); required for stdout
+    #[arg(long, value_name = "FORMAT", value_parser = parse_format)]
+    pub to: Option<GraphFormat>,
 }
 
 #[derive(Args, Debug)]
-pub struct InfoArgs {
-    #[arg(help = "Graph file to inspect")]
-    pub file: String,
+pub struct ConvertArgs {
+    #[command(flatten)]
+    pub input: InputArgs,
 
-    /// Override input format (e.g. gfa, gbz, fastg)
-    #[arg(short = 'f', long)]
-    pub format: Option<String>,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 #[derive(Args, Debug)]
-pub struct StatsArgs {
-    #[arg(help = "Graph file to analyze")]
-    pub file: String,
+pub struct DbgArgs {
+    #[command(flatten)]
+    pub input: InputArgs,
 
-    /// Override input format (e.g. gfa, gbz, fastg)
-    #[arg(short = 'f', long)]
-    pub format: Option<String>,
-}
+    #[command(flatten)]
+    pub output: OutputArgs,
 
-#[derive(Args, Debug)]
-pub struct DeBruijnArgs {
     /// k-mer size (1-63)
     #[arg(
         short = 'k',
@@ -92,31 +122,28 @@ pub struct DeBruijnArgs {
     )]
     pub kmer_size: usize,
 
-    /// Colored DBG
-    #[arg(short = 'c', long, default_value_t = false)]
+    /// Colored DBG: keep every input path as a walk through the k-mers
+    #[arg(short = 'c', long)]
     pub colored: bool,
 
-    /// Use all topological walks to create edges ( otherwise use only haplotype paths)
-    #[arg(short = 't', long = "full-topology", default_value_t = false)]
+    /// Use every walk of the bidirected graph, not only the paths
+    #[arg(short = 't', long = "full-topology", conflicts_with = "colored")]
     pub full_topology: bool,
 
     /// Merge non-branching chains of k-mers into unitig nodes
-    #[arg(short = 'u', long, default_value_t = false)]
+    #[arg(short = 'u', long)]
     pub compact: bool,
+}
 
-    /// Input file path (format inferred from suffix)
-    #[arg(value_name = "INPUT")]
-    pub input: String,
-
-    /// Output file path (format inferred from suffix)
-    #[arg(short = 'o', long)]
-    pub output: String,
-
-    /// Override input format (e.g. gfa, gbz, fastg)
-    #[arg(long)]
-    pub from: Option<String>,
-
-    /// Override output format (e.g. gfa, gbz, fastg)
-    #[arg(long)]
-    pub to: Option<String>,
+/// Parses a format given by its extension (`og`) or its name (`odgi`), ignoring case.
+fn parse_format(value: &str) -> Result<GraphFormat, String> {
+    GraphFormat::from_extension(value)
+        .ok()
+        .or_else(|| GraphFormat::iter().find(|f| f.to_string().eq_ignore_ascii_case(value)))
+        .ok_or_else(|| {
+            let known: Vec<_> = GraphFormat::iter()
+                .map(|f| f.get_extension().to_string())
+                .collect();
+            format!("unknown format (expected one of: {})", known.join(", "))
+        })
 }

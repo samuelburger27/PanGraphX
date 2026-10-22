@@ -7,7 +7,7 @@
 | `parallel` | criterion | Rayon thread scaling (1 → all cores) of DBG, GFA parse, GFA serialize |
 | `dbg_memory` | custom bench | Peak **heap** of DBG construction over mode × *k* × threads (deterministic) |
 | `compare_tools.sh` | shell + hyperfine | Wall-clock time and peak RSS of PanGraphX vs. `vg` / `odgi` conversions |
-| `dbg.sh` | shell + `time` | End-to-end `pangraphx-cli ddb` time + peak RSS over mode × *k* × threads, memory-guarded |
+| `dbg.sh` | shell + `time` | End-to-end `pangraphx-cli dbg` time + peak RSS over mode × *k* × threads, memory-guarded |
 
 The Criterion benches measure in-process CPU cost with disk I/O excluded. The
 shell scripts measure whole CLI runs the way a user experiences them.
@@ -165,7 +165,7 @@ benchmarks/dbg.sh mycoplasma_genitalium merged
 K_VALUES="31" THREADS="1 2 4 8" MODES="standard colored compact" benchmarks/dbg.sh ecoli50
 ```
 
-This runs `pangraphx-cli ddb` for each dataset × mode × *k* × thread count
+This runs `pangraphx-cli dbg` for each dataset × mode × *k* × thread count
 (`RAYON_NUM_THREADS`). For every configuration it records peak RSS and wall
 time, both to `dbg.csv` and to `dbg.md`.
 Peak RSS comes from GNU time on Linux (`apt install time`) or the built-in

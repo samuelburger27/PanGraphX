@@ -61,6 +61,13 @@ Explicitly specify input and output formats:
 pangraphx-cli convert graph.gfa -o graph.gbz --from gfa --to gbz
 ```
 
+Use `-` for standard input or output. A stream has no extension, so its format
+must be given with `--from` / `--to`:
+
+```bash
+zcat graph.gfa.gz | pangraphx-cli convert - --from gfa -o - --to vg > graph.vg
+```
+
 #### Inspect Graph Files
 
 Display basic information about a graph:
@@ -82,7 +89,7 @@ pangraphx-cli stats graph.gfa
 Override the input format when it cannot be inferred from the file extension:
 
 ```bash
-pangraphx-cli stats graph.dat --format gfa
+pangraphx-cli stats graph.dat --from gfa
 ```
 
 Example output:
@@ -114,28 +121,37 @@ Convert a variation graph to a de Bruijn graph with k-mer size 31 (1-63).
 Nodes are the canonical k-mers of the sequences spelled by the paths:
 
 ```bash
-pangraphx-cli ddb graph.vg -k 31 -o dbg_graph.gfa
+pangraphx-cli dbg graph.vg -k 31 -o dbg_graph.gfa
 ```
 
 Generate a colored de Bruijn graph (for multi-sample analysis); every input
 path is kept as a walk through the k-mers:
 
 ```bash
-pangraphx-cli ddb graph.vg -k 31 -c -o colored_dbg.gfa
+pangraphx-cli dbg graph.vg -k 31 -c -o colored_dbg.gfa
 ```
 
 Use full topology (all topological walks instead of just haplotype paths):
 
 ```bash
-pangraphx-cli ddb graph.vg -k 31 --full-topology -o full_dbg.gfa
+pangraphx-cli dbg graph.vg -k 31 --full-topology -o full_dbg.gfa
 ```
 
 Add `--compact` to any of these to merge non-branching k-mer chains into
 unitig nodes, which makes the output graph much smaller:
 
 ```bash
-pangraphx-cli ddb graph.vg -k 31 -c --compact -o colored_unitigs.gfa
+pangraphx-cli dbg graph.vg -k 31 -c --compact -o colored_unitigs.gfa
 ```
+
+#### Threads and Logging
+
+Every subcommand accepts these options:
+
+- `--threads N` limits the worker threads (default: all cores).
+- Progress and log messages go to stderr, so stdout carries only data.
+  `-q/--quiet` keeps only warnings and errors, `-v/--verbose` adds debug
+  messages, and `RUST_LOG` overrides both.
 
 ### Library Usage
 
@@ -302,7 +318,9 @@ cargo test --package pangraphx-core -- formats::gfa_format
 Enable debug logging:
 
 ```bash
-RUST_LOG=debug pangraphx-cli convert graph.gfa -o graph.vg
+pangraphx-cli -v convert graph.gfa -o graph.vg
+# or, for finer control
+RUST_LOG=pangraphx_core=debug pangraphx-cli convert graph.gfa -o graph.vg
 ```
 
 ## License
