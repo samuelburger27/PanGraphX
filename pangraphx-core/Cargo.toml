@@ -19,7 +19,7 @@ workspace = true
 
 [dependencies]
 bio = "3.0.0"
-gbz = { git = "https://github.com/samuelburger27/gbwt-rs", branch = "gbz_construction" }
+gbz-construct = "0.1.0"
 log = "0.4.28"
 prost = "0.13"
 rayon = "1.7"
