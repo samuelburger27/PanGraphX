@@ -204,14 +204,3 @@ Takeaways:
    is the smaller case of the same thing: reading a format and serializing GFA in one go.
 5. **Hardware threads vs. cores.** The i5-14500 has 14 cores (6 P + 8 E) and
    20 hardware threads. `20` is therefore the right "all threads" value.
-
-## Conclusions for the thesis
-
-- Headline claims that the data supports: GFA → VG 100–150× faster and 18–28×
-  less memory than vg; GFA → OG ~2.8× faster than odgi on
-  graphs of 400–700 MB; VG → GFA ~5× faster and about half the memory of vg.
-- Claims to word carefully: GFA → GBZ ("comparable to vg, up to 1.4× faster, with
-  less memory"), and everything under ~100 ms.
-- Known losses to state honestly: GBZ → GFA on large graphs (vg 1.4–1.6× faster)
-  and OG → GFA peak memory (1.3–1.5× odgi).
-- Reproduce with `benchmarks/compare_tools.sh` on the same machine.

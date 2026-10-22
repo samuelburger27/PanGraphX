@@ -9,6 +9,19 @@ transforming pangenome graphs, including de Bruijn graph construction.
 - `pangraphx-core` — the library ([README](pangraphx-core/README.md))
 - `pangraphx-cli` — the command-line tool
 
+## Supported formats
+
+| Format | Extension | Notes |
+|---|---|---|
+| GFA 1.0 / 1.1 | `.gfa` | `W` lines are read as paths with vg-style names and written as `P` lines; `C`/`J` lines are ignored |
+| VG | `.vg` | Older protobuf format, per-step path overlaps are dropped |
+| GBZ | `.gbz` | keeps only what the paths imply (no overlaps, off-path edges); nodes are not chopped |
+| ODGI | `.og` | native reader/writer; overlaps are dropped |
+| FASTG | `.fastg` | SPAdes dialect; paths and overlaps are dropped |
+
+VG and ODGI keep node ids when every node name is a distinct positive integer;
+otherwise nodes are numbered `1..=n`.
+
 ## Performance
 
 > **Converts the HPRC chr22 graph to VG in 1.8 s instead of 4.5 minutes:
@@ -32,19 +45,6 @@ v0.9.4, all threads, Intel Core i5-14500 (20 threads), Linux.
 
 Full results: [`benchmarks/nymfe_results.md`](benchmarks/nymfe_results.md);
 how to reproduce them: [`benchmarks/README.md`](benchmarks/README.md).
-
-## Supported formats
-
-| Format | Extension | Notes |
-|---|---|---|
-| GFA 1.0 / 1.1 | `.gfa` | `W` lines are read as paths with vg-style names and written as `P` lines; `C`/`J` lines are ignored |
-| VG | `.vg` | per-step path overlaps are dropped |
-| GBZ | `.gbz` | keeps only what the paths imply (no overlaps, off-path edges); nodes are not chopped |
-| ODGI | `.og` | native reader/writer; overlaps are dropped |
-| FASTG | `.fastg` | SPAdes dialect; paths and overlaps are dropped |
-
-VG and ODGI keep node ids when every node name is a distinct positive integer;
-otherwise nodes are numbered `1..=n`.
 
 ## Installation
 
