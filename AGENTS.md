@@ -51,7 +51,7 @@ pangraphx-core/src/
     gfa_format.rs        GFACodec; parallel chunked writer
     gfa_parser.rs        in-house streaming two-pass GFA parser (no external GFA crate)
     vg_format.rs         VGCodec; libvgio framing, chunked Graph messages
-    gbz_format.rs        GBZCodec via the `gbz` crate (fork); writes GBZ version 2 for vg compatibility
+    gbz_format.rs        GBZCodec via the `gbz-construct` crate; writes GBZ version 2 for vg compatibility
     odgi_format.rs       ODGICodec; native .og reader/writer (no odgi dependency)
     fastg_format.rs      FastgCodec; SPAdes/Bandage dialect, paths and overlaps dropped
     id_map.rs            external integer id → NodeId (dense table or hash map)
