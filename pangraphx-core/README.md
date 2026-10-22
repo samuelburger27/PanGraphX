@@ -1,17 +1,14 @@
 # pangraphx-core
 
-Core library for [PanGraphX](https://github.com/samuelburger27/PanGraphX): a toolkit for
-genome graph loading, manipulation, and format conversion.
+Library behind [PanGraphX](https://github.com/samuelburger27/PanGraphX): reading,
+writing and transforming pangenome graphs.
 
-## Features
+- Formats: GFA 1.0/1.1, VG, GBZ, ODGI (`.og`) and FASTG, dispatched through `GraphFormat`
+- `CoreGraphDTO` (what parsers return and serializers take) and the mutable `CoreGraph`
+- Graph statistics: N50, connected components, degree and path-length distributions
+- de Bruijn graphs (`DeBruijn`, colored `ColoredDBG`) for k = 1–63, optionally compacted into unitigs
 
-- A common graph DTO (`CoreGraphDTO`) and a mutable graph type with lookup/manipulation
-  helpers (`CoreGraph`)
-- Parsing and serialization for multiple pangenome graph formats: GFA, VG, GBZ, FASTG
-  (SPAdes dialect, no paths or overlaps) and ODGI (native `.og` reader/writer, no
-  overlaps)
-- de Bruijn graph construction, including colored de Bruijn graphs
-- Graph statistics (sequence-length/N50, connected components, degree and path distributions)
+Building requires `protoc`.
 
 ## Usage
 
@@ -21,20 +18,26 @@ pangraphx-core = "0.1"
 ```
 
 ```rust,no_run
-use std::fs::File;
-use pangraphx_core::GraphFormat;
+use pangraphx_core::{CoreGraph, CoreGraphDTO, DeBruijn, GraphFormat};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut input = File::open("graph.gfa")?;
-    let parser = GraphFormat::GFA.get_parser();
-    let graph = parser.parse(&mut input)?;
+    // Convert GFA to GBZ
+    let graph = CoreGraphDTO::load_from_file("graph.gfa", GraphFormat::GFA)?;
+    graph.save_to_file("graph.gbz", GraphFormat::GBZ)?;
 
-    let serializer = GraphFormat::GBZ.get_serializer();
-    let mut output = File::create("graph.gbz")?;
-    serializer.serialize(&graph, &mut output)?;
+    // Statistics
+    let stats = CoreGraph::new(graph.clone()).compute_stats();
+    println!("{} nodes, N50 {} bp", stats.node_count, stats.node_len.n50);
+
+    // de Bruijn graph with k = 31, compacted into unitigs
+    let dbg = DeBruijn::from_directed_graph(graph, 31)?;
+    dbg.into_compacted_dto()?.save_to_file("unitigs.gfa", GraphFormat::GFA)?;
     Ok(())
 }
 ```
+
+For streams, use `CoreGraphDTO::load` / `save`, or `GraphFormat::get_parser` /
+`get_serializer` directly.
 
 ## License
 
