@@ -3,8 +3,8 @@ use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::formats::id_map::IdMap;
 use crate::traits::{GraphParser, GraphSerializer};
-use gbz::sequences::Sequences;
-use gbz::{
+use gbz_construct::sequences::Sequences;
+use gbz_construct::{
     FullPathName, GBWTBuilder, GBZ, GENERIC_HAPLOTYPE, GENERIC_SAMPLE, GraphBuilder, Metadata,
     Orientation as GbzOrientation, Tags, support,
 };
