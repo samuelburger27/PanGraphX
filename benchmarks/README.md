@@ -16,8 +16,8 @@ shell scripts measure whole CLI runs the way a user experiences them.
 
 | Location | Contents |
 |----------|----------|
-| `pangraphx-core/tests/test_files/gfa/` | Small curated fixtures (phiX174, phage λ, *M. genitalium*, merged, synthetic) |
-| `benchmarks/data/` (gitignored) | Large graphs: `ecoli50`, `chr22.hprc-v1.1-mc-grch38`. Fetch with `utils/download_gfa.sh` |
+| `pangraphx-core/tests/test_files/gfa/` | Small curated fixtures (phiX174, phage λ, *M. genitalium*, merged, small synthetic) |
+| `benchmarks/data/` (gitignored) | Large graphs: `ecoli50`, `chr22.hprc-v1.1-mc-grch38` (fetch with `utils/download_gfa.sh`) and `random_medium` (60 MB synthetic, generated on demand by `utils/generate_gfa.py`) |
 
 Only GFA files are inputs. The scripts look up a dataset name as `<name>.gfa`
 in `benchmarks/data/` first, then in the fixtures directory, and they also

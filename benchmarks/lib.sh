@@ -78,6 +78,15 @@ resolve_dataset() {
             return 0
         fi
     done
+    # The synthetic graph is not committed; it is regenerated (deterministic
+    # seed) into the gitignored data directory.
+    if [[ "$ds" == random_medium ]] && have python3; then
+        mkdir -p "$BENCH_DIR/data"
+        log "Generating random_medium.gfa" >&2
+        python3 "$REPO_ROOT/utils/generate_gfa.py" --file "$BENCH_DIR/data/random_medium.gfa" >&2 || return 1
+        echo "$BENCH_DIR/data/random_medium.gfa"
+        return 0
+    fi
     return 1
 }
 
