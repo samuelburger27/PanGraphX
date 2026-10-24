@@ -8,7 +8,7 @@ readme = "README.md"
 repository = "https://github.com/samuelburger27/PanGraphX"
 homepage = "https://github.com/samuelburger27/PanGraphX"
 documentation = "https://docs.rs/pangraphx-core"
-keywords = ["pangenome", "genomics", "bioinformatics", "graph", "gfa"]
+keywords = ["pangenome", "genomics", "bioinformatics", "graph", "gfa", "odgi", "vg", "gbz"]
 categories = ["algorithms", "data-structures", "parsing", "science"]
 # Only build the explicitly declared [[bench]] targets below; this keeps the
 # shared `benches/common/` helper module from being auto-discovered as a bench.
