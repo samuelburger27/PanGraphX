@@ -38,9 +38,7 @@ impl<W: KmerWord> DbgCore<W> {
     /// Node id of a canonical k-mer.
     #[inline]
     pub fn id_of(&self, canonical: W) -> PanResult<usize> {
-        self.kmers.binary_search(&canonical).map_err(|_| {
-            PanGraphXError::DeBruijn("k-mer missing from the de Bruijn node table".into())
-        })
+        kmer_rank(&self.kmers, canonical)
     }
 
     /// Builds the DTO nodes and edges, consuming the tables.
@@ -76,6 +74,14 @@ impl<W: KmerWord> DbgCore<W> {
         drop(kmers);
         Ok((Nodes::from_node_vec(nodes)?, edges))
     }
+}
+
+/// Node id of a canonical k-mer: its rank in the sorted k-mer table.
+#[inline]
+pub(crate) fn kmer_rank<W: Ord + Copy>(kmers: &[W], canonical: W) -> PanResult<usize> {
+    kmers
+        .binary_search(&canonical)
+        .map_err(|_| PanGraphXError::DeBruijn("k-mer missing from the de Bruijn node table".into()))
 }
 
 /// Overlap of consecutive k-mers (`k - 1`) as stored on edges.
@@ -217,7 +223,7 @@ impl DeBruijn {
     /// Returns an error if the graph is too large for 32-bit unitig ids.
     pub fn into_compacted_dto(self) -> PanResult<CoreGraphDTO> {
         let k = self.k;
-        let unitigs = with_core!(self.tables, core => compaction::compact(core, k, &[])?);
+        let unitigs = with_core!(self.tables, core => compaction::compact(core, k, &[])?.0);
         unitigs_to_dto(unitigs, k, Vec::new())
     }
 }

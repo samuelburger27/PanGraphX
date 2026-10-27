@@ -265,14 +265,27 @@ fn check_compaction(dto: &CoreGraphDTO, expected: &KmerSets, k: usize, context: 
     }
 }
 
-/// Checks the colored compacted graph: every gap-free piece of a path that
-/// holds a k-mer becomes one path (`name`, or `name.1`.. when the path splits)
-/// that walks unitigs spelling exactly that piece.
+/// Checks the colored graphs: every gap-free piece of a path that holds a
+/// k-mer becomes one path (`name`, or `name.1`.. when the path splits) that
+/// spells exactly that piece, over k-mers when streamed to GFA and over
+/// unitigs when compacted. The streamed GFA must also equal the GFA of the
+/// uncompacted DTO.
 fn check_colored(g: &CoreGraphDTO, k: usize, context: &str) {
-    let dto = ColoredDBG::from_directed_graph(g.clone(), k)
-        .unwrap()
-        .into_compacted_dto()
-        .unwrap();
+    let build = || ColoredDBG::from_directed_graph(g.clone(), k).unwrap();
+    let mut streamed = Vec::new();
+    build().write_gfa(&mut streamed).unwrap();
+    let dto = CoreGraphDTO::try_from(build()).unwrap();
+    assert_same_text(&to_bytes(&dto, GraphFormat::GFA), &streamed, context);
+    let parsed = from_bytes(streamed, GraphFormat::GFA);
+    check_colored_paths(g, &parsed, k, &format!("{context}, streamed"));
+
+    let compacted = build().into_compacted_dto().unwrap();
+    check_colored_paths(g, &compacted, k, &format!("{context}, compacted"));
+}
+
+/// Checks that the paths of the colored graph `dto` spell the pieces of the
+/// paths of `g`.
+fn check_colored_paths(g: &CoreGraphDTO, dto: &CoreGraphDTO, k: usize, context: &str) {
     let mut expected = BTreeMap::new();
     for path in &g.paths {
         let name = show(&path.name);
@@ -291,7 +304,7 @@ fn check_colored(g: &CoreGraphDTO, k: usize, context: &str) {
         .map(|p| {
             let mut spelled = Seq::new();
             for (i, step) in p.steps.iter().enumerate() {
-                let seq = oriented(&dto, step.node_id(), step.is_reverse());
+                let seq = oriented(dto, step.node_id(), step.is_reverse());
                 spelled.extend_from_slice(&seq[if i == 0 { 0 } else { k - 1 }..]);
             }
             (show(&p.name), spelled)
