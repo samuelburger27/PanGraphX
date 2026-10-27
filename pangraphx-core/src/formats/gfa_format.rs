@@ -46,7 +46,7 @@ pub(crate) fn one_based_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
 }
 
 #[inline]
-const fn orientation_byte(orientation: Orientation) -> u8 {
+pub(crate) const fn orientation_byte(orientation: Orientation) -> u8 {
     match orientation {
         Orientation::Forward => b'+',
         Orientation::Reverse => b'-',
@@ -55,8 +55,12 @@ const fn orientation_byte(orientation: Orientation) -> u8 {
 
 /// Formats `items` in parallel and writes the result in order.
 ///
-/// Only one window of chunks (`RECORDS_PER_CHUNK` items per thread) is held in
-/// memory at a time, so the output text is never fully resident.
+/// `format` receives each item with its index in `items`. Only one window of
+/// chunks (`per_chunk` items per thread) is held in memory at a time, so the
+/// output text is never fully resident.
+///
+/// # Errors
+/// Returns the first error of `format` (in item order) or of the writer.
 pub(crate) fn write_records<T, F>(
     writer: &mut dyn Write,
     items: &[T],
@@ -65,22 +69,25 @@ pub(crate) fn write_records<T, F>(
 ) -> PanResult<()>
 where
     T: Sync,
-    F: Fn(&T, &mut Vec<u8>) + Sync,
+    F: Fn(usize, &T, &mut Vec<u8>) -> PanResult<()> + Sync,
 {
     let window = per_chunk * rayon::current_num_threads();
-    for window_items in items.chunks(window) {
-        let buffers: Vec<Vec<u8>> = window_items
+    for (w, window_items) in items.chunks(window).enumerate() {
+        let window_start = w * window;
+        let buffers: Vec<PanResult<Vec<u8>>> = window_items
             .par_chunks(per_chunk)
-            .map(|chunk| {
+            .enumerate()
+            .map(|(c, chunk)| {
+                let chunk_start = window_start + c * per_chunk;
                 let mut buf = Vec::new();
-                for item in chunk {
-                    format(item, &mut buf);
+                for (i, item) in chunk.iter().enumerate() {
+                    format(chunk_start + i, item, &mut buf)?;
                 }
-                buf
+                Ok(buf)
             })
             .collect();
         for buf in buffers {
-            writer.write_all(&buf)?;
+            writer.write_all(&buf?)?;
         }
     }
     Ok(())
@@ -155,16 +162,19 @@ fn write_gfa(
         writer,
         graph.nodes.as_slice(),
         RECORDS_PER_CHUNK,
-        |node, buf| {
+        |_, node, buf| {
             format_segment(names, node, buf);
+            Ok(())
         },
     )?;
-    write_records(writer, &graph.edges, RECORDS_PER_CHUNK, |edge, buf| {
+    write_records(writer, &graph.edges, RECORDS_PER_CHUNK, |_, edge, buf| {
         format_link(names, edge, buf);
+        Ok(())
     })?;
     // A single path line can be hundreds of MB, so each path is its own task.
-    write_records(writer, &graph.paths, 1, |path, buf| {
+    write_records(writer, &graph.paths, 1, |_, path, buf| {
         format_path(names, path, buf);
+        Ok(())
     })?;
     Ok(())
 }
