@@ -10,7 +10,10 @@ use crate::cli::args_parser::{InputArgs, OutputArgs};
 use crate::utils::group;
 use anyhow::{Context, Result, anyhow, bail};
 use log::{debug, info};
-use pangraphx_core::{CoreGraphDTO, GraphFormat};
+use pangraphx_core::error::PanGraphXError;
+use pangraphx_core::{CoreGraphDTO, GraphFormat, PanResult};
+use std::fmt::Display;
+use std::fs::File;
 use std::io::{BufReader, BufWriter, Seek, Write};
 use std::path::Path;
 use std::time::Instant;
@@ -54,22 +57,32 @@ pub fn output_format(args: &OutputArgs) -> Result<GraphFormat> {
 
 /// Writes `graph` to the destination named by `args`, logging progress.
 pub fn save_graph(graph: &CoreGraphDTO, args: &OutputArgs, format: GraphFormat) -> Result<()> {
-    let name = display_name(&args.output, "stdout");
+    write_output(&args.output, format, |writer| graph.save(writer, format))
+}
+
+/// Opens `output` (`-` for standard output), runs `write` on it with
+/// buffering and flushes it, logging progress. `format` names what is written.
+pub fn write_output(
+    output: &str,
+    format: impl Display,
+    write: impl FnOnce(&mut dyn Write) -> PanResult<()>,
+) -> Result<()> {
+    let name = display_name(output, "stdout");
     info!("Writing {name} ({format})");
     let start = Instant::now();
 
-    if args.output == STDIO {
+    let result = if output == STDIO {
         let mut writer = BufWriter::new(std::io::stdout().lock());
-        graph
-            .save(&mut writer, format)
-            .map_err(anyhow::Error::from)
-            .and_then(|()| writer.flush().map_err(anyhow::Error::from))
+        write(&mut writer).and_then(|()| Ok(writer.flush()?))
     } else {
-        graph
-            .save_to_file(&args.output, format)
-            .map_err(anyhow::Error::from)
-    }
-    .with_context(|| format!("failed to write {name} as {format}"))?;
+        File::create(output)
+            .map_err(PanGraphXError::from)
+            .and_then(|file| {
+                let mut writer = BufWriter::new(file);
+                write(&mut writer).and_then(|()| Ok(writer.flush()?))
+            })
+    };
+    result.with_context(|| format!("failed to write {name} as {format}"))?;
 
     info!("Wrote {name} in {:.2?}", start.elapsed());
     Ok(())
@@ -80,15 +93,21 @@ fn resolve_format(path: &str, explicit: Option<GraphFormat>, flag: &str) -> Resu
     if let Some(format) = explicit {
         return Ok(format);
     }
+    let extension = file_extension(path, flag)?;
+    GraphFormat::from_extension(extension)
+        .map_err(|_| anyhow!("unknown extension '.{extension}' of '{path}'; pass {flag}"))
+}
+
+/// The extension of `path`, which must name a file; `flag` is the option
+/// that gives the format explicitly.
+pub fn file_extension<'a>(path: &'a str, flag: &str) -> Result<&'a str> {
     if path == STDIO {
         bail!("the format of a stream cannot be inferred; pass {flag}");
     }
-    let extension = Path::new(path)
+    Path::new(path)
         .extension()
         .and_then(|ext| ext.to_str())
-        .ok_or_else(|| anyhow!("'{path}' has no file extension; pass {flag}"))?;
-    GraphFormat::from_extension(extension)
-        .map_err(|_| anyhow!("unknown extension '.{extension}' of '{path}'; pass {flag}"))
+        .ok_or_else(|| anyhow!("'{path}' has no file extension; pass {flag}"))
 }
 
 fn display_name(path: &str, stream: &str) -> String {
