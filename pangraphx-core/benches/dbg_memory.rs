@@ -10,9 +10,11 @@
 //! the run, so the input graph handed to the construction is included):
 //! * `input`        — the parsed input graph;
 //! * `build_peak`   — peak while constructing the DBG;
-//! * `dbg_retained` — held by the finished DBG;
-//! * `total_peak`   — peak including conversion to a `CoreGraphDTO` (what
-//!   `pangraphx-cli dbg` does before writing the output);
+//! * `dbg_retained` — held by the finished DBG (for colored modes this
+//!   includes the input graph, which is walked again on output);
+//! * `total_peak`   — peak including the output, produced as
+//!   `pangraphx-cli dbg` does: k-mer graphs are streamed to GFA (into
+//!   `io::sink()`), compacted graphs are converted to a `CoreGraphDTO`;
 //! * `bytes_per_bp` — `total_peak` per path base, the figure to drive down.
 //!
 //! Modes: `standard`, `colored`, `full_topology`, and `compact` /
@@ -34,7 +36,7 @@
 mod common;
 
 use common::{DbgInput, dbg_inputs, workspace_root};
-use pangraphx_core::{ColoredDBG, CoreGraphDTO, DeBruijn, PanResult};
+use pangraphx_core::{ColoredDBG, CoreGraphDTO, DeBruijn};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -164,27 +166,44 @@ fn measure(dto: &CoreGraphDTO, mode: Mode, k: usize) -> Sample {
     let input = PeakAlloc::current() - base;
     PeakAlloc::reset_peak();
 
-    let (build_peak, retained, out) = match mode {
-        Mode::Standard => after_build(base, standard(graph, k), CoreGraphDTO::try_from),
+    let (build_peak, retained, (nodes, edges)) = match mode {
+        Mode::Standard => after_build(base, standard(graph, k), |dbg| stream_kmers(&dbg)),
         Mode::FullTopology => after_build(
             base,
             DeBruijn::from_directed_graph_full_topology(graph, k).expect("valid k"),
-            CoreGraphDTO::try_from,
+            |dbg| stream_kmers(&dbg),
         ),
-        Mode::Colored => after_build(base, colored(graph, k), CoreGraphDTO::try_from),
-        Mode::Compact => after_build(base, standard(graph, k), DeBruijn::into_compacted_dto),
-        Mode::ColoredCompact => {
-            after_build(base, colored(graph, k), ColoredDBG::into_compacted_dto)
-        }
+        Mode::Colored => after_build(base, colored(graph, k), |dbg| {
+            let counts = (dbg.dbg.node_count(), dbg.dbg.edge_count());
+            dbg.write_gfa(&mut std::io::sink()).expect("GFA output");
+            counts
+        }),
+        Mode::Compact => after_build(base, standard(graph, k), |dbg| {
+            counts(&dbg.into_compacted_dto().expect("compaction"))
+        }),
+        Mode::ColoredCompact => after_build(base, colored(graph, k), |dbg| {
+            counts(&dbg.into_compacted_dto().expect("compaction"))
+        }),
     };
     Sample {
         input,
         build_peak,
         retained,
         total_peak: PeakAlloc::peak().saturating_sub(base),
-        nodes: out.nodes.iter().count(),
-        edges: out.edges.len(),
+        nodes,
+        edges,
     }
+}
+
+/// Streams a k-mer graph to GFA, as `pangraphx-cli dbg` does.
+fn stream_kmers(dbg: &DeBruijn) -> (usize, usize) {
+    let counts = (dbg.node_count(), dbg.edge_count());
+    dbg.write_gfa(&mut std::io::sink()).expect("GFA output");
+    counts
+}
+
+const fn counts(dto: &CoreGraphDTO) -> (usize, usize) {
+    (dto.nodes.len(), dto.edges.len())
 }
 
 fn standard(graph: CoreGraphDTO, k: usize) -> DeBruijn {
@@ -195,15 +214,16 @@ fn colored(graph: CoreGraphDTO, k: usize) -> ColoredDBG {
     ColoredDBG::from_directed_graph(graph, k).expect("valid k")
 }
 
-/// Records the construction peak and retained size, then converts to a DTO.
+/// Records the construction peak and retained size, then produces the output
+/// with `finish`, which returns the node and edge counts.
 fn after_build<D>(
     base: usize,
     dbg: D,
-    to_dto: impl FnOnce(D) -> PanResult<CoreGraphDTO>,
-) -> (usize, usize, CoreGraphDTO) {
+    finish: impl FnOnce(D) -> (usize, usize),
+) -> (usize, usize, (usize, usize)) {
     let build_peak = PeakAlloc::peak().saturating_sub(base);
     let retained = PeakAlloc::current().saturating_sub(base);
-    (build_peak, retained, to_dto(dbg).expect("DTO conversion"))
+    (build_peak, retained, finish(dbg))
 }
 
 fn env_list(name: &str, default: &[usize]) -> Vec<usize> {

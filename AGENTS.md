@@ -56,7 +56,8 @@ pangraphx-core/src/
     id_map.rs            external integer id → NodeId (dense table or hash map)
   de_bruijn_conversion/
     de_bruijn_graph.rs   DeBruijn (paths or full topology), compaction to DTO
-    colored_dbg.rs       ColoredDBG (keeps input paths as walks through k-mers)
+    colored_dbg.rs       ColoredDBG (input paths re-walked through the k-mers on output)
+    output.rs            streaming GFA / FASTA unitig output from the tables
     extraction.rs        streaming path / bidirected-topology k-mer walkers
     word.rs              2-bit u64/u128 words, RollingWindow
     kmer_set.rs          sharded concurrent k-mer set
@@ -95,6 +96,8 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 - Nodes are distinct canonical k-mers, edges distinct canonical (k+1)-mers, stored as sorted 2-bit tables; node id = rank, so output is independent of thread count. `k ≤ 31` uses `u64` words, `k ≤ 63` uses `u128`.
 - Modes: paths (default), full topology (`-t`, every walk of the bidirected graph), colored (`-c`, keeps paths); `-u/--compact` merges non-branching chains into unitigs.
 - Memory is the constraint: keep per-k-mer state to a few bytes and never materialize per-path k-mer vectors. Output is dominated by uncompacted node count.
+- Output: `dbg` writes GFA (or FASTA unitigs with `-u`) straight from the tables (`write_gfa`, `write_unitigs_fasta`); other formats are rejected since they drop the `k − 1` overlaps. Only compacted graphs go through a `CoreGraphDTO`.
+- Colored paths are never stored: `ColoredDBG` keeps the input graph and the end k-mers of each gap-free segment, and every consumer re-walks the paths with `walk_segments`, so all passes agree on segmentation.
 
 ## Code style
 
