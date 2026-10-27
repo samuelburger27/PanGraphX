@@ -419,10 +419,11 @@ impl GraphSerializer for FastgCodec {
             writer,
             graph.nodes.as_slice(),
             nodes_per_chunk(&graph.nodes),
-            |node, buf| {
+            |_, node, buf| {
                 for orientation in [Orientation::Forward, Orientation::Reverse] {
                     format_record(&graph.nodes, &names, &successors, node, orientation, buf);
                 }
+                Ok(())
             },
         )
     }

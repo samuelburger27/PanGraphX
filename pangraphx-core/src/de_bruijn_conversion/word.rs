@@ -145,13 +145,20 @@ pub fn rev_comp_word<W: KmerWord>(code: W, bases: usize) -> W {
 
 /// Decodes a word of `bases` bases back into ASCII nucleotides.
 pub fn decode_word<W: KmerWord>(code: W, bases: usize) -> Vec<u8> {
-    let mut bytes = vec![0; bases];
+    let mut bytes = Vec::with_capacity(bases);
+    decode_word_into(code, bases, &mut bytes);
+    bytes
+}
+
+/// Appends the `bases` bases of `code` to `out`, without allocating per word.
+pub fn decode_word_into<W: KmerWord>(code: W, bases: usize, out: &mut Vec<u8>) {
+    let start = out.len();
+    out.resize(start + bases, 0);
     let mut x = code;
-    for byte in bytes.iter_mut().rev() {
+    for byte in out[start..].iter_mut().rev() {
         *byte = decode_base(x.last_base());
         x = x >> 2;
     }
-    bytes
 }
 
 /// A word together with its reverse complement, i.e. one strand-specific
