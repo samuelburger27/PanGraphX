@@ -7,9 +7,9 @@
 #   benchmarks/dbg.sh [DATASET ...]
 #
 # DBG memory scales with the number of distinct k-mers (about the total node
-# sequence length of the input); colored output adds one step per path base.
-# The uncompacted output graph (one node per k-mer) dominates, `--compact`
-# output is far smaller. Thread count barely matters. So this script:
+# sequence length of the input). Output is streamed from the k-mer tables and
+# colored paths are walked again instead of stored, so the construction peak
+# dominates in every mode. Thread count barely matters. So this script:
 #   * runs exactly one construction at a time — never run it alongside other
 #     benchmarks, and never run several instances in parallel;
 #   * estimates each configuration's memory up front from the dataset's node
@@ -29,10 +29,9 @@
 #                       (default "1 2 4 max")
 #   DBG_MEM_BUDGET_MIB  memory limit per run (default 60% of physical RAM)
 #   DBG_TIMEOUT_S       time limit per run (default 1800)
-#   DBG_BYTES_PER_NODE_BP, DBG_COMPACT_BYTES_PER_NODE_BP, DBG_BYTES_PER_STEP_BP
-#                       cost model for the pre-flight estimate (defaults 240,
-#                       60 and 32; calibrate against dbg.csv or the dbg_memory
-#                       bench)
+#   DBG_BYTES_PER_NODE_BP
+#                       cost model for the pre-flight estimate (default 80;
+#                       calibrate against dbg.csv or the dbg_memory bench)
 #   DBG_FULL_TOPOLOGY_MAX_BP
 #                       skip full_topology above this many path bases, since its
 #                       walk enumeration can blow up (default 5000000);
@@ -52,9 +51,7 @@ read -r -a THREAD_LIST <<<"${THREADS:-1 2 4 max}"
 RAM_MIB="$(total_ram_mib)"
 BUDGET_MIB="${DBG_MEM_BUDGET_MIB:-$(( RAM_MIB * 60 / 100 ))}"
 TIMEOUT_S="${DBG_TIMEOUT_S:-1800}"
-BYTES_PER_NODE_BP="${DBG_BYTES_PER_NODE_BP:-240}"
-COMPACT_BYTES_PER_NODE_BP="${DBG_COMPACT_BYTES_PER_NODE_BP:-60}"
-BYTES_PER_STEP_BP="${DBG_BYTES_PER_STEP_BP:-32}"
+BYTES_PER_NODE_BP="${DBG_BYTES_PER_NODE_BP:-80}"
 FULL_TOPOLOGY_MAX_BP="${DBG_FULL_TOPOLOGY_MAX_BP:-5000000}"
 CPUS="$(cpu_count)"
 
@@ -96,20 +93,16 @@ node_bp() {
 }
 
 # estimate_mib <mode> <node_bp> <path_bp> <gfa_bytes> -> rough peak MiB: a fixed
-# 64 MiB, the parsed input (~3x its file size), plus per node base (≈ per
-# distinct k-mer) the k-mer tables and the output graph, plus for uncompacted
-# colored output one path step per path base. Uncompacted, the output dominates:
-# ~90 B per k-mer for the DTO node + edge and ~140 B for their GFA lines, which
-# the serializer formats all at once. The dbg_memory bench puts construction
-# alone at ~36 B per k-mer and compaction at ~26 B more.
+# 64 MiB, the parsed input (~3x its file size; colored modes keep it to walk the
+# paths again), plus per node base (≈ 1.5 distinct k-mers) the construction
+# peak: the sharded k-mer and edge sets and their sorted tables. Output is
+# streamed and compaction fits under that peak, so the mode and the path length
+# do not matter. On ecoli50 at k = 31 the dbg_memory bench puts that peak (input
+# included) at ~47 B per k-mer, and peak RSS is 1.7-2.3 GB against an estimate
+# of 2.3 GB.
 estimate_mib() {
-    local per_node="$BYTES_PER_NODE_BP" per_step=0
-    case "$1" in
-        compact | colored_compact) per_node="$COMPACT_BYTES_PER_NODE_BP" ;;
-    esac
-    [[ "$1" == colored ]] && per_step="$BYTES_PER_STEP_BP"
-    awk -v n="$2" -v p="$3" -v f="$4" -v c="$per_node" -v s="$per_step" \
-        'BEGIN { printf "%d", 64 + (3 * f + n * c + p * s) / 1048576 }'
+    awk -v n="$2" -v f="$4" -v c="$BYTES_PER_NODE_BP" \
+        'BEGIN { printf "%d", 64 + (3 * f + n * c) / 1048576 }'
 }
 
 mode_flag() {
