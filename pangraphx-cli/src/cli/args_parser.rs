@@ -1,5 +1,6 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use pangraphx_core::GraphFormat;
+use std::fmt;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -55,7 +56,7 @@ pub enum Commands {
     /// Build a de Bruijn graph from a variation graph
     #[command(
         arg_required_else_help = true,
-        after_help = "Examples:\n  pangraphx-cli dbg graph.vg -k 31 -o dbg.gfa\n  pangraphx-cli dbg graph.gfa -k 21 -c --compact -o unitigs.gfa"
+        after_help = "Output is GFA, or FASTA for unitigs (-u); other graph formats cannot store the\nk-1 overlaps of a de Bruijn graph.\n\nExamples:\n  pangraphx-cli dbg graph.vg -k 31 -o dbg.gfa\n  pangraphx-cli dbg graph.gfa -k 21 -c --compact -o unitigs.gfa\n  pangraphx-cli dbg graph.gfa -k 31 -u -o unitigs.fa"
     )]
     Dbg(DbgArgs),
 
@@ -105,13 +106,43 @@ pub struct ConvertArgs {
     pub output: OutputArgs,
 }
 
+/// Output formats of a de Bruijn graph.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ValueEnum)]
+pub enum DbgFormat {
+    /// GFA, one segment per k-mer or unitig
+    Gfa,
+    /// FASTA, one record per unitig (needs --compact)
+    Fasta,
+}
+
+impl fmt::Display for DbgFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Gfa => "GFA",
+            Self::Fasta => "FASTA",
+        })
+    }
+}
+
+/// Where to write a de Bruijn graph; `-` writes standard output.
+#[derive(Args, Debug)]
+pub struct DbgOutputArgs {
+    /// Output file, or - for stdout (.gfa, or .fa/.fasta/.fna for unitigs)
+    #[arg(short = 'o', long, value_name = "OUTPUT")]
+    pub output: String,
+
+    /// Output format; required for stdout
+    #[arg(long, value_name = "FORMAT", value_enum)]
+    pub to: Option<DbgFormat>,
+}
+
 #[derive(Args, Debug)]
 pub struct DbgArgs {
     #[command(flatten)]
     pub input: InputArgs,
 
     #[command(flatten)]
-    pub output: OutputArgs,
+    pub output: DbgOutputArgs,
 
     /// k-mer size (1-63)
     #[arg(

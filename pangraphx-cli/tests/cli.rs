@@ -105,6 +105,78 @@ fn dbg_writes_graph() {
 }
 
 #[test]
+fn dbg_writes_fasta_unitigs() {
+    cli()
+        .args([
+            "dbg",
+            &sample_gfa(),
+            "-k",
+            "5",
+            "-u",
+            "-o",
+            "-",
+            "--to",
+            "fasta",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(">0\n").and(predicate::str::contains("S\t").not()));
+}
+
+#[test]
+fn dbg_infers_output_format_from_extension() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    for (name, flags, start) in [
+        ("unitigs.fa", &["-u"][..], ">0\n"),
+        ("unitigs.FASTA", &["-u"], ">0\n"),
+        ("kmers.gfa", &[], "H\t"),
+        ("colored.gfa", &["-c"], "H\t"),
+    ] {
+        let out = dir.path().join(name);
+        cli()
+            .args(["dbg", &sample_gfa(), "-k", "5", "-o"])
+            .arg(&out)
+            .args(flags)
+            .assert()
+            .success();
+        let text = std::fs::read_to_string(&out).expect("output written");
+        assert!(text.starts_with(start), "{name}: {text:.40}");
+    }
+}
+
+#[test]
+fn dbg_rejects_formats_without_overlaps_before_loading() {
+    for name in ["dbg.vg", "dbg.gbz", "dbg.og", "dbg.fastg"] {
+        cli()
+            .args(["dbg", "missing.gfa", "-k", "5", "-o", name])
+            .assert()
+            .failure()
+            .stderr(
+                predicate::str::contains("only GFA").and(predicate::str::contains("Loading").not()),
+            );
+    }
+    cli()
+        .args(["dbg", "missing.gfa", "-o", "-", "--to", "vg"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("possible values"));
+}
+
+#[test]
+fn dbg_fasta_needs_plain_unitigs() {
+    cli()
+        .args(["dbg", "missing.gfa", "-o", "-", "--to", "fasta"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--compact"));
+    cli()
+        .args(["dbg", "missing.gfa", "-c", "-u", "-o", "out.fa"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("colored"));
+}
+
+#[test]
 fn convert_without_args_shows_help() {
     cli()
         .arg("convert")
