@@ -76,6 +76,9 @@ pangraphx-cli dbg graph.vg -k 31 -o dbg.gfa
 # Colored DBG (keeps every input path), compacted into unitigs
 pangraphx-cli dbg graph.vg -k 31 -c -u -o unitigs.gfa
 
+# Unitig sequences as FASTA, one record per unitig
+pangraphx-cli dbg graph.vg -k 31 -u -o unitigs.fa
+
 # List formats
 pangraphx-cli formats
 ```
@@ -83,7 +86,10 @@ pangraphx-cli formats
 `dbg` options: `-c/--colored` keeps the input paths as walks through the
 k-mers, `-t/--full-topology` uses every walk of the bidirected graph instead of
 only the paths, and `-u/--compact` merges non-branching k-mer chains into
-unitigs.
+unitigs. The output is GFA, or FASTA for unitigs: the other graph formats
+cannot store the `k − 1` overlaps between de Bruijn nodes. It is written
+straight from the k-mer tables, and colored paths are walked again on output
+instead of being stored, so peak memory is that of the construction.
 
 Global options: `--threads N` (default: all cores), `-q` / `-v` to reduce or
 increase logging. Logs go to stderr, so stdout carries only data; `RUST_LOG`

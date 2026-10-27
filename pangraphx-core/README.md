@@ -171,8 +171,19 @@ packed into `u64` for k ≤ 31, `u128` for k ≤ 63):
 
 Nodes are distinct canonical k-mers, edges distinct canonical (k+1)-mers; node
 ids follow the sorted 2-bit codes, so output is deterministic regardless of
-thread count. Convert back to a `CoreGraphDTO` with `TryFrom`/`try_from`, or
-merge non-branching chains into unitigs with `into_compacted_dto()`.
+thread count.
+
+- `write_gfa(writer)` writes the k-mer graph (for `ColoredDBG`, with its
+  paths) straight from the tables, without building a `CoreGraphDTO`;
+- `DeBruijn::write_unitigs_fasta(writer)` compacts the graph and writes one
+  FASTA record per unitig;
+- `into_compacted_dto()` merges non-branching chains into unitigs;
+- `TryFrom`/`try_from` converts the k-mer graph to a `CoreGraphDTO`, which
+  costs about 8× the memory of the tables.
+
+`ColoredDBG` does not store its paths, which hold one step per path base: it
+keeps the input graph and walks the paths again whenever they are written,
+converted or compacted.
 
 ## License
 
