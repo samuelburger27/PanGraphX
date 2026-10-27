@@ -48,53 +48,95 @@ pub struct Unitigs {
     placement: Vec<u64>,
 }
 
+/// Where a k-mer lies in its unitig, as seen from a walk: the unitig, whether
+/// the walk traverses the unitig backwards, and the k-mer's offset in it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct UnitigPos {
+    unitig: u64,
+    backwards: bool,
+    offset: u64,
+}
+
+impl UnitigPos {
+    /// Whether a walk stepping from `self` to `next` stays inside one unitig,
+    /// i.e. `next` is the following k-mer of the same unitig traversal.
+    #[inline]
+    pub const fn continues_to(self, next: Self) -> bool {
+        self.unitig == next.unitig
+            && self.backwards == next.backwards
+            && if next.backwards {
+                next.offset + 1 == self.offset
+            } else {
+                self.offset + 1 == next.offset
+            }
+    }
+}
+
 impl Unitigs {
-    /// Translates a walk over k-mers (`(node id, reverse)` per step) into a
-    /// walk over unitigs.
+    /// The position of k-mer `id`, spelled in reverse if `reverse`, in its
+    /// unitig.
+    #[inline]
+    pub fn position(&self, id: usize, reverse: bool) -> UnitigPos {
+        let p = self.placement[id];
+        UnitigPos {
+            unitig: p >> 32,
+            backwards: reverse != (p & 1 == 1),
+            offset: (p & 0xffff_ffff) >> 1,
+        }
+    }
+}
+
+/// Translates a walk over k-mers into a walk over unitigs, one k-mer at a
+/// time: consecutive k-mers of one unitig traversal become a single step.
+pub struct Translator<'a> {
+    unitigs: &'a Unitigs,
+    /// Position of the previous k-mer of the walk.
+    prev: Option<UnitigPos>,
+}
+
+impl<'a> Translator<'a> {
+    pub const fn new(unitigs: &'a Unitigs) -> Self {
+        Self {
+            unitigs,
+            prev: None,
+        }
+    }
+
+    /// Adds k-mer `id` (spelled in reverse if `reverse`) to the walk,
+    /// appending a unitig step to `out` unless it continues the previous one.
+    /// Returns the k-mer's position.
     ///
     /// # Errors
     /// Returns an error if a unitig id does not fit in a [`Step`].
-    pub fn translate_path(
-        &self,
-        steps: impl Iterator<Item = (usize, bool)>,
-    ) -> PanResult<Vec<Step>> {
-        let mut out = Vec::new();
-        // (unitig, traversed in reverse, offset) of the previous step.
-        let mut prev: Option<(u64, bool, u64)> = None;
-        for (id, reverse) in steps {
-            let p = self.placement[id];
-            let unitig = p >> 32;
-            let offset = (p & 0xffff_ffff) >> 1;
-            let backwards = reverse != (p & 1 == 1);
-            let continues = prev.is_some_and(|(pu, pb, po)| {
-                pu == unitig
-                    && pb == backwards
-                    && if backwards {
-                        offset + 1 == po
-                    } else {
-                        po + 1 == offset
-                    }
-            });
-            if !continues {
-                out.push(Step::new(
-                    // An id that does not fit is rejected by `Step::new`.
-                    usize::try_from(unitig).unwrap_or(usize::MAX),
-                    Orientation::from(backwards),
-                )?);
-            }
-            prev = Some((unitig, backwards, offset));
+    pub fn push(&mut self, id: usize, reverse: bool, out: &mut Vec<Step>) -> PanResult<UnitigPos> {
+        let pos = self.unitigs.position(id, reverse);
+        if !self.prev.is_some_and(|prev| prev.continues_to(pos)) {
+            out.push(Step::new(
+                // An id that does not fit is rejected by `Step::new`.
+                usize::try_from(pos.unitig).unwrap_or(usize::MAX),
+                Orientation::from(pos.backwards),
+            )?);
         }
-        Ok(out)
+        self.prev = Some(pos);
+        Ok(pos)
+    }
+
+    /// Starts a new walk.
+    pub const fn reset(&mut self) {
+        self.prev = None;
     }
 }
 
 /// Compacts the de Bruijn graph `core` into unitigs. Unitigs never extend past
 /// the endpoints in `segments`.
+///
+/// Returns the unitigs and the sorted k-mer table of `core` (the edge table is
+/// released), so callers can still map k-mers to node ids.
 pub fn compact<W: KmerWord>(
     core: DbgCore<W>,
     k: usize,
     segments: &[SegmentEnds],
-) -> PanResult<Unitigs> {
+) -> PanResult<(Unitigs, Vec<W>)> {
     if core.kmers.len() > MAX_LINKED_ID + 1 {
         return Err(PanGraphXError::DeBruijn(format!(
             "compaction supports at most {} k-mers, found {}",
@@ -120,7 +162,8 @@ pub fn compact<W: KmerWord>(
         compactor.block(segment.last, false);
     }
     compactor.links = compactor.links()?;
-    compactor.run()
+    let unitigs = compactor.run()?;
+    Ok((unitigs, kmers))
 }
 
 /// Successor bases of every k-mer: bit `b` of the low nibble is set if the

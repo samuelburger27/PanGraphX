@@ -24,7 +24,7 @@ use crate::core::graph_utils::oriented_bases;
 use crate::error::{PanGraphXError, PanResult};
 
 /// Target number of bases per path chunk processed as one parallel task.
-const CHUNK_BASES: usize = 1 << 20;
+pub const CHUNK_BASES: usize = 1 << 20;
 
 /// Receives the windows found by a walker.
 pub trait WindowSink<W> {
@@ -130,13 +130,23 @@ impl CoreGraph {
     /// Splits each path into step ranges of about [`CHUNK_BASES`] bases, in
     /// path order.
     pub(crate) fn path_chunks<'a>(&self, paths: &[&'a Path]) -> Vec<PathChunk<'a>> {
+        self.path_chunks_with(paths, CHUNK_BASES)
+    }
+
+    /// Splits each path into step ranges of about `chunk_bases` bases (at
+    /// least one step each), in path order.
+    pub(crate) fn path_chunks_with<'a>(
+        &self,
+        paths: &[&'a Path],
+        chunk_bases: usize,
+    ) -> Vec<PathChunk<'a>> {
         let mut chunks = Vec::new();
         for (path_index, &path) in paths.iter().enumerate() {
             let mut start = 0;
             let mut bases = 0;
             for (i, step) in path.steps.iter().enumerate() {
                 bases += self.nodes[step.node_id()].sequence.len();
-                if bases >= CHUNK_BASES {
+                if bases >= chunk_bases {
                     chunks.push(PathChunk {
                         path_index,
                         path,
@@ -206,6 +216,50 @@ impl CoreGraph {
                 }
             }
         }
+    }
+
+    /// Walks the chunks of `paths` in windows of one chunk per thread and
+    /// hands the results to `stitch` in path order.
+    ///
+    /// The chunks of a window are walked in parallel, each into a fresh sink
+    /// from `new_sink`; `stitch` then receives every sink of the window in
+    /// order, together with whether its chunk is the last of its path. Only
+    /// one window of sinks is alive at a time, so the memory of the sinks is
+    /// bounded however long the paths are.
+    ///
+    /// # Errors
+    /// Returns the first error of `stitch`.
+    pub(crate) fn walk_chunks_ordered<W, S>(
+        &self,
+        paths: &[&Path],
+        chunk_bases: usize,
+        k: usize,
+        new_sink: impl Fn() -> S + Sync,
+        mut stitch: impl FnMut(&PathChunk<'_>, S, bool) -> PanResult<()>,
+    ) -> PanResult<()>
+    where
+        W: KmerWord,
+        S: WindowSink<W> + Send,
+    {
+        let chunks = self.path_chunks_with(paths, chunk_bases);
+        let window = rayon::current_num_threads().max(1);
+        for (w, group) in chunks.chunks(window).enumerate() {
+            let sinks: Vec<S> = group
+                .par_iter()
+                .map(|chunk| {
+                    let mut sink = new_sink();
+                    self.walk_path_chunk(chunk.path, chunk.steps.clone(), k, &mut sink);
+                    sink
+                })
+                .collect();
+            for (i, (chunk, sink)) in group.iter().zip(sinks).enumerate() {
+                let last_of_path = chunks
+                    .get(w * window + i + 1)
+                    .is_none_or(|next| next.path_index != chunk.path_index);
+                stitch(chunk, sink, last_of_path)?;
+            }
+        }
+        Ok(())
     }
 
     /// Streams the windows of all paths into `sets`, in parallel over chunks.
