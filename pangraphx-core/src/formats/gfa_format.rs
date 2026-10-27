@@ -19,6 +19,9 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
 /// Number of S/L records formatted per parallel task.
 pub(crate) const RECORDS_PER_CHUNK: usize = 1 << 14;
 
+/// The header line every GFA written by `PanGraphX` starts with.
+pub(crate) const GFA_HEADER: &[u8] = b"H\tVN:Z:1.0\n";
+
 /// Builds the id -> name table once, so formatting never hashes or allocates per step.
 /// Nodes without an entry in `node_name_map` are named by their numeric id.
 pub(crate) fn node_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
@@ -157,7 +160,7 @@ fn write_gfa(
     names: &[Cow<'_, [u8]>],
     writer: &mut dyn Write,
 ) -> PanResult<()> {
-    writer.write_all(b"H\tVN:Z:1.0\n")?;
+    writer.write_all(GFA_HEADER)?;
     write_records(
         writer,
         graph.nodes.as_slice(),
@@ -177,4 +180,58 @@ fn write_gfa(
         Ok(())
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fmt::Write as _;
+
+    /// Writes every item's index and value, across several chunks and windows.
+    fn written(items: &[usize], per_chunk: usize, threads: usize) -> Vec<u8> {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+        pool.install(|| {
+            let mut out = Vec::new();
+            write_records(&mut out, items, per_chunk, |index, &item, buf| {
+                buf.extend_from_slice(format!("{index}:{item}\n").as_bytes());
+                Ok(())
+            })
+            .unwrap();
+            out
+        })
+    }
+
+    #[test]
+    fn write_records_passes_global_indices_in_order() {
+        let items: Vec<usize> = (0..103).map(|i| i * 7).collect();
+        let mut expected = String::new();
+        for (i, v) in items.iter().enumerate() {
+            writeln!(expected, "{i}:{v}").unwrap();
+        }
+        for (per_chunk, threads) in [(1, 1), (3, 2), (5, 4), (200, 3)] {
+            assert_eq!(
+                String::from_utf8(written(&items, per_chunk, threads)).unwrap(),
+                expected,
+                "per_chunk={per_chunk}, threads={threads}"
+            );
+        }
+    }
+
+    #[test]
+    fn write_records_stops_at_first_error() {
+        let items: Vec<usize> = (0..20).collect();
+        let mut out = Vec::new();
+        let result = write_records(&mut out, &items, 2, |index, _, buf| {
+            if index >= 9 {
+                return Err(PanGraphXError::Serialize(format!("item {index}")));
+            }
+            buf.push(b'x');
+            Ok(())
+        });
+        assert!(matches!(result, Err(PanGraphXError::Serialize(m)) if m == "item 9"));
+        assert!(out.len() <= 9, "nothing after the failing chunk is written");
+    }
 }

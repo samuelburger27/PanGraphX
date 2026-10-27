@@ -7,7 +7,7 @@
 //! k-mer sets are all checked against it.
 mod common;
 
-use common::{fixture, load};
+use common::{fixture, from_bytes, load, to_bytes};
 use pangraphx_core::core::core_types::Nodes;
 use pangraphx_core::*;
 use rstest::rstest;
@@ -309,18 +309,68 @@ fn check_colored(g: &CoreGraphDTO, k: usize, context: &str) {
     );
 }
 
+/// Asserts that two GFA texts are identical, reporting the first differing
+/// line instead of dumping both.
+fn assert_same_text(expected: &[u8], actual: &[u8], context: &str) {
+    if expected == actual {
+        return;
+    }
+    let mut lines = expected
+        .split(|&b| b == b'\n')
+        .zip(actual.split(|&b| b == b'\n'));
+    let (line, (e, a)) = lines
+        .by_ref()
+        .enumerate()
+        .find(|(_, (e, a))| e != a)
+        .unwrap_or((0, (&[], &[])));
+    panic!(
+        "{context}: output differs at line {}: expected {:?}, got {:?} ({} vs {} bytes)",
+        line + 1,
+        show(e),
+        show(a),
+        expected.len(),
+        actual.len()
+    );
+}
+
+/// Checks that streaming a de Bruijn graph to GFA writes exactly what writing
+/// its DTO does, and that the streamed file parses back to the oracle's
+/// k-mers.
+fn check_streamed(build: impl Fn() -> DeBruijn, expected: &KmerSets, context: &str) {
+    let mut streamed = Vec::new();
+    build().write_gfa(&mut streamed).unwrap();
+    let dto = CoreGraphDTO::try_from(build()).unwrap();
+    assert_same_text(&to_bytes(&dto, GraphFormat::GFA), &streamed, context);
+
+    let parsed = from_bytes(streamed, GraphFormat::GFA);
+    let kmers: BTreeSet<Seq> = parsed
+        .nodes
+        .as_slice()
+        .iter()
+        .map(|n| canon(&n.sequence))
+        .collect();
+    assert_sets(&expected.kmers, &kmers, "streamed k-mers", context);
+    assert_eq!(
+        parsed.edges.len(),
+        expected.edges.len(),
+        "{context}: streamed edge count"
+    );
+}
+
 fn check(g: &CoreGraphDTO, k: usize, topology: bool, context: &str) {
-    let (dbg, expected) = if topology {
-        (
-            DeBruijn::from_directed_graph_full_topology(g.clone(), k).unwrap(),
-            topology_oracle(g, k),
-        )
-    } else {
-        (
-            DeBruijn::from_directed_graph(g.clone(), k).unwrap(),
-            path_oracle(g, k),
-        )
+    let construct = || {
+        if topology {
+            DeBruijn::from_directed_graph_full_topology(g.clone(), k).unwrap()
+        } else {
+            DeBruijn::from_directed_graph(g.clone(), k).unwrap()
+        }
     };
+    let expected = if topology {
+        topology_oracle(g, k)
+    } else {
+        path_oracle(g, k)
+    };
+    let dbg = construct();
     let context = format!(
         "{context}, k={k}, {}",
         if topology { "topology" } else { "paths" }
@@ -340,6 +390,7 @@ fn check(g: &CoreGraphDTO, k: usize, topology: bool, context: &str) {
     assert_sets(&expected.kmers, &built.kmers, "k-mers", &context);
     assert_sets(&expected.edges, &built.edges, "edges", &context);
 
+    check_streamed(construct, &expected, &context);
     check_compaction(&dbg.into_compacted_dto().unwrap(), &expected, k, &context);
     if !topology {
         check_colored(g, k, &context);
