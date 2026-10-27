@@ -223,8 +223,13 @@ impl DeBruijn {
     /// Returns an error if the graph is too large for 32-bit unitig ids.
     pub fn into_compacted_dto(self) -> PanResult<CoreGraphDTO> {
         let k = self.k;
-        let unitigs = with_core!(self.tables, core => compaction::compact(core, k, &[])?.0);
-        unitigs_to_dto(unitigs, k, Vec::new())
+        unitigs_to_dto(self.into_unitigs()?, k, Vec::new())
+    }
+
+    /// Compacts the graph into unitigs.
+    pub(crate) fn into_unitigs(self) -> PanResult<Unitigs> {
+        let k = self.k;
+        Ok(with_core!(self.tables, core => compaction::compact(core, k, &[])?.0))
     }
 }
 

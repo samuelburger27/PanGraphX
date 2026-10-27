@@ -59,6 +59,27 @@ impl<W: KmerWord> DbgCore<W> {
 }
 
 impl DeBruijn {
+    /// Compacts the graph and writes its unitigs as FASTA: one record per
+    /// unitig, named by its node id in
+    /// [`into_compacted_dto`](DeBruijn::into_compacted_dto), with the
+    /// sequence on a single line (as unitig tools such as BCALM2 and GGCAT
+    /// write them).
+    ///
+    /// # Errors
+    /// Returns an error if the graph is too large for 32-bit unitig ids or
+    /// writing fails.
+    pub fn write_unitigs_fasta(self, writer: &mut dyn Write) -> PanResult<()> {
+        let unitigs = self.into_unitigs()?;
+        write_records(writer, &unitigs.sequences, 1 << 10, |id, sequence, buf| {
+            buf.push(b'>');
+            push_number(buf, id);
+            buf.push(b'\n');
+            buf.extend_from_slice(sequence);
+            buf.push(b'\n');
+            Ok(())
+        })
+    }
+
     /// Writes the graph as GFA, one segment per k-mer, straight from its
     /// tables.
     ///
@@ -76,6 +97,7 @@ impl DeBruijn {
 mod tests {
     use super::super::de_bruijn_graph::tests::graph;
     use crate::{CoreGraphDTO, DeBruijn};
+    use std::fmt::Write as _;
 
     fn streamed(g: &CoreGraphDTO, k: usize, threads: usize) -> Vec<u8> {
         let pool = rayon::ThreadPoolBuilder::new()
@@ -103,6 +125,35 @@ mod tests {
         let g = graph(&[&seq], &[], &[("p", &[(0, false)])]);
         for k in [5, 31, 33] {
             assert_eq!(streamed(&g, k, 1), streamed(&g, k, 8), "k={k}");
+        }
+    }
+
+    #[test]
+    fn fasta_unitigs_match_compacted_nodes() {
+        let g = graph(
+            &[b"TTGACCAGTAGGACATGGATTC", b"A", b"C", b"CATGGATTCAGGCT"],
+            &[],
+            &[
+                ("h1", &[(0, false), (1, false), (3, false)]),
+                ("h2", &[(0, false), (2, false), (3, false)]),
+            ],
+        );
+        for k in [3, 5, 31] {
+            let dbg = || DeBruijn::from_directed_graph(g.clone(), k).unwrap();
+            let mut fasta = Vec::new();
+            dbg().write_unitigs_fasta(&mut fasta).unwrap();
+            let compacted = dbg().into_compacted_dto().unwrap();
+            let mut expected = String::new();
+            for node in compacted.nodes.iter() {
+                writeln!(
+                    expected,
+                    ">{}\n{}",
+                    node.id,
+                    String::from_utf8_lossy(&node.sequence)
+                )
+                .unwrap();
+            }
+            assert_eq!(String::from_utf8(fasta).unwrap(), expected, "k={k}");
         }
     }
 
