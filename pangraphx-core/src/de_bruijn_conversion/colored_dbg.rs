@@ -47,7 +47,8 @@ struct Segment {
 /// A de Bruijn graph that also keeps every input path as a walk through it.
 pub struct ColoredDBG {
     pub dbg: DeBruijn,
-    /// The input graph, walked again whenever the paths are needed.
+    /// The nodes and paths of the input graph, walked again whenever the
+    /// paths are needed.
     graph: CoreGraph,
     segments: Vec<Segment>,
     /// Bases per path chunk of every walk (small in tests, to put chunk
@@ -74,7 +75,9 @@ impl ColoredDBG {
         k: usize,
         chunk_bases: usize,
     ) -> PanResult<Self> {
-        let lookup = DeBruijn::prepare(graph, k)?;
+        let mut lookup = DeBruijn::prepare(graph, k)?;
+        // The input is kept to walk the paths again, so drop the rest of it.
+        lookup.keep_only_paths();
         let (tables, segments) = if k <= MAX_SMALL_K {
             let core = build_from_paths::<u64>(&lookup, k);
             let segments = find_segments(&lookup, &core, k, chunk_bases)?;

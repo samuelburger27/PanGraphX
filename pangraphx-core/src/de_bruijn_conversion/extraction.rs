@@ -10,7 +10,7 @@
 //!   node, all walks are followed just far enough to complete the windows that
 //!   start in that node.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use log::debug;
@@ -118,6 +118,15 @@ impl CoreGraph {
             }
         }
         Ok(())
+    }
+
+    /// Releases what the path walkers never read (the edges, their adjacency
+    /// index and the node names), keeping the nodes and paths. Call after
+    /// [`validate_node_references`](Self::validate_node_references).
+    pub(crate) fn keep_only_paths(&mut self) {
+        self.edges = Vec::new();
+        self.adjacency_list = HashMap::new();
+        self.node_name_map = None;
     }
 
     /// Paths in name order, so results do not depend on hash map order.

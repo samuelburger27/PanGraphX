@@ -127,7 +127,8 @@ impl DeBruijn {
     /// Returns an error if `k` is not in `1..=63` or the graph refers to
     /// missing nodes.
     pub fn from_directed_graph(graph: CoreGraphDTO, k: usize) -> PanResult<Self> {
-        let lookup = Self::prepare(graph, k)?;
+        let mut lookup = Self::prepare(graph, k)?;
+        lookup.keep_only_paths();
         let tables = if k <= MAX_SMALL_K {
             DbgTables::Small(build_from_paths(&lookup, k))
         } else {
