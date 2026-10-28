@@ -112,6 +112,7 @@ pub enum DbgFormat {
     /// GFA, one segment per k-mer or unitig
     Gfa,
     /// FASTA, one record per unitig (needs --compact)
+    #[value(alias = "fa", alias = "fna")]
     Fasta,
 }
 
@@ -132,7 +133,7 @@ pub struct DbgOutputArgs {
     pub output: String,
 
     /// Output format; required for stdout
-    #[arg(long, value_name = "FORMAT", value_enum)]
+    #[arg(long, value_name = "FORMAT", value_enum, ignore_case = true)]
     pub to: Option<DbgFormat>,
 }
 
