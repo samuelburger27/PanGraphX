@@ -3,18 +3,19 @@ use crate::graph_io::{file_extension, load_graph, write_output};
 use crate::utils::group;
 use anyhow::{Context, Result, bail};
 use log::info;
-use pangraphx_core::{ColoredDBG, CoreGraphDTO, DeBruijn, GraphFormat};
+use pangraphx_core::{ColoredDBG, CoreGraphDTO, DeBruijn, GraphFormat, UnitigSequences};
 use std::time::Instant;
 
 /// The constructed graph, in the form it is written from.
 enum Built {
-    /// One node per k-mer, written from the k-mer tables (or compacted into
-    /// FASTA unitigs while writing).
+    /// One node per k-mer, written from the k-mer tables.
     Kmers(DeBruijn),
     /// One node per k-mer, with the input paths walked again while writing.
     Colored(ColoredDBG),
     /// Unitigs; small enough to hold as a DTO.
     Unitigs(CoreGraphDTO),
+    /// Unitig sequences only, for FASTA.
+    Sequences(UnitigSequences),
 }
 
 pub fn handle_dbg(args: &DbgArgs) -> Result<()> {
@@ -36,22 +37,23 @@ pub fn handle_dbg(args: &DbgArgs) -> Result<()> {
     let start = Instant::now();
     let built = build(graph, args, format).context("failed to build the de Bruijn graph")?;
     let (node_count, edge_count) = match &built {
-        Built::Kmers(dbg) => (dbg.node_count(), dbg.edge_count()),
-        Built::Colored(dbg) => (dbg.dbg.node_count(), dbg.dbg.edge_count()),
-        Built::Unitigs(dto) => (dto.nodes.len(), dto.edges.len()),
+        Built::Kmers(dbg) => (dbg.node_count(), Some(dbg.edge_count())),
+        Built::Colored(dbg) => (dbg.dbg.node_count(), Some(dbg.dbg.edge_count())),
+        Built::Unitigs(dto) => (dto.nodes.len(), Some(dto.edges.len())),
+        Built::Sequences(unitigs) => (unitigs.len(), None),
     };
+    let edges = edge_count.map_or_else(String::new, |n| format!(", {} edges", group(n)));
     info!(
-        "Built {} nodes, {} edges in {:.2?}",
+        "Built {} nodes{edges} in {:.2?}",
         group(node_count),
-        group(edge_count),
         start.elapsed()
     );
 
     write_output(&args.output.output, format, |writer| match built {
-        Built::Kmers(dbg) if format == DbgFormat::Fasta => dbg.write_unitigs_fasta(writer),
         Built::Kmers(dbg) => dbg.write_gfa(writer),
         Built::Colored(dbg) => dbg.write_gfa(writer),
         Built::Unitigs(dto) => dto.save(writer, GraphFormat::GFA),
+        Built::Sequences(unitigs) => unitigs.write_fasta(writer),
     })
 }
 
@@ -106,10 +108,9 @@ fn build(graph: CoreGraphDTO, args: &DbgArgs, format: DbgFormat) -> Result<Built
     } else {
         DeBruijn::from_directed_graph(graph, k)?
     };
-    // FASTA unitigs are compacted while writing.
-    Ok(if args.compact && format == DbgFormat::Gfa {
-        Built::Unitigs(dbg.into_compacted_dto()?)
-    } else {
-        Built::Kmers(dbg)
+    Ok(match (args.compact, format) {
+        (false, _) => Built::Kmers(dbg),
+        (true, DbgFormat::Gfa) => Built::Unitigs(dbg.into_compacted_dto()?),
+        (true, DbgFormat::Fasta) => Built::Sequences(dbg.into_unitig_sequences()?),
     })
 }

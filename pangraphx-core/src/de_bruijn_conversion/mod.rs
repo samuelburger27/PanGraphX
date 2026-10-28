@@ -6,3 +6,5 @@ pub mod k_mers;
 mod kmer_set;
 mod output;
 mod word;
+
+pub use output::UnitigSequences;
