@@ -52,6 +52,10 @@ RAM_MIB="$(total_ram_mib)"
 BUDGET_MIB="${DBG_MEM_BUDGET_MIB:-$(( RAM_MIB * 60 / 100 ))}"
 TIMEOUT_S="${DBG_TIMEOUT_S:-1800}"
 BYTES_PER_NODE_BP="${DBG_BYTES_PER_NODE_BP:-80}"
+for removed in DBG_COMPACT_BYTES_PER_NODE_BP DBG_BYTES_PER_STEP_BP; do
+    [[ -n "${!removed:-}" ]] &&
+        warn "$removed is no longer used (output is streamed, so mode and path length do not affect memory); set DBG_BYTES_PER_NODE_BP instead"
+done
 FULL_TOPOLOGY_MAX_BP="${DBG_FULL_TOPOLOGY_MAX_BP:-5000000}"
 CPUS="$(cpu_count)"
 
@@ -92,7 +96,7 @@ node_bp() {
         sed -n 's/^ *Total length: *\([0-9,]*\) bp.*/\1/p' | tr -d ',' | head -1
 }
 
-# estimate_mib <mode> <node_bp> <path_bp> <gfa_bytes> -> rough peak MiB: a fixed
+# estimate_mib <node_bp> <gfa_bytes> -> rough peak MiB, the same for every mode: a fixed
 # 64 MiB, the parsed input (~3x its file size; colored modes keep it to walk the
 # paths again), plus per node base (≈ 1.5 distinct k-mers) the construction
 # peak: the sharded k-mer and edge sets and their sorted tables. Output is
@@ -101,7 +105,7 @@ node_bp() {
 # included) at ~47 B per k-mer, and peak RSS is 1.7-2.3 GB against an estimate
 # of 2.3 GB.
 estimate_mib() {
-    awk -v n="$2" -v f="$4" -v c="$BYTES_PER_NODE_BP" \
+    awk -v n="$1" -v f="$2" -v c="$BYTES_PER_NODE_BP" \
         'BEGIN { printf "%d", 64 + (3 * f + n * c) / 1048576 }'
 }
 
@@ -152,7 +156,7 @@ for ds in "${DATASETS[@]}"; do
             guard_hit=false
             for t in "${THREAD_LIST[@]}"; do
                 [[ "$t" == max ]] && t="$CPUS"
-                est="$(estimate_mib "$mode" "${nbp:-$bp}" "$bp" "$gfa_bytes")"
+                est="$(estimate_mib "${nbp:-$bp}" "$gfa_bytes")"
                 if $guard_hit; then
                     row "$name" "$bp" "$mode" "$k" "$t" "$est" NA NA "skipped-after-guard"
                     continue
