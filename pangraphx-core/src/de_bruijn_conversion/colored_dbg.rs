@@ -30,6 +30,11 @@ use log::debug;
 use std::io::Write;
 use std::mem::take;
 
+/// Bases per path chunk when formatting paths as GFA. A formatted step takes
+/// about 10 bytes, and one chunk per thread is held before it is written, so
+/// chunks are kept well below [`CHUNK_BASES`]: about 1.3 MiB of text each.
+const FORMAT_CHUNK_BASES: usize = 1 << 17;
+
 /// One gap-free piece of an input path that holds at least one k-mer. Each
 /// segment becomes one path of the colored graph.
 struct Segment {
@@ -133,7 +138,7 @@ impl ColoredDBG {
         walk_segments(
             &self.graph,
             k,
-            self.chunk_bases,
+            self.chunk_bases.min(FORMAT_CHUNK_BASES),
             || FormatBuilder::new(core),
             |event| {
                 match event {
