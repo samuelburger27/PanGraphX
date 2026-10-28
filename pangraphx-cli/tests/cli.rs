@@ -124,6 +124,22 @@ fn dbg_writes_fasta_unitigs() {
 }
 
 #[test]
+fn dbg_to_ignores_case_and_accepts_fasta_aliases() {
+    for (to, start) in [
+        ("GFA", "H\t"),
+        ("Fasta", ">0\n"),
+        ("fa", ">0\n"),
+        ("FNA", ">0\n"),
+    ] {
+        cli()
+            .args(["dbg", &sample_gfa(), "-k", "5", "-u", "-o", "-", "--to", to])
+            .assert()
+            .success()
+            .stdout(predicate::str::starts_with(start));
+    }
+}
+
+#[test]
 fn dbg_infers_output_format_from_extension() {
     let dir = tempfile::tempdir().expect("temp dir");
     for (name, flags, start) in [
