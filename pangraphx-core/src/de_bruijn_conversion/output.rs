@@ -12,6 +12,7 @@
 
 use super::de_bruijn_graph::{DbgCore, DbgTables, DeBruijn, edge_overlap, with_core};
 use super::word::{KmerWord, decode_word_into, edge_ends};
+use crate::core::core_types::Sequence;
 use crate::error::PanResult;
 use crate::formats::gfa_format::{GFA_HEADER, RECORDS_PER_CHUNK, orientation_byte, write_records};
 use std::io::Write;
@@ -58,25 +59,57 @@ impl<W: KmerWord> DbgCore<W> {
     }
 }
 
-impl DeBruijn {
-    /// Compacts the graph and writes its unitigs as FASTA: one record per
-    /// unitig, named by its node id in
-    /// [`into_compacted_dto`](DeBruijn::into_compacted_dto), with the
-    /// sequence on a single line (as unitig tools such as BCALM2 and GGCAT
-    /// write them).
+/// The sequences of the unitigs of a compacted de Bruijn graph, without the
+/// links between them; written as FASTA.
+pub struct UnitigSequences {
+    sequences: Vec<Sequence>,
+}
+
+impl UnitigSequences {
+    /// Number of unitigs.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.sequences.len()
+    }
+
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.sequences.is_empty()
+    }
+
+    /// The unitig sequences, indexed by unitig id.
+    #[must_use]
+    pub fn sequences(&self) -> &[Sequence] {
+        &self.sequences
+    }
+
+    /// Writes one FASTA record per unitig, named by its id (its node id in
+    /// [`DeBruijn::into_compacted_dto`]), with the sequence on a single line
+    /// as unitig tools such as BCALM2 and GGCAT write them.
     ///
     /// # Errors
-    /// Returns an error if the graph is too large for 32-bit unitig ids or
-    /// writing fails.
-    pub fn write_unitigs_fasta(self, writer: &mut dyn Write) -> PanResult<()> {
-        let unitigs = self.into_unitigs()?;
-        write_records(writer, &unitigs.sequences, 1 << 10, |id, sequence, buf| {
+    /// Returns an error if writing fails.
+    pub fn write_fasta(&self, writer: &mut dyn Write) -> PanResult<()> {
+        write_records(writer, &self.sequences, 1 << 10, |id, sequence, buf| {
             buf.push(b'>');
             push_number(buf, id);
             buf.push(b'\n');
             buf.extend_from_slice(sequence);
             buf.push(b'\n');
             Ok(())
+        })
+    }
+}
+
+impl DeBruijn {
+    /// Compacts the graph into unitigs and keeps only their sequences: the
+    /// links between unitigs and the k-mer placement are released.
+    ///
+    /// # Errors
+    /// Returns an error if the graph is too large for 32-bit unitig ids.
+    pub fn into_unitig_sequences(self) -> PanResult<UnitigSequences> {
+        Ok(UnitigSequences {
+            sequences: self.into_unitigs()?.sequences,
         })
     }
 
@@ -140,9 +173,11 @@ mod tests {
         );
         for k in [3, 5, 31] {
             let dbg = || DeBruijn::from_directed_graph(g.clone(), k).unwrap();
+            let unitigs = dbg().into_unitig_sequences().unwrap();
             let mut fasta = Vec::new();
-            dbg().write_unitigs_fasta(&mut fasta).unwrap();
+            unitigs.write_fasta(&mut fasta).unwrap();
             let compacted = dbg().into_compacted_dto().unwrap();
+            assert_eq!(unitigs.len(), compacted.nodes.len());
             let mut expected = String::new();
             for node in compacted.nodes.iter() {
                 writeln!(
