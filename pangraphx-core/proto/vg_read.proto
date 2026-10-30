@@ -1,0 +1,43 @@
+// Read-side view of vg.proto: the same messages and field numbers, but only
+// the fields the VG parser keeps. Protobuf decoders skip unknown fields without
+// allocating, so a mapping's edits, position offsets and names, and a path's
+// circularity and length cost nothing to read. Strings are declared `bytes`
+// (the same wire type) so they are not validated as UTF-8.
+syntax = "proto3";
+
+package vg_read;
+
+message Graph {
+    repeated Node node = 1;
+    repeated Edge edge = 2;
+    repeated Path path = 3;
+}
+
+message Node {
+    bytes sequence = 1;
+    bytes name = 2;
+    int64 id = 3;
+}
+
+message Edge {
+    int64 from = 1;
+    int64 to = 2;
+    bool from_start = 3;
+    bool to_end = 4;
+    int32 overlap = 5;
+}
+
+message Mapping {
+    Position position = 1;
+    int64 rank = 5;
+}
+
+message Position {
+    int64 node_id = 1;
+    bool is_reverse = 4;
+}
+
+message Path {
+    bytes name = 1;
+    repeated Mapping mapping = 2;
+}
