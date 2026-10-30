@@ -37,3 +37,8 @@ GFA to FASTG for us.
 `gfa/names_mixed.gfa` is hand-authored: it mixes numeric and non-numeric
 segment names, including `0` and `007`, and is a regression test for node-id
 collisions in formats that need integer ids (VG, ODGI).
+
+HPRC v1.0 whole-genome minigraph graph (rGFA, no paths), benchmark only.
+`utils/download_gfa.sh` fetches it and renames segments `s<N>` to `<N>` for odgi:
+
+https://human-pangenomics.s3.amazonaws.com/pangenomes/freeze/freeze1/minigraph/hprc-v1.0-minigraph-chm13.gfa.gz
