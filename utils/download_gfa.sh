@@ -39,4 +39,31 @@ else
     mv "${TMP_DIR}/chr22.hprc-v1.1-mc-grch38.gfa" "${CHR22_GFA}"
 fi
 
+# HPRC v1.0 whole-genome minigraph graph (rGFA: segments only, no paths).
+# Segments are named `s1`, `s2`, ...; odgi only accepts integer names, so the
+# `s` prefix is stripped from S and L lines and every tool reads the same
+# numeric copy. An unmodified download already in GFA_DIR is reused.
+MINIGRAPH_NAME="hprc-v1.0-minigraph-chm13"
+MINIGRAPH_GFA="${GFA_DIR}/${MINIGRAPH_NAME}.num.gfa"
+if [ -f "${MINIGRAPH_GFA}" ]; then
+    echo "Already present, skipping: ${MINIGRAPH_GFA}"
+else
+    T=$'\t'
+    numeric_ids() {
+        LC_ALL=C sed -E \
+            -e "s/^(S${T})s([0-9]+)${T}/\1\2${T}/" \
+            -e "s/^(L${T})s([0-9]+)(${T}[+-]${T})s([0-9]+)${T}/\1\2\3\4${T}/"
+    }
+    if [ -f "${GFA_DIR}/${MINIGRAPH_NAME}.gfa" ]; then
+        echo "Renumbering existing ${MINIGRAPH_NAME}.gfa..."
+        numeric_ids < "${GFA_DIR}/${MINIGRAPH_NAME}.gfa" > "${TMP_DIR}/${MINIGRAPH_NAME}.num.gfa"
+    else
+        echo "Downloading ${MINIGRAPH_NAME}.gfa.gz..."
+        curl -L --fail "https://human-pangenomics.s3.amazonaws.com/pangenomes/freeze/freeze1/minigraph/${MINIGRAPH_NAME}.gfa.gz" \
+            -o "${TMP_DIR}/${MINIGRAPH_NAME}.gfa.gz"
+        gunzip -c "${TMP_DIR}/${MINIGRAPH_NAME}.gfa.gz" | numeric_ids > "${TMP_DIR}/${MINIGRAPH_NAME}.num.gfa"
+    fi
+    mv "${TMP_DIR}/${MINIGRAPH_NAME}.num.gfa" "${MINIGRAPH_GFA}"
+fi
+
 echo "Done. GFA files are in ${GFA_DIR}"

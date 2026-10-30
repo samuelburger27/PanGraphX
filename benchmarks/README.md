@@ -17,7 +17,7 @@ shell scripts measure whole CLI runs the way a user experiences them.
 | Location | Contents |
 |----------|----------|
 | `pangraphx-core/tests/test_files/gfa/` | Small curated fixtures (phiX174, phage λ, *M. genitalium*, merged, small synthetic) |
-| `benchmarks/data/` (gitignored) | Large graphs: `ecoli50`, `chr22.hprc-v1.1-mc-grch38` (fetch with `utils/download_gfa.sh`) and `random_medium` (60 MB synthetic, generated on demand by `utils/generate_gfa.py`) |
+| `benchmarks/data/` (gitignored) | Large graphs: `ecoli50`, `chr22.hprc-v1.1-mc-grch38`, `hprc-v1.0-minigraph-chm13.num` (fetch with `utils/download_gfa.sh`) and `random_medium` (60 MB synthetic, generated on demand by `utils/generate_gfa.py`) |
 
 Only GFA files are inputs. The scripts look up a dataset name as `<name>.gfa`
 in `benchmarks/data/` first, then in the fixtures directory, and they also
@@ -87,7 +87,7 @@ this the number to track when optimizing memory. The CSV goes to
 
 | Operation | PanGraphX | Reference tool |
 |-----------|-----------|----------------|
-| GFA → VG | `convert g.gfa -o g.vg` | `vg convert --gfa-in --vg-out g.gfa` |
+| GFA → VG | `convert g.gfa -o g.vg` | `vg convert --gfa-in -r -1 --vg-out g.gfa` |
 | VG → GFA | `convert g.vg -o g.gfa` | `vg convert --gfa-out g.vg` |
 | GFA → GBZ | `convert g.gfa -o g.gbz` | `vg gbwt -G g.gfa -g g.gbz --max-node 0 --num-jobs N` |
 | GBZ → GFA | `convert g.gbz -o g.gfa` | `vg convert --gfa-out g.gbz` |
@@ -109,7 +109,12 @@ conversion is single-threaded anyway.
 vg from chopping segments into nodes of at most 1024 bp, so both tools build
 a GBZ over the same nodes as the GFA. vg writes `.vg` files
 as Protobuf (`--vg-out`), the encoding PanGraphX reads and writes, so GFA → VG
-compares the same output format.
+compares the same output format. `-r -1` stops vg from turning rank-0 rGFA
+tags into paths; PanGraphX and odgi ignore those tags.
+
+`hprc-v1.0-minigraph-chm13.num` is the whole-genome HPRC minigraph rGFA (3.4 GB,
+no paths) with segment names `s<N>` rewritten to `<N>`, because `odgi build`
+rejects non-integer names. With no paths, its GBZ conversions are meaningless.
 
 ```bash
 benchmarks/compare_tools.sh                         # default datasets (lib.sh)

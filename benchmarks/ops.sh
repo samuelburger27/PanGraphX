@@ -15,7 +15,9 @@
 # `vg gbwt --num-jobs` (VG_THREADS overrides; vg gbwt has no -t/--threads). VG files
 # are written as Protobuf (--vg-out), the encoding PanGraphX reads and writes,
 # so both tools produce the same format. GBZ construction passes --max-node 0:
-# vg otherwise chops segments to 1024 bp, which PanGraphX does not do.
+# vg otherwise chops segments to 1024 bp, which PanGraphX does not do. GFA
+# import passes -r -1: vg otherwise turns rank-0 rGFA tags (SN/SO/SR) into
+# paths, which PanGraphX and odgi ignore. Inputs without rGFA tags are unaffected.
 
 VG_THREADS="${VG_THREADS:-$(cpu_count)}"
 ODGI_THREADS="${ODGI_THREADS:-$(cpu_count)}"
@@ -63,7 +65,7 @@ op_tool_cmd() {
     local op="$1" dir="$2" in
     in="$(op_input "$op" "$dir" "$3")"
     case "$op" in
-        gfa_to_vg)  echo "vg convert --gfa-in --vg-out $in > $dir/tool_out.vg" ;;
+        gfa_to_vg)  echo "vg convert --gfa-in -r -1 --vg-out $in > $dir/tool_out.vg" ;;
         vg_to_gfa)  echo "vg convert --gfa-out $in > $dir/tool_out.gfa" ;;
         gfa_to_gbz) echo "vg gbwt -G $in -g $dir/tool_out.gbz --max-node 0 --num-jobs $VG_THREADS" ;;
         gbz_to_gfa) echo "vg convert --gfa-out $in > $dir/tool_out.gfa" ;;
@@ -82,7 +84,7 @@ prepare_inputs() {
     for fmt in vg gbz og; do
         [[ -s "$dir/ref.$fmt" ]] && continue
         case "$fmt" in
-            vg)  $HAVE_VG   || continue; cmd="vg convert --gfa-in --vg-out $gfa > $dir/ref.vg" ;;
+            vg)  $HAVE_VG   || continue; cmd="vg convert --gfa-in -r -1 --vg-out $gfa > $dir/ref.vg" ;;
             gbz) $HAVE_VG   || continue; cmd="vg gbwt -G $gfa -g $dir/ref.gbz --max-node 0 --num-jobs $VG_THREADS" ;;
             og)  $HAVE_ODGI || continue; cmd="odgi build -t $ODGI_THREADS -g $gfa -o $dir/ref.og" ;;
         esac
