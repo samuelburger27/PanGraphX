@@ -3,6 +3,7 @@ use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
 use crate::formats::id_map::{IdMap, parse_canonical_int};
 use crate::proto_gen::vg as vg_proto;
+use crate::proto_gen::vg_read;
 use crate::traits::{GraphParser, GraphSerializer};
 use log::debug;
 use prost::Message;
@@ -78,18 +79,18 @@ const VG_GROUP_SIZE: usize = 1000;
 /// to 2 GB, so a larger length means a corrupt stream, not a huge allocation.
 const VG_MAX_MESSAGE_LEN: u64 = i32::MAX as u64;
 
-/// Reads a VG-framed protobuf stream and hands every decoded `Graph` message to `on_graph`.
+/// Reads a VG-framed protobuf stream and hands every `Graph` message to `on_graph`, undecoded.
 ///
 /// The VG framing format consists of groups. Each group starts with a varint
 /// count of messages, each message is length-prefixed with a varint. The first
 /// message in a group may be a type tag string (e.g. `"VG"`).
 ///
-/// Messages are decoded one at a time, so only a single chunk of the stream is
+/// Messages are read one at a time, so only a single chunk of the stream is
 /// held in its protobuf form.
 #[allow(clippy::cast_possible_truncation)]
-fn for_each_vg_graph<R: Read>(
+fn for_each_vg_message<R: Read>(
     reader: &mut R,
-    mut on_graph: impl FnMut(vg_proto::Graph) -> PanResult<()>,
+    mut on_message: impl FnMut(&[u8]) -> PanResult<()>,
 ) -> PanResult<()> {
     let mut msg_buf = Vec::new();
 
@@ -119,10 +120,7 @@ fn for_each_vg_graph<R: Read>(
                 }
             }
 
-            let graph = vg_proto::Graph::decode(msg_buf.as_slice()).map_err(|e| {
-                PanGraphXError::Parse(format!("Failed to decode VG Graph message: {e}"))
-            })?;
-            on_graph(graph)?;
+            on_message(&msg_buf)?;
         }
     }
 
@@ -133,11 +131,18 @@ fn for_each_vg_graph<R: Read>(
 #[cfg(test)]
 fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
     let mut graphs = Vec::new();
-    for_each_vg_graph(reader, |graph| {
-        graphs.push(graph);
+    for_each_vg_message(reader, |message| {
+        graphs.push(decode_graph(message)?);
         Ok(())
     })?;
     Ok(graphs)
+}
+
+/// Decodes one `Graph` message as `M` (the full `vg_proto::Graph` or the
+/// reader's `vg_read::Graph`).
+fn decode_graph<M: Message + Default>(message: &[u8]) -> PanResult<M> {
+    M::decode(message)
+        .map_err(|e| PanGraphXError::Parse(format!("Failed to decode VG Graph message: {e}")))
 }
 
 /// Heuristic to determine if a message buffer is a type tag string.
@@ -216,7 +221,7 @@ struct VgStep {
 
 /// Mappings of one path, accumulated across all `Graph` chunks it is split over.
 struct VgPath {
-    name: String,
+    name: Vec<u8>,
     steps: Vec<VgStep>,
 }
 
@@ -234,7 +239,7 @@ impl VgPath {
         if ranks.windows(2).any(|w| w[0] == w[1]) {
             debug!(
                 "VG path {} has repeated mapping ranks, keeping stream order",
-                self.name
+                String::from_utf8_lossy(&self.name)
             );
             return;
         }
@@ -244,8 +249,8 @@ impl VgPath {
 
 /// Nodes, edges and paths of a whole VG stream, merged across its `Graph` chunks.
 struct VgStream {
-    nodes: Vec<vg_proto::Node>,
-    edges: Vec<vg_proto::Edge>,
+    nodes: Vec<vg_read::Node>,
+    edges: Vec<vg_read::Edge>,
     paths: Vec<VgPath>,
 }
 
@@ -253,12 +258,13 @@ impl VgStream {
     /// Collects nodes, edges and path steps from all partial graphs, moving
     /// the decoded values instead of cloning them.
     fn read<R: Read>(reader: &mut R) -> PanResult<Self> {
-        let mut proto_nodes: Vec<vg_proto::Node> = Vec::new();
-        let mut proto_edges: Vec<vg_proto::Edge> = Vec::new();
+        let mut proto_nodes: Vec<vg_read::Node> = Vec::new();
+        let mut proto_edges: Vec<vg_read::Edge> = Vec::new();
         let mut vg_paths: Vec<VgPath> = Vec::new();
-        let mut path_index: HashMap<String, usize> = HashMap::new();
+        let mut path_index: HashMap<Vec<u8>, usize> = HashMap::new();
 
-        for_each_vg_graph(reader, |graph| {
+        for_each_vg_message(reader, |message| {
+            let graph: vg_read::Graph = decode_graph(message)?;
             proto_nodes.extend(graph.node);
             proto_edges.extend(graph.edge);
             for path in graph.path {
@@ -278,7 +284,7 @@ impl VgStream {
                     let Some(position) = mapping.position else {
                         return Err(PanGraphXError::Parse(format!(
                             "Mapping in path {} missing position",
-                            vg_path.name
+                            String::from_utf8_lossy(&vg_path.name)
                         )));
                     };
                     vg_path.steps.push(VgStep {
@@ -338,10 +344,10 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
                     .as_bytes()
                     .to_vec()
             } else {
-                proto_node.name.into_bytes()
+                proto_node.name
             };
             node_name_map.insert(idx, name);
-            nodes.push(proto_node.sequence.into_bytes());
+            nodes.push(proto_node.sequence);
         }
 
         // Convert edges
@@ -389,7 +395,7 @@ impl<R: Read + Seek> GraphParser<R> for VGCodec {
                     })
                     .collect::<PanResult<Vec<Step>>>()?;
                 Ok(Path {
-                    name: vg_path.name.into_bytes(),
+                    name: vg_path.name,
                     steps,
                     overlaps: Vec::new(),
                 })
@@ -1196,7 +1202,7 @@ mod tests {
 
     fn ranked_path(ranks: &[i64]) -> VgPath {
         VgPath {
-            name: "p".to_string(),
+            name: b"p".to_vec(),
             steps: ranks
                 .iter()
                 .zip(1..)
