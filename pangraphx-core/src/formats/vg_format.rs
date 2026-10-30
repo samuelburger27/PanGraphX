@@ -10,6 +10,7 @@ use prost::Message;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
+use std::ops::Range;
 
 pub struct VGCodec;
 
@@ -79,63 +80,129 @@ const VG_GROUP_SIZE: usize = 1000;
 /// to 2 GB, so a larger length means a corrupt stream, not a huge allocation.
 const VG_MAX_MESSAGE_LEN: u64 = i32::MAX as u64;
 
-/// Reads a VG-framed protobuf stream and hands every `Graph` message to `on_graph`, undecoded.
+/// Bytes of raw messages read before they are decoded together: hundreds of
+/// vg's 1000-entity messages, so every thread gets work, while the two raw
+/// windows in flight stay small next to the decoded graph.
+const VG_READ_WINDOW: usize = 16 << 20;
+
+/// Raw `Graph` messages, stored back to back.
+#[derive(Default)]
+struct RawWindow {
+    bytes: Vec<u8>,
+    messages: Vec<Range<usize>>,
+}
+
+impl RawWindow {
+    #[cfg(test)]
+    fn messages(&self) -> impl Iterator<Item = &[u8]> {
+        self.messages.iter().map(|range| &self.bytes[range.clone()])
+    }
+
+    /// Decodes the messages in parallel batches, keeping stream order.
+    fn decode(&self) -> PanResult<Vec<DecodedBatch>> {
+        // A few batches per thread balance uneven messages.
+        let batch_len = self
+            .messages
+            .len()
+            .div_ceil(4 * rayon::current_num_threads())
+            .max(1);
+        self.messages
+            .par_chunks(batch_len)
+            .map(|ranges| {
+                DecodedBatch::decode(ranges.iter().map(|range| &self.bytes[range.clone()]))
+            })
+            .collect()
+    }
+}
+
+/// Splits a VG-framed protobuf stream into its `Graph` messages.
 ///
 /// The VG framing format consists of groups. Each group starts with a varint
 /// count of messages, each message is length-prefixed with a varint. The first
-/// message in a group may be a type tag string (e.g. `"VG"`).
-///
-/// Messages are read one at a time, so only a single chunk of the stream is
-/// held in its protobuf form.
-#[allow(clippy::cast_possible_truncation)]
-fn for_each_vg_message<R: Read>(
-    reader: &mut R,
-    mut on_message: impl FnMut(&[u8]) -> PanResult<()>,
-) -> PanResult<()> {
-    let mut msg_buf = Vec::new();
+/// message in a group may be a type tag string (e.g. `"VG"`), which is skipped.
+struct VgFrames<'r, R> {
+    reader: &'r mut R,
+    /// Messages left in the current group.
+    remaining: u64,
+    /// Index of the next message within its group.
+    index: u64,
+}
 
-    while let Some(count) = read_varint(reader)? {
-        for index in 0..count {
-            let msg_len = read_varint(reader)?.ok_or_else(|| {
-                PanGraphXError::Parse("Unexpected EOF reading message length".to_string())
-            })?;
-            if msg_len > VG_MAX_MESSAGE_LEN {
-                return Err(PanGraphXError::Parse(format!(
-                    "VG message length {msg_len} exceeds the protobuf limit of {VG_MAX_MESSAGE_LEN} bytes"
-                )));
-            }
-            let msg_len = msg_len as usize;
-
-            msg_buf.clear();
-            msg_buf.resize(msg_len, 0);
-            reader.read_exact(&mut msg_buf)?;
-
-            // Determine if the first message is a type tag.
-            // Type tags are short ASCII strings; Graph messages are protobuf-encoded.
-            if index == 0 {
-                let (is_type_tag, tag_str) = detect_type_tag(&msg_buf);
-                if is_type_tag {
-                    debug!("VG stream type tag: {tag_str:?}");
-                    continue;
-                }
-            }
-
-            on_message(&msg_buf)?;
+impl<'r, R: Read> VgFrames<'r, R> {
+    const fn new(reader: &'r mut R) -> Self {
+        Self {
+            reader,
+            remaining: 0,
+            index: 0,
         }
     }
 
-    Ok(())
+    /// Replaces the contents of `window` with the next messages, until they
+    /// hold at least `budget` bytes or the stream ends; an empty window means
+    /// the stream has ended. Windows are reused: allocating a fresh buffer per
+    /// window left the freed ones resident in the macOS allocator and doubled
+    /// the peak memory of a chr22 load.
+    fn read_window(&mut self, budget: usize, window: &mut RawWindow) -> PanResult<()> {
+        window.bytes.clear();
+        window.messages.clear();
+        while window.bytes.len() < budget {
+            if self.remaining == 0 {
+                let Some(count) = read_varint(self.reader)? else {
+                    break;
+                };
+                self.remaining = count;
+                self.index = 0;
+                continue;
+            }
+            self.remaining -= 1;
+            let index = self.index;
+            self.index += 1;
+
+            let msg_len = read_varint(self.reader)?.ok_or_else(|| {
+                PanGraphXError::Parse("Unexpected EOF reading message length".to_string())
+            })?;
+            let msg_len = usize::try_from(msg_len)
+                .ok()
+                .filter(|_| msg_len <= VG_MAX_MESSAGE_LEN)
+                .ok_or_else(|| {
+                    PanGraphXError::Parse(format!(
+                        "VG message length {msg_len} exceeds the protobuf limit of {VG_MAX_MESSAGE_LEN} bytes"
+                    ))
+                })?;
+            let start = window.bytes.len();
+            window.bytes.resize(start + msg_len, 0);
+            self.reader.read_exact(&mut window.bytes[start..])?;
+
+            // Type tags are short ASCII strings; Graph messages are protobuf-encoded.
+            if index == 0 {
+                let (is_type_tag, tag_str) = detect_type_tag(&window.bytes[start..]);
+                if is_type_tag {
+                    debug!("VG stream type tag: {tag_str:?}");
+                    window.bytes.truncate(start);
+                    continue;
+                }
+            }
+            window.messages.push(start..start + msg_len);
+        }
+        Ok(())
+    }
 }
 
 /// Reads all `Graph` messages from a VG-framed protobuf stream.
 #[cfg(test)]
 fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
+    let mut frames = VgFrames::new(reader);
     let mut graphs = Vec::new();
-    for_each_vg_message(reader, |message| {
-        graphs.push(decode_graph(message)?);
-        Ok(())
-    })?;
-    Ok(graphs)
+    let mut window = RawWindow::default();
+    loop {
+        frames.read_window(VG_READ_WINDOW, &mut window)?;
+        if window.messages.is_empty() {
+            return Ok(graphs);
+        }
+        for message in window.messages() {
+            graphs.push(decode_graph(message)?);
+        }
+    }
 }
 
 /// Decodes one `Graph` message as `M` (the full `vg_proto::Graph` or the
@@ -240,12 +307,14 @@ enum ChunkRanks {
 /// The part of one path stored in a single `Graph` message.
 struct PathChunk {
     name: Vec<u8>,
-    steps: Vec<PackedStep>,
+    /// Number of steps; they are stored in the batch the chunk was decoded in.
+    len: usize,
     ranks: ChunkRanks,
 }
 
 impl PathChunk {
-    fn decode(path: vg_read::Path) -> PanResult<Self> {
+    /// Decodes `path`, appending its steps to `steps`.
+    fn decode(path: vg_read::Path, steps: &mut Vec<PackedStep>) -> PanResult<Self> {
         let name_error = |message: &str| {
             PanGraphXError::Parse(format!(
                 "Path {}: {message}",
@@ -255,7 +324,7 @@ impl PathChunk {
         let first = path.mapping.first().map_or(0, |m| m.rank);
         let mut next_rank = Some(first);
         let mut consecutive = true;
-        let mut steps = Vec::with_capacity(path.mapping.len());
+        steps.reserve(path.mapping.len());
         for mapping in &path.mapping {
             let position = mapping
                 .position
@@ -278,7 +347,7 @@ impl PathChunk {
         };
         Ok(Self {
             name: path.name,
-            steps,
+            len: path.mapping.len(),
             ranks,
         })
     }
@@ -313,15 +382,15 @@ impl VgPath {
     }
 
     /// Appends the next chunk of this path in stream order.
-    fn append(&mut self, chunk: PathChunk) {
+    fn append(&mut self, ranks: ChunkRanks, steps: &[PackedStep]) {
         let start = self.steps.len();
-        match chunk.ranks {
+        match ranks {
             ChunkRanks::Consecutive(first) => {
                 let continues = matches!(self.ranks, PathRanks::Implicit)
                     && usize::try_from(first).is_ok_and(|first| first == start + 1);
                 if !continues && !matches!(self.ranks, PathRanks::StreamOrder) {
                     let ranks = std::iter::successors(Some(first), |rank| rank.checked_add(1));
-                    for (offset, rank) in ranks.take(chunk.steps.len()).enumerate() {
+                    for (offset, rank) in ranks.take(steps.len()).enumerate() {
                         self.push_rank(start + offset, rank);
                     }
                 }
@@ -332,11 +401,7 @@ impl VgPath {
                 }
             }
         }
-        if self.steps.is_empty() {
-            self.steps = chunk.steps;
-        } else {
-            self.steps.extend_from_slice(&chunk.steps);
-        }
+        self.steps.extend_from_slice(steps);
     }
 
     /// Records the rank of the step at 0-based `position`.
@@ -368,10 +433,14 @@ impl VgPath {
         self.ranks = next;
     }
 
-    /// The name and steps in path order: sorted by rank when every mapping
-    /// carries a distinct positive one, otherwise in stream order.
-    fn into_ordered(self) -> (Vec<u8>, Vec<PackedStep>) {
-        let Self { name, steps, ranks } = self;
+    /// Converts the path with `convert`, in path order: sorted by rank when
+    /// every mapping carries a distinct positive one, otherwise in stream order.
+    fn into_path(self, convert: impl Fn(PackedStep) -> PanResult<Step>) -> PanResult<Path> {
+        let Self {
+            name,
+            mut steps,
+            ranks,
+        } = self;
         if let PathRanks::Explicit(ranks) = ranks
             && !ranks.is_sorted()
         {
@@ -384,32 +453,48 @@ impl VgPath {
                     String::from_utf8_lossy(&name)
                 );
             } else {
-                return (name, ranked.into_iter().map(|(_, step)| step).collect());
+                steps = ranked.into_iter().map(|(_, step)| step).collect();
             }
         }
-        (name, steps)
+        // Collecting from a borrowing iterator gives the steps an allocation of
+        // their own; the packed steps are freed on return.
+        let steps = steps
+            .iter()
+            .map(|&step| convert(step))
+            .collect::<PanResult<Vec<Step>>>()?;
+        Ok(Path {
+            name,
+            steps,
+            overlaps: Vec::new(),
+        })
     }
 }
 
-/// The contents of one decoded `Graph` message.
-struct DecodedChunk {
+/// The contents of a run of consecutive `Graph` messages, in stream order.
+///
+/// Steps of all path chunks share one buffer, so a batch makes a few large
+/// allocations instead of one per message.
+#[derive(Default)]
+struct DecodedBatch {
     nodes: Vec<vg_read::Node>,
     edges: Vec<vg_read::Edge>,
     paths: Vec<PathChunk>,
+    /// The steps of `paths`, back to back.
+    steps: Vec<PackedStep>,
 }
 
-impl DecodedChunk {
-    fn decode(message: &[u8]) -> PanResult<Self> {
-        let graph: vg_read::Graph = decode_graph(message)?;
-        Ok(Self {
-            nodes: graph.node,
-            edges: graph.edge,
-            paths: graph
-                .path
-                .into_iter()
-                .map(PathChunk::decode)
-                .collect::<PanResult<_>>()?,
-        })
+impl DecodedBatch {
+    fn decode<'a>(messages: impl Iterator<Item = &'a [u8]>) -> PanResult<Self> {
+        let mut batch = Self::default();
+        for message in messages {
+            let graph: vg_read::Graph = decode_graph(message)?;
+            batch.nodes.extend(graph.node);
+            batch.edges.extend(graph.edge);
+            for path in graph.path {
+                batch.paths.push(PathChunk::decode(path, &mut batch.steps)?);
+            }
+        }
+        Ok(batch)
     }
 }
 
@@ -425,20 +510,41 @@ struct VgStream {
 
 impl VgStream {
     /// Collects nodes, edges and path steps from all partial graphs.
-    fn read<R: Read>(reader: &mut R) -> PanResult<Self> {
+    ///
+    /// The stream is read in windows of about `window` bytes. While one window
+    /// is decoded in parallel the next one is read, and decoded chunks are
+    /// merged in stream order, so the result does not depend on the thread
+    /// count. A stream of one huge message decodes on a single thread.
+    fn read<R: Read>(reader: &mut R, window: usize) -> PanResult<Self> {
+        let mut frames = VgFrames::new(reader);
         let mut stream = Self::default();
-        for_each_vg_message(reader, |message| {
-            stream.merge(DecodedChunk::decode(message)?);
-            Ok(())
-        })?;
+        let mut current = RawWindow::default();
+        let mut next = RawWindow::default();
+        frames.read_window(window, &mut current)?;
+        while !current.messages.is_empty() {
+            let mut decoded = Ok(Vec::new());
+            // `in_place_scope` keeps the reader on this thread, so it need not be `Send`.
+            let read = rayon::in_place_scope(|scope| {
+                scope.spawn(|_| decoded = current.decode());
+                frames.read_window(window, &mut next)
+            });
+            for batch in decoded? {
+                stream.merge(batch);
+            }
+            read?;
+            std::mem::swap(&mut current, &mut next);
+        }
         Ok(stream)
     }
 
-    /// Adds the next chunk in stream order, moving its values.
-    fn merge(&mut self, chunk: DecodedChunk) {
-        self.nodes.extend(chunk.nodes);
-        self.edges.extend(chunk.edges);
-        for mut path in chunk.paths {
+    /// Adds the next batch in stream order.
+    fn merge(&mut self, batch: DecodedBatch) {
+        self.nodes.extend(batch.nodes);
+        self.edges.extend(batch.edges);
+        let mut steps = batch.steps.as_slice();
+        for mut path in batch.paths {
+            let (path_steps, rest) = steps.split_at(path.len);
+            steps = rest;
             let index = if let Some(&index) = self.path_index.get(&path.name) {
                 index
             } else {
@@ -446,116 +552,109 @@ impl VgStream {
                 self.paths.push(VgPath::new(std::mem::take(&mut path.name)));
                 self.paths.len() - 1
             };
-            self.paths[index].append(path);
+            self.paths[index].append(path.ranks, path_steps);
         }
     }
 }
 
 impl<R: Read + Seek> GraphParser<R> for VGCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
-        let VgStream {
-            nodes: mut proto_nodes,
-            edges: proto_edges,
-            paths: vg_paths,
-            path_index,
-        } = VgStream::read(reader)?;
-        drop(path_index);
+        parse_vg(reader, VG_READ_WINDOW)
+    }
+}
 
-        // Build node ID mapping: VG i64 IDs → 0-based usize
-        // Sort by original ID to maintain a deterministic ordering
-        proto_nodes.sort_by_key(|n| n.id);
-        // A node repeated across chunks is merged; an id reused for a different
-        // node is an error rather than silently dropping one of them.
-        if let Some(pair) = proto_nodes
-            .windows(2)
-            .find(|pair| pair[0].id == pair[1].id && pair[0] != pair[1])
-        {
-            return Err(PanGraphXError::Parse(format!(
-                "Duplicate VG node ID {} with conflicting sequence or name",
-                pair[0].id
-            )));
-        }
-        proto_nodes.dedup_by_key(|n| n.id);
-        let vg_ids: Vec<i64> = proto_nodes.iter().map(|n| n.id).collect();
-        // Ids were deduplicated above, so a duplicate cannot occur here.
-        let id_map = IdMap::from_ids(&vg_ids)
-            .map_err(|id| PanGraphXError::Parse(format!("Duplicate VG node ID {id}")))?;
-        drop(vg_ids);
+/// Parses a VG stream, decoding about `window` bytes of messages at a time.
+fn parse_vg<R: Read>(reader: &mut R, window: usize) -> PanResult<CoreGraphDTO> {
+    let VgStream {
+        nodes: mut proto_nodes,
+        edges: proto_edges,
+        paths: vg_paths,
+        path_index,
+    } = VgStream::read(reader, window)?;
+    drop(path_index);
 
-        let mut node_name_map: HashMap<usize, Vec<u8>> = HashMap::with_capacity(proto_nodes.len());
-        let mut nodes = Nodes::new();
-        for (idx, proto_node) in proto_nodes.into_iter().enumerate() {
-            // Store original name or ID as the node name
-            let name = if proto_node.name.is_empty() {
-                itoa::Buffer::new()
-                    .format(proto_node.id)
-                    .as_bytes()
-                    .to_vec()
-            } else {
-                proto_node.name
-            };
-            node_name_map.insert(idx, name);
-            nodes.push(proto_node.sequence);
-        }
+    // Build node ID mapping: VG i64 IDs → 0-based usize
+    // Sort by original ID to maintain a deterministic ordering
+    proto_nodes.sort_by_key(|n| n.id);
+    // A node repeated across chunks is merged; an id reused for a different
+    // node is an error rather than silently dropping one of them.
+    if let Some(pair) = proto_nodes
+        .windows(2)
+        .find(|pair| pair[0].id == pair[1].id && pair[0] != pair[1])
+    {
+        return Err(PanGraphXError::Parse(format!(
+            "Duplicate VG node ID {} with conflicting sequence or name",
+            pair[0].id
+        )));
+    }
+    proto_nodes.dedup_by_key(|n| n.id);
+    let vg_ids: Vec<i64> = proto_nodes.iter().map(|n| n.id).collect();
+    // Ids were deduplicated above, so a duplicate cannot occur here.
+    let id_map = IdMap::from_ids(&vg_ids)
+        .map_err(|id| PanGraphXError::Parse(format!("Duplicate VG node ID {id}")))?;
+    drop(vg_ids);
 
-        // Convert edges
-        #[allow(clippy::cast_sign_loss)]
-        let edges: Vec<Edge> = proto_edges
-            .par_iter()
-            .map(|pe| {
-                let from_id = id_map.get(pe.from).ok_or_else(|| {
+    let mut node_name_map: HashMap<usize, Vec<u8>> = HashMap::with_capacity(proto_nodes.len());
+    let mut nodes = Nodes::new();
+    for (idx, proto_node) in proto_nodes.into_iter().enumerate() {
+        // Store original name or ID as the node name
+        let name = if proto_node.name.is_empty() {
+            itoa::Buffer::new()
+                .format(proto_node.id)
+                .as_bytes()
+                .to_vec()
+        } else {
+            proto_node.name
+        };
+        node_name_map.insert(idx, name);
+        nodes.push(proto_node.sequence);
+    }
+
+    // Convert edges
+    #[allow(clippy::cast_sign_loss)]
+    let edges: Vec<Edge> = proto_edges
+        .par_iter()
+        .map(|pe| {
+            let from_id = id_map.get(pe.from).ok_or_else(|| {
+                PanGraphXError::Parse(format!("Edge references unknown from-node ID {}", pe.from))
+            })?;
+            let to_id = id_map.get(pe.to).ok_or_else(|| {
+                PanGraphXError::Parse(format!("Edge references unknown to-node ID {}", pe.to))
+            })?;
+            let (from_orient, to_orient) = vg_edge_to_orientations(pe.from_start, pe.to_end);
+            Ok(Edge {
+                from_node: from_id,
+                from_orient,
+                to_node: to_id,
+                to_orient,
+                overlap: pe.overlap as u32,
+            })
+        })
+        .collect::<PanResult<Vec<Edge>>>()?;
+    drop(proto_edges);
+
+    // Convert paths
+    let paths = vg_paths
+        .into_par_iter()
+        .map(|vg_path| {
+            vg_path.into_path(|step| {
+                let (vg_id, is_reverse) = unpack_step(step);
+                let node_id = id_map.get(vg_id).ok_or_else(|| {
                     PanGraphXError::Parse(format!(
-                        "Edge references unknown from-node ID {}",
-                        pe.from
+                        "Path mapping references unknown node ID {vg_id}"
                     ))
                 })?;
-                let to_id = id_map.get(pe.to).ok_or_else(|| {
-                    PanGraphXError::Parse(format!("Edge references unknown to-node ID {}", pe.to))
-                })?;
-                let (from_orient, to_orient) = vg_edge_to_orientations(pe.from_start, pe.to_end);
-                Ok(Edge {
-                    from_node: from_id,
-                    from_orient,
-                    to_node: to_id,
-                    to_orient,
-                    overlap: pe.overlap as u32,
-                })
+                Step::new(node_id, is_reverse.into())
             })
-            .collect::<PanResult<Vec<Edge>>>()?;
-        drop(proto_edges);
-
-        // Convert paths
-        let paths = vg_paths
-            .into_par_iter()
-            .map(|vg_path| {
-                let (name, packed) = vg_path.into_ordered();
-                let steps = packed
-                    .iter()
-                    .map(|&step| {
-                        let (vg_id, is_reverse) = unpack_step(step);
-                        let node_id = id_map.get(vg_id).ok_or_else(|| {
-                            PanGraphXError::Parse(format!(
-                                "Path mapping references unknown node ID {vg_id}"
-                            ))
-                        })?;
-                        Step::new(node_id, is_reverse.into())
-                    })
-                    .collect::<PanResult<Vec<Step>>>()?;
-                Ok(Path {
-                    name,
-                    steps,
-                    overlaps: Vec::new(),
-                })
-            })
-            .collect::<PanResult<Vec<Path>>>()?;
-
-        Ok(CoreGraphDTO {
-            nodes,
-            edges,
-            paths,
-            node_name_map: Some(node_name_map),
         })
-    }
+        .collect::<PanResult<Vec<Path>>>()?;
+
+    Ok(CoreGraphDTO {
+        nodes,
+        edges,
+        paths,
+        node_name_map: Some(node_name_map),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1347,6 +1446,57 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn test_parallel_parse_is_deterministic() {
+        let node_count = 5 * VG_CHUNK_SIZE + 7;
+        let original = CoreGraphDTO {
+            nodes: Nodes::from_seq((0..node_count).map(|i| vec![b"ACGT"[i % 4]]).collect()),
+            edges: (1..node_count)
+                .map(|i| Edge {
+                    from_node: i - 1,
+                    from_orient: Orientation::Forward,
+                    to_node: i,
+                    to_orient: Orientation::Forward,
+                    overlap: 0,
+                })
+                .collect(),
+            paths: (0..3)
+                .map(|p| Path {
+                    name: format!("p{p}").into_bytes(),
+                    steps: (p..node_count)
+                        .step_by(p + 1)
+                        .map(|i| Step::new(i, (i % 3 == 0).into()).unwrap())
+                        .collect(),
+                    overlaps: vec![],
+                })
+                .collect(),
+            node_name_map: None,
+        };
+        let mut buf = Vec::new();
+        VGCodec.serialize(&original, &mut buf).unwrap();
+
+        let parse = |threads: usize, window: usize| {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap();
+            pool.install(|| parse_vg(&mut Cursor::new(&buf), window).unwrap())
+        };
+        let expected = parse(1, VG_READ_WINDOW);
+        assert!(expected.isomorphic(&CoreGraphDTO {
+            node_name_map: expected.node_name_map.clone(),
+            ..original
+        }));
+        // Windows of one message each, and of a few messages, on several threads.
+        for (threads, window) in [(1, 1), (4, 1), (4, 50_000), (3, VG_READ_WINDOW)] {
+            assert_eq!(
+                parse(threads, window),
+                expected,
+                "{threads} threads, window {window}"
+            );
+        }
+    }
+
     /// A path read from chunks with the given mapping ranks; its steps visit
     /// nodes `1, 2, …` in stream order.
     fn ranked_path(chunks: &[&[i64]]) -> VgPath {
@@ -1370,14 +1520,21 @@ mod tests {
                 name: b"p".to_vec(),
                 mapping,
             };
-            path.append(PathChunk::decode(chunk).unwrap());
+            let mut steps = Vec::new();
+            let chunk = PathChunk::decode(chunk, &mut steps).unwrap();
+            path.append(chunk.ranks, &steps);
         }
         path
     }
 
-    fn node_order(path: VgPath) -> Vec<i64> {
-        let (_, steps) = path.into_ordered();
-        steps.into_iter().map(|step| unpack_step(step).0).collect()
+    fn node_order(path: VgPath) -> Vec<usize> {
+        let path = path
+            .into_path(|step| {
+                let (vg_id, is_reverse) = unpack_step(step);
+                Step::new(usize::try_from(vg_id).unwrap(), is_reverse.into())
+            })
+            .unwrap();
+        path.steps.iter().map(|step| step.node_id()).collect()
     }
 
     #[test]
