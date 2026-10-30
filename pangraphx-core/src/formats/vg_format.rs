@@ -574,8 +574,12 @@ fn parse_vg<R: Read>(reader: &mut R, window: usize) -> PanResult<CoreGraphDTO> {
     drop(path_index);
 
     // Build node ID mapping: VG i64 IDs → 0-based usize
-    // Sort by original ID to maintain a deterministic ordering
-    proto_nodes.sort_by_key(|n| n.id);
+    // Sort by original ID to maintain a deterministic ordering. Writers usually
+    // emit nodes in id order already. Stability does not matter: nodes sharing
+    // an id must be identical, which is checked next.
+    if !proto_nodes.is_sorted_by_key(|n| n.id) {
+        proto_nodes.par_sort_unstable_by_key(|n| n.id);
+    }
     // A node repeated across chunks is merged; an id reused for a different
     // node is an error rather than silently dropping one of them.
     if let Some(pair) = proto_nodes
