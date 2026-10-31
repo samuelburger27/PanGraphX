@@ -393,16 +393,26 @@ id 1, step rank 1. Node rank 0's step 1 is reversed and is the end, giving
 **Reading** (`ODGICodec::parse`):
 
 1. Check the magic number; if it is missing, warn and rewind like odgi does.
-2. Read node records one by one. A live node becomes a `Node`, named by its odgi
-   id (`rank + 1 + id_increment`); a deleted node is skipped.
+2. Read the node records in 16 MiB blocks. Record boundaries (and each record's
+   step count) are found sequentially from the length fields alone; the records
+   of a block are then decoded in parallel, each task writing its steps straight
+   into its part of the final step table. A live node becomes a `Node`; a
+   deleted node is skipped.
 3. Keep only edge records with `to_curr = 0`, giving each edge once.
-4. Keep a compact link (next node rank, next step rank, `is_rev`, `is_end`, 12
-   bytes) for every step record, grouped by node. The decoding table is resolved
-   here and then dropped.
-5. Read the path metadata and walk all paths in parallel.
+4. Keep an 8-byte link (next node rank, next step rank, `is_rev`; an end marker
+   instead of a node for a path's last step) for every step record, grouped by
+   node. The decoding table is resolved here and then dropped.
+5. Read the path metadata and walk all paths in parallel. A path is a linked
+   list scattered over the node records, so every step is a dependent cache
+   miss; each thread therefore advances up to 16 paths in lockstep, letting
+   their misses overlap.
+6. Nodes are named by their odgi id (`rank + 1 + id_increment`). Building that
+   map is latency-bound too, so a separate thread does it while the records are
+   decoded and the paths walked.
 
 Every length, index, rank and id is bounds-checked; corrupt input returns a
-`PanGraphXError::Parse` rather than panicking or making huge allocations.
+`PanGraphXError::Parse` rather than panicking or making huge allocations (the
+node count and every reservation are bounded by the input size).
 
 **Writing** (`ODGICodec::serialize`):
 
@@ -410,15 +420,23 @@ Every length, index, rank and id is bounds-checked; corrupt input returns a
    largest one is at most `2n + 1024`, the names are used as odgi ids, and gaps
    become deleted-node records. Otherwise nodes get ids `1..=n` in node order and
    a warning is logged. `id_increment` is always 0.
-2. *Edges.* Duplicate edges and reverse complements are merged (as odgi's
-   `has_edge` does), and each edge is written on both endpoints, self loops
-   once.
-3. *Steps.* One pass over all paths assigns each step its rank on its node.
-   Each node record then gets its step records, with prev/next links pointing to
-   (node, rank). The decoding table starts with the node itself and then lists
-   neighbors in first-use order, as in odgi.
-4. Node records are encoded in parallel chunks and streamed out in order; packed
-   vectors use the smallest width and no spare words.
+2. *Edges.* Each edge is laid out on both endpoints, self loops once, in input
+   order. Duplicate edges and reverse complements are then dropped (as odgi's
+   `has_edge` does) by de-duplicating each node's records in parallel: every
+   copy of an edge is on both of its endpoints, so this keeps the first copy on
+   both sides.
+3. *Steps.* An inverted index lists the steps on every node in path order; it is
+   built in parallel over node ranges and stores 4-byte step indices when the
+   paths have fewer than 2^32 steps. A step's rank on its node is its position
+   in that list, found by an exponential search that resumes where the node's
+   previous lookup ended, so no per-step rank is stored. Each node record gets
+   its step records, with prev/next links pointing to (node, rank). The decoding
+   table starts with the node itself and then lists neighbors in first-use
+   order, as in odgi.
+4. The three indexes are built concurrently. Node records are encoded in
+   parallel chunks and streamed out in order, the next window being encoded
+   while the current one is written; packed vectors use the smallest width and
+   no spare words.
 
 For the worked example above, every value PanGraphX writes matches `odgi
 build`; only the spare words and some vector widths differ. On the benchmark
