@@ -1,8 +1,8 @@
 // Read-side view of vg.proto: the same messages and field numbers, but only
 // the fields the VG parser keeps. Protobuf decoders skip unknown fields without
 // allocating, so a mapping's edits, position offsets and names, and a path's
-// circularity and length cost nothing to read. Strings are declared `bytes`
-// (the same wire type) so they are not validated as UTF-8.
+// circularity and length cost nothing to read. Strings stay `string`, so
+// invalid UTF-8 is rejected as by vg (the VG writer could not keep it).
 syntax = "proto3";
 
 package vg_read;
@@ -14,8 +14,8 @@ message Graph {
 }
 
 message Node {
-    bytes sequence = 1;
-    bytes name = 2;
+    string sequence = 1;
+    string name = 2;
     int64 id = 3;
 }
 
@@ -38,6 +38,6 @@ message Position {
 }
 
 message Path {
-    bytes name = 1;
+    string name = 1;
     repeated Mapping mapping = 2;
 }
