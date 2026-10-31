@@ -407,12 +407,14 @@ id 1, step rank 1. Node rank 0's step 1 is reversed and is the end, giving
    miss; each thread therefore advances up to 16 paths in lockstep, letting
    their misses overlap.
 6. Nodes are named by their odgi id (`rank + 1 + id_increment`). Building that
-   map is latency-bound too, so a separate thread does it while the records are
-   decoded and the paths walked.
+   map is latency-bound too, so each block's names are inserted while the next
+   block is decoded, and the last block's while the paths are walked.
 
 Every length, index, rank and id is bounds-checked; corrupt input returns a
 `PanGraphXError::Parse` rather than panicking or making huge allocations (the
-node count and every reservation are bounded by the input size).
+node count, the step table and every reservation are bounded by the input
+size). Step ranks are packed into 31 bits, so a node can have at most 2^31
+steps; the writer enforces the same limit.
 
 **Writing** (`ODGICodec::serialize`):
 
