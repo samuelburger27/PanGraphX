@@ -174,8 +174,8 @@ impl<'a> Fields<'a> {
         let mask = u64::MAX >> (64 - width);
         // `len` is bounded by the words in the buffer, so this reservation is too.
         values.reserve(len);
-        for chunk in words.chunks_exact(8) {
-            let mut word = le_u64(chunk);
+        for chunk in words.as_chunks::<8>().0 {
+            let mut word = u64::from_le_bytes(*chunk);
             for _ in 0..per_word.min(len - values.len()) {
                 values.push(word & mask);
                 // A shift by 64 (width 64) wraps to 0, but then `per_word` is 1.
@@ -489,12 +489,11 @@ impl DecodedRecords {
         let odgi_id = rank as u64 + 1 + context.id_increment;
         let invalid = |what: &str| PanGraphXError::Parse(format!("ODGI node {odgi_id} has {what}"));
 
-        let edge_records = scratch.edges.chunks_exact(EDGE_RECORD_LEN);
-        if !edge_records.remainder().is_empty() {
+        let (edge_records, edge_rest) = scratch.edges.as_chunks::<EDGE_RECORD_LEN>();
+        if !edge_rest.is_empty() {
             return Err(invalid("an incomplete edge record"));
         }
-        for record in edge_records {
-            let (other, packed) = (record[0], record[1]);
+        for &[other, packed] in edge_records {
             // The edge is read from its left node; `to_curr` marks the right node's copy.
             if packed & EDGE_TO_CURR != 0 {
                 continue;
@@ -508,11 +507,11 @@ impl DecodedRecords {
             });
         }
 
-        let step_records = scratch.steps.chunks_exact(STEP_RECORD_LEN);
-        if !step_records.remainder().is_empty() || step_records.len() != links.len() {
+        let (step_records, step_rest) = scratch.steps.as_chunks::<STEP_RECORD_LEN>();
+        if !step_rest.is_empty() || step_records.len() != links.len() {
             return Err(invalid("an incomplete step record"));
         }
-        for (record, link) in step_records.zip(links) {
+        for (record, link) in step_records.iter().zip(links) {
             let step_type = record[1];
             let is_reverse = u32::from(step_type & STEP_REV != 0);
             if step_type & STEP_END != 0 {
