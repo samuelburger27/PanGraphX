@@ -93,9 +93,9 @@ struct RawWindow {
 }
 
 impl RawWindow {
-    #[cfg(test)]
-    fn messages(&self) -> impl Iterator<Item = &[u8]> {
-        self.messages.iter().map(|range| &self.bytes[range.clone()])
+    /// The bytes of the message at `range`, one of `self.messages`.
+    fn message(&self, range: &Range<usize>) -> &[u8] {
+        &self.bytes[range.clone()]
     }
 
     /// Decodes the messages in parallel batches, keeping stream order.
@@ -108,9 +108,7 @@ impl RawWindow {
             .max(1);
         self.messages
             .par_chunks(batch_len)
-            .map(|ranges| {
-                DecodedBatch::decode(ranges.iter().map(|range| &self.bytes[range.clone()]))
-            })
+            .map(|ranges| DecodedBatch::decode(ranges.iter().map(|range| self.message(range))))
             .collect()
     }
 }
@@ -161,17 +159,23 @@ impl<'r, R: Read> VgFrames<'r, R> {
             let msg_len = read_varint(self.reader)?.ok_or_else(|| {
                 PanGraphXError::Parse("Unexpected EOF reading message length".to_string())
             })?;
-            let msg_len = usize::try_from(msg_len)
-                .ok()
-                .filter(|_| msg_len <= VG_MAX_MESSAGE_LEN)
-                .ok_or_else(|| {
-                    PanGraphXError::Parse(format!(
-                        "VG message length {msg_len} exceeds the protobuf limit of {VG_MAX_MESSAGE_LEN} bytes"
-                    ))
-                })?;
+            if msg_len > VG_MAX_MESSAGE_LEN {
+                return Err(PanGraphXError::Parse(format!(
+                    "VG message length {msg_len} exceeds the protobuf limit of {VG_MAX_MESSAGE_LEN} bytes"
+                )));
+            }
+            // Reading through `take` fills the buffer without zeroing it first,
+            // and grows it only as bytes arrive, so a corrupt length cannot
+            // allocate more than the stream holds.
             let start = window.bytes.len();
-            window.bytes.resize(start + msg_len, 0);
-            self.reader.read_exact(&mut window.bytes[start..])?;
+            let read = (&mut *self.reader)
+                .take(msg_len)
+                .read_to_end(&mut window.bytes)?;
+            if u64::try_from(read).ok() != Some(msg_len) {
+                return Err(PanGraphXError::Parse(format!(
+                    "Unexpected EOF in a VG message: expected {msg_len} bytes, found {read}"
+                )));
+            }
 
             // Type tags are short ASCII strings; Graph messages are protobuf-encoded.
             if index == 0 {
@@ -182,27 +186,57 @@ impl<'r, R: Read> VgFrames<'r, R> {
                     continue;
                 }
             }
-            window.messages.push(start..start + msg_len);
+            window.messages.push(start..window.bytes.len());
         }
         Ok(())
     }
 }
 
+/// Reads a VG-framed stream in windows of about `budget` bytes and runs
+/// `process` on each window while the next one is read; `consume` receives
+/// the results in stream order.
+///
+/// `in_place_scope` keeps the reader on this thread, so it need not be `Send`.
+fn for_each_window<R: Read, T: Default + Send>(
+    reader: &mut R,
+    budget: usize,
+    process: impl Fn(&RawWindow) -> PanResult<T> + Sync,
+    mut consume: impl FnMut(T),
+) -> PanResult<()> {
+    let mut frames = VgFrames::new(reader);
+    let mut current = RawWindow::default();
+    let mut next = RawWindow::default();
+    frames.read_window(budget, &mut current)?;
+    while !current.messages.is_empty() {
+        let mut processed = Ok(T::default());
+        let read = rayon::in_place_scope(|scope| {
+            scope.spawn(|_| processed = process(&current));
+            frames.read_window(budget, &mut next)
+        });
+        consume(processed?);
+        read?;
+        std::mem::swap(&mut current, &mut next);
+    }
+    Ok(())
+}
+
 /// Reads all `Graph` messages from a VG-framed protobuf stream.
 #[cfg(test)]
 fn read_vg_graphs<R: Read>(reader: &mut R) -> PanResult<Vec<vg_proto::Graph>> {
-    let mut frames = VgFrames::new(reader);
     let mut graphs = Vec::new();
-    let mut window = RawWindow::default();
-    loop {
-        frames.read_window(VG_READ_WINDOW, &mut window)?;
-        if window.messages.is_empty() {
-            return Ok(graphs);
-        }
-        for message in window.messages() {
-            graphs.push(decode_graph(message)?);
-        }
-    }
+    for_each_window(
+        reader,
+        VG_READ_WINDOW,
+        |window| {
+            window
+                .messages
+                .iter()
+                .map(|range| decode_graph(window.message(range)))
+                .collect::<PanResult<Vec<_>>>()
+        },
+        |decoded| graphs.extend(decoded),
+    )?;
+    Ok(graphs)
 }
 
 /// Decodes one `Graph` message as `M` (the full `vg_proto::Graph` or the
@@ -291,6 +325,13 @@ fn pack_step(node_id: i64, is_reverse: bool) -> Option<PackedStep> {
         .map(|id| id | PackedStep::from(is_reverse))
 }
 
+/// The error message for a node id [`pack_step`] cannot pack. Node ids are
+/// checked against the same range, so the limit does not depend on whether
+/// a path visits the node.
+fn node_id_out_of_range(node_id: i64) -> String {
+    format!("VG node id {node_id} is outside the supported range ±2^62")
+}
+
 /// The VG node id and strand of a packed step.
 const fn unpack_step(step: PackedStep) -> (i64, bool) {
     (step >> 1, step & 1 == 1)
@@ -315,12 +356,8 @@ struct PathChunk {
 impl PathChunk {
     /// Decodes `path`, appending its steps to `steps`.
     fn decode(path: vg_read::Path, steps: &mut Vec<PackedStep>) -> PanResult<Self> {
-        let name_error = |message: &str| {
-            PanGraphXError::Parse(format!(
-                "Path {}: {message}",
-                String::from_utf8_lossy(&path.name)
-            ))
-        };
+        let name_error =
+            |message: &str| PanGraphXError::Parse(format!("Path {}: {message}", path.name));
         let first = path.mapping.first().map_or(0, |m| m.rank);
         let mut next_rank = Some(first);
         let mut consecutive = true;
@@ -330,12 +367,8 @@ impl PathChunk {
                 .position
                 .as_ref()
                 .ok_or_else(|| name_error("mapping is missing its position"))?;
-            let step = pack_step(position.node_id, position.is_reverse).ok_or_else(|| {
-                name_error(&format!(
-                    "VG node id {} is outside the supported range ±2^62",
-                    position.node_id
-                ))
-            })?;
+            let step = pack_step(position.node_id, position.is_reverse)
+                .ok_or_else(|| name_error(&node_id_out_of_range(position.node_id)))?;
             steps.push(step);
             consecutive &= next_rank == Some(mapping.rank);
             next_rank = next_rank.and_then(|rank| rank.checked_add(1));
@@ -346,7 +379,7 @@ impl PathChunk {
             ChunkRanks::Explicit(path.mapping.iter().map(|m| m.rank).collect())
         };
         Ok(Self {
-            name: path.name,
+            name: path.name.into_bytes(),
             len: path.mapping.len(),
             ranks,
         })
@@ -516,24 +549,12 @@ impl VgStream {
     /// merged in stream order, so the result does not depend on the thread
     /// count. A stream of one huge message decodes on a single thread.
     fn read<R: Read>(reader: &mut R, window: usize) -> PanResult<Self> {
-        let mut frames = VgFrames::new(reader);
         let mut stream = Self::default();
-        let mut current = RawWindow::default();
-        let mut next = RawWindow::default();
-        frames.read_window(window, &mut current)?;
-        while !current.messages.is_empty() {
-            let mut decoded = Ok(Vec::new());
-            // `in_place_scope` keeps the reader on this thread, so it need not be `Send`.
-            let read = rayon::in_place_scope(|scope| {
-                scope.spawn(|_| decoded = current.decode());
-                frames.read_window(window, &mut next)
-            });
-            for batch in decoded? {
+        for_each_window(reader, window, RawWindow::decode, |batches| {
+            for batch in batches {
                 stream.merge(batch);
             }
-            read?;
-            std::mem::swap(&mut current, &mut next);
-        }
+        })?;
         Ok(stream)
     }
 
@@ -592,6 +613,14 @@ fn parse_vg<R: Read>(reader: &mut R, window: usize) -> PanResult<CoreGraphDTO> {
         )));
     }
     proto_nodes.dedup_by_key(|n| n.id);
+    // Sorted, so the extreme ids are at the ends.
+    if let Some(node) = [proto_nodes.first(), proto_nodes.last()]
+        .into_iter()
+        .flatten()
+        .find(|n| pack_step(n.id, false).is_none())
+    {
+        return Err(PanGraphXError::Parse(node_id_out_of_range(node.id)));
+    }
     let vg_ids: Vec<i64> = proto_nodes.iter().map(|n| n.id).collect();
     // Ids were deduplicated above, so a duplicate cannot occur here.
     let id_map = IdMap::from_ids(&vg_ids)
@@ -608,14 +637,13 @@ fn parse_vg<R: Read>(reader: &mut R, window: usize) -> PanResult<CoreGraphDTO> {
                 .as_bytes()
                 .to_vec()
         } else {
-            proto_node.name
+            proto_node.name.into_bytes()
         };
         node_name_map.insert(idx, name);
-        nodes.push(proto_node.sequence);
+        nodes.push(proto_node.sequence.into_bytes());
     }
 
     // Convert edges
-    #[allow(clippy::cast_sign_loss)]
     let edges: Vec<Edge> = proto_edges
         .par_iter()
         .map(|pe| {
@@ -625,13 +653,19 @@ fn parse_vg<R: Read>(reader: &mut R, window: usize) -> PanResult<CoreGraphDTO> {
             let to_id = id_map.get(pe.to).ok_or_else(|| {
                 PanGraphXError::Parse(format!("Edge references unknown to-node ID {}", pe.to))
             })?;
+            let overlap = u32::try_from(pe.overlap).map_err(|_| {
+                PanGraphXError::Parse(format!(
+                    "Edge {} -> {} has negative overlap {}",
+                    pe.from, pe.to, pe.overlap
+                ))
+            })?;
             let (from_orient, to_orient) = vg_edge_to_orientations(pe.from_start, pe.to_end);
             Ok(Edge {
                 from_node: from_id,
                 from_orient,
                 to_node: to_id,
                 to_orient,
-                overlap: pe.overlap as u32,
+                overlap,
             })
         })
         .collect::<PanResult<Vec<Edge>>>()?;
@@ -1521,7 +1555,7 @@ mod tests {
                 })
                 .collect();
             let chunk = vg_read::Path {
-                name: b"p".to_vec(),
+                name: "p".to_string(),
                 mapping,
             };
             let mut steps = Vec::new();
@@ -1607,6 +1641,75 @@ mod tests {
             error.to_string().contains("outside the supported range"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn test_out_of_range_node_id_is_rejected() {
+        let error = parse_chunks(&[(1, "A"), (1 << 62, "C")]).unwrap_err();
+        assert!(
+            error.to_string().contains("outside the supported range"),
+            "{error}"
+        );
+        assert!(parse_chunks(&[(-(1 << 62), "A")]).is_ok());
+    }
+
+    #[test]
+    fn test_negative_edge_overlap_is_rejected() {
+        let graph = vg_proto::Graph {
+            node: vec![vg_proto::Node {
+                id: 1,
+                sequence: "ACGT".to_string(),
+                name: String::new(),
+            }],
+            edge: vec![vg_proto::Edge {
+                from: 1,
+                to: 1,
+                overlap: -1,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut buf = Vec::new();
+        write_vg_graphs(&mut buf, &[graph]).unwrap();
+        let error = VGCodec.parse(&mut Cursor::new(&buf)).unwrap_err();
+        assert!(error.to_string().contains("negative overlap -1"), "{error}");
+    }
+
+    #[test]
+    fn test_invalid_utf8_name_is_rejected() {
+        // A Graph holding one node: name (field 2) = `name_byte`, id (field 3) = 1.
+        let parse = |name_byte: u8| {
+            let mut buf = Vec::new();
+            let graph = vec![0x0A, 0x05, 0x12, 0x01, name_byte, 0x18, 0x01];
+            write_vg_group(&mut buf, &[graph]).unwrap();
+            VGCodec.parse(&mut Cursor::new(&buf))
+        };
+        assert_eq!(parse(b'x').unwrap().node_name_map.unwrap()[&0], b"x");
+        let error = parse(0xFF).unwrap_err();
+        assert!(matches!(error, PanGraphXError::Parse(_)), "{error}");
+    }
+
+    #[test]
+    fn test_truncated_message_is_rejected() {
+        let mut buf = Vec::new();
+        write_vg_graphs(&mut buf, &[make_simple_graph_proto()]).unwrap();
+        buf.truncate(buf.len() - 3);
+        let error = VGCodec.parse(&mut Cursor::new(&buf)).unwrap_err();
+        assert!(
+            error.to_string().contains("Unexpected EOF in a VG message"),
+            "{error}"
+        );
+    }
+
+    fn make_simple_graph_proto() -> vg_proto::Graph {
+        vg_proto::Graph {
+            node: vec![vg_proto::Node {
+                id: 1,
+                sequence: "ACGTACGT".to_string(),
+                name: String::new(),
+            }],
+            ..Default::default()
+        }
     }
 
     #[test]
