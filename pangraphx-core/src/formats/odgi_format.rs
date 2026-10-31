@@ -35,7 +35,6 @@ use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::HashMap;
 use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
-use std::sync::mpsc;
 
 /// Codec for odgi's binary graph format.
 ///
@@ -66,11 +65,19 @@ const STEP_END: u64 = 1 << 2;
 /// corrupt length fails with a parse error instead of a huge allocation.
 const MAX_PREALLOC: usize = 1 << 20;
 
+/// Largest rank of a step on its node that is read or written (the
+/// reader packs ranks into 31 bits).
+const MAX_STEP_RANK: u32 = u32::MAX >> 1;
+
 /// Marks a deleted node rank.
 const VACANT: NodeId = NodeId::MAX;
 
 /// Target amount of output encoded per parallel task.
 const CHUNK_BYTES: usize = 1 << 20;
+
+/// Most chunks encoded per window when there are fewer threads (see
+/// `OdgiWriter::write_records`).
+const MAX_WINDOW_CHUNKS: usize = 64;
 
 // ---------------------------------------------------------------------------
 // Reading
@@ -78,7 +85,7 @@ const CHUNK_BYTES: usize = 1 << 20;
 
 fn truncated(error: io::Error) -> PanGraphXError {
     if error.kind() == io::ErrorKind::UnexpectedEof {
-        PanGraphXError::Parse("Truncated ODGI file".to_string())
+        truncated_file()
     } else {
         PanGraphXError::Io(error)
     }
@@ -99,7 +106,7 @@ fn read_bytes<R: Read>(reader: &mut R, len: u64) -> PanResult<Vec<u8>> {
     let mut buf = Vec::with_capacity(to_usize(len, "length")?.min(MAX_PREALLOC));
     reader.by_ref().take(len).read_to_end(&mut buf)?;
     if buf.len() as u64 != len {
-        return Err(PanGraphXError::Parse("Truncated ODGI file".to_string()));
+        return Err(truncated_file());
     }
     Ok(buf)
 }
@@ -211,12 +218,23 @@ fn scan_record(bytes: &[u8], start: usize) -> Result<RecordSpan, u64> {
     let mut step_values = 0;
     for _ in 0..3 {
         let word_count = field(pos).ok_or_else(|| pos.saturating_add(8))?;
-        // Word count, words, mask, then the vector length.
+        // Word count, words, mask, then the vector length and width.
         let len_pos = pos
             .saturating_add(8)
             .saturating_add(word_count.saturating_mul(8))
             .saturating_add(8);
-        step_values = field(len_pos).ok_or_else(|| len_pos.saturating_add(8))?;
+        let len = field(len_pos).ok_or_else(|| len_pos.saturating_add(8))?;
+        let width = usize::try_from(len_pos.saturating_add(8))
+            .ok()
+            .and_then(|width_pos| bytes.get(width_pos.checked_add(start)?))
+            .map_or(0, |&width| u64::from(width));
+        // Count only values the words can hold, so a corrupt length cannot size
+        // the step table (the decoder rejects such a vector).
+        let capacity = match width {
+            1..=64 => word_count.saturating_mul(64 / width),
+            _ => 0,
+        };
+        step_values = len.min(capacity);
         // Length, width and values per word.
         pos = len_pos.saturating_add(8 + 1 + 1);
     }
@@ -371,7 +389,24 @@ impl StepTable {
 
     /// Walks all paths, in parallel batches.
     fn walk_all(&self, metas: Vec<PathMeta>) -> PanResult<Vec<Path>> {
-        let batch = metas.len().div_ceil(rayon::current_num_threads()).max(1);
+        // Every step belongs to one path, so the paths' reservations together
+        // are bounded by the stored steps.
+        let total = metas.iter().try_fold(0_usize, |total, meta| {
+            usize::try_from(meta.length)
+                .ok()
+                .and_then(|length| total.checked_add(length))
+        });
+        if total.is_none_or(|total| total > self.links.len()) {
+            return Err(PanGraphXError::Parse(
+                "ODGI paths are longer than the number of stored steps".to_string(),
+            ));
+        }
+        // At most one batch of lanes per task, so that threads can steal work
+        // when path lengths differ.
+        let batch = metas
+            .len()
+            .div_ceil(rayon::current_num_threads())
+            .clamp(1, WALK_LANES);
         let mut batches = Vec::new();
         let mut metas = metas.into_iter().peekable();
         while metas.peek().is_some() {
@@ -499,7 +534,7 @@ impl DecodedRecords {
             .ok_or_else(|| invalid("an invalid neighbor"))?;
             let next_rank = u32::try_from(record[5])
                 .ok()
-                .filter(|&rank| rank <= u32::MAX >> 1)
+                .filter(|&rank| rank <= MAX_STEP_RANK)
                 .ok_or_else(|| invalid("an invalid step rank"))?;
             *link = StepLink {
                 next_node: context.rank(next_id)?,
@@ -548,11 +583,10 @@ fn next_block<R: Read>(
     let mut spans: Vec<RecordSpan> = Vec::new();
     loop {
         if want > 0 {
-            let got = reader
-                .by_ref()
-                .take(want.min(*input_left))
-                .read_to_end(buf)?;
-            *input_left -= got as u64;
+            let request = want.min(*input_left);
+            let got = reader.by_ref().take(request).read_to_end(buf)? as u64;
+            // A short read is the end of the input, even if it came early.
+            *input_left = if got < request { 0 } else { *input_left - got };
             want = 0;
         }
         let mut pos = 0;
@@ -673,16 +707,39 @@ impl NodeSection {
     }
 }
 
+/// Builds the node name map. Inserting is a chain of cache misses, so it is
+/// done block by block alongside the decoding of the next block.
+struct NodeNamer {
+    names: HashMap<NodeId, Vec<u8>>,
+    /// odgi id of the last rank added.
+    last_id: u64,
+}
+
+impl NodeNamer {
+    /// Names the nodes of the next ranks, given their `rank_to_node` entries.
+    fn add(&mut self, ranks: &[NodeId]) {
+        let mut id_buf = itoa::Buffer::new();
+        for &node in ranks {
+            // Checked in `read_graph` not to overflow.
+            self.last_id += 1;
+            if node != VACANT {
+                self.names
+                    .insert(node, id_buf.format(self.last_id).as_bytes().to_vec());
+            }
+        }
+    }
+}
+
 /// Reads the node records in blocks: record boundaries are found sequentially
 /// from their length fields, then the records of a block are decoded in
-/// parallel. Every block's slice of `rank_to_node` is sent to `names`. Returns
-/// the records and the input left after them.
+/// parallel while `namer` names the nodes of the previous block. Returns the
+/// records, the input left after them and the ranks still to be named.
 fn read_node_section<R: Read>(
     reader: &mut R,
     context: RecordContext,
     mut input_left: u64,
-    names: &mpsc::Sender<Vec<NodeId>>,
-) -> PanResult<(NodeSection, Vec<u8>)> {
+    namer: &mut NodeNamer,
+) -> PanResult<(NodeSection, Vec<u8>, Vec<NodeId>)> {
     let count = context.record_count;
     // `record_count` is bounded by the input size, so these reservations are too.
     let mut section = NodeSection {
@@ -694,40 +751,22 @@ fn read_node_section<R: Read>(
     };
     section.offsets.push(0);
     let mut buf: Vec<u8> = Vec::new();
+    let mut unnamed = Vec::new();
     let mut rank = 0;
     while rank < count {
         let spans = next_block(reader, &mut buf, &mut input_left, count - rank)?;
-        section.decode_block(&buf, &spans, rank, context)?;
-        // The receiver only stops early if it panicked; `read_graph` reports that.
-        let _ = names.send(section.rank_to_node[rank..].to_vec());
+        let (decoded, ()) = rayon::join(
+            || section.decode_block(&buf, &spans, rank, context),
+            || namer.add(&unnamed),
+        );
+        decoded?;
+        unnamed = section.rank_to_node[rank..].to_vec();
         rank += spans.len();
         let consumed = spans.last().map_or(0, |span| span.end);
         buf.drain(..consumed);
     }
     section.resolve_edges()?;
-    Ok((section, buf))
-}
-
-/// Names every node by its odgi id, from the `rank_to_node` blocks sent by
-/// [`read_node_section`].
-fn node_names(
-    blocks: &mpsc::Receiver<Vec<NodeId>>,
-    record_count: usize,
-    id_increment: u64,
-) -> HashMap<NodeId, Vec<u8>> {
-    // `record_count` is bounded by the input size (checked in `read_graph`).
-    let mut names = HashMap::with_capacity(record_count);
-    let mut id_buf = itoa::Buffer::new();
-    let mut odgi_id = id_increment;
-    for block in blocks {
-        for node in block {
-            odgi_id += 1;
-            if node != VACANT {
-                names.insert(node, id_buf.format(odgi_id).as_bytes().to_vec());
-            }
-        }
-    }
-    names
+    Ok((section, buf, unnamed))
 }
 
 /// Reads the graph after the magic number; `input_len` is the number of bytes
@@ -757,31 +796,12 @@ fn read_graph<R: Read>(reader: &mut R, input_len: u64) -> PanResult<CoreGraphDTO
         record_count,
         id_increment,
     };
-    // The name map is a chain of cache misses; build it on its own thread
-    // while the records are decoded and the paths walked.
-    let (sender, receiver) = mpsc::channel();
-    std::thread::scope(|scope| {
-        let names = scope.spawn(move || node_names(&receiver, record_count, id_increment));
-        let graph = read_body(reader, context, input_left, path_count, &sender);
-        drop(sender);
-        let node_name_map = names
-            .join()
-            .map_err(|_| PanGraphXError::Other("ODGI node naming failed".to_string()))?;
-        let mut graph = graph?;
-        graph.node_name_map = Some(node_name_map);
-        Ok(graph)
-    })
-}
-
-/// Reads the node records and paths; the node names are added by `read_graph`.
-fn read_body<R: Read>(
-    reader: &mut R,
-    context: RecordContext,
-    input_left: u64,
-    path_count: usize,
-    names: &mpsc::Sender<Vec<NodeId>>,
-) -> PanResult<CoreGraphDTO> {
-    let (section, rest) = read_node_section(reader, context, input_left, names)?;
+    let mut namer = NodeNamer {
+        // `record_count` is bounded by the input size.
+        names: HashMap::with_capacity(record_count),
+        last_id: id_increment,
+    };
+    let (section, rest, unnamed) = read_node_section(reader, context, input_left, &mut namer)?;
 
     let mut reader = rest.as_slice().chain(reader);
     let mut metas = Vec::with_capacity(path_count.min(MAX_PREALLOC));
@@ -813,12 +833,12 @@ fn read_body<R: Read>(
         links,
         rank_to_node,
     };
-    let paths = table.walk_all(metas)?;
+    let ((), paths) = rayon::join(|| namer.add(&unnamed), || table.walk_all(metas));
     Ok(CoreGraphDTO {
         nodes,
         edges,
-        paths,
-        node_name_map: None,
+        paths: paths?,
+        node_name_map: Some(namer.names),
     })
 }
 
@@ -1134,30 +1154,6 @@ impl StepNumber for u64 {
 /// steps, so more ranges cost memory bandwidth rather than saving time.
 const MAX_STEP_RANGES: usize = 8;
 
-/// Splits `0..node_count` into `parts` ranges, cutting where `weight` (the
-/// running total before a node, non-decreasing) passes equal shares.
-fn node_ranges(node_count: usize, parts: usize, weight: impl Fn(usize) -> usize) -> Vec<usize> {
-    let total = weight(node_count);
-    let mut bounds: Vec<usize> = (0..=parts)
-        .map(|part| {
-            let target = total / parts * part;
-            // First node whose running total reaches the target.
-            let (mut low, mut high) = (0, node_count);
-            while low < high {
-                let mid = low + (high - low) / 2;
-                if weight(mid) < target {
-                    low = mid + 1;
-                } else {
-                    high = mid;
-                }
-            }
-            low
-        })
-        .collect();
-    bounds[parts] = node_count;
-    bounds
-}
-
 /// Path steps grouped by the node they visit.
 struct StepIndex<I> {
     /// Steps on node `v` are `slots[offsets[v]..offsets[v + 1]]`, ordered by
@@ -1183,7 +1179,7 @@ impl<I: StepNumber> StepIndex<I> {
 
         // Step counts, in node ranges of equal size.
         let mut offsets = vec![0; node_count + 1];
-        let bounds = node_ranges(node_count, parts, |node| node);
+        let bounds: Vec<usize> = (0..=parts).map(|part| node_count * part / parts).collect();
         let mut ranges = Vec::with_capacity(parts);
         let mut rest = &mut offsets[1..];
         for range in bounds.windows(2) {
@@ -1202,7 +1198,10 @@ impl<I: StepNumber> StepIndex<I> {
                 }
             }
         });
-        if let Some(node) = offsets.iter().position(|&count| count > u32::MAX as usize) {
+        if let Some(node) = offsets
+            .iter()
+            .position(|&count| count > MAX_STEP_RANK as usize + 1)
+        {
             return Err(PanGraphXError::Serialize(format!(
                 "Node {} is visited too often for ODGI",
                 node - 1
@@ -1214,7 +1213,12 @@ impl<I: StepNumber> StepIndex<I> {
 
         // Slots, in node ranges holding equal numbers of steps.
         let mut slots = vec![I::default(); offsets[node_count]];
-        let bounds = node_ranges(node_count, parts, |node| offsets[node]);
+        let total = offsets[node_count];
+        let mut bounds: Vec<usize> = (0..=parts)
+            .map(|part| offsets.partition_point(|&offset| offset < total / parts * part))
+            .map(|node| node.min(node_count))
+            .collect();
+        bounds[parts] = node_count;
         let mut ranges = Vec::with_capacity(parts);
         let mut rest = slots.as_mut_slice();
         for range in bounds.windows(2) {
@@ -1505,8 +1509,10 @@ impl<I: StepNumber> OdgiWriter<'_, I> {
     fn write_records(&self, writer: &mut dyn Write) -> PanResult<()> {
         let per_chunk = self.ranks_per_chunk();
         let records = self.numbering.records;
-        // Several chunks per thread keep the threads busy when records vary in size.
-        let window = per_chunk * rayon::current_num_threads() * 4;
+        // Several chunks per thread keep the threads busy when records vary in
+        // size; the cap bounds the two windows held in memory on many cores.
+        let threads = rayon::current_num_threads();
+        let window = per_chunk * (threads * 4).min(MAX_WINDOW_CHUNKS).max(threads);
         let mut current = self.encode_window(0..window.min(records), per_chunk);
         for start in (window..records).step_by(window) {
             let mut next = Vec::new();
@@ -1806,6 +1812,98 @@ mod tests {
         write_odgi::<u32>(&graph, &mut narrow).unwrap();
         write_odgi::<u64>(&graph, &mut wide).unwrap();
         assert_eq!(narrow, wide);
+    }
+
+    /// A source whose end lies `extra` bytes beyond its data.
+    struct OverstatedLen {
+        inner: Cursor<Vec<u8>>,
+        extra: u64,
+    }
+
+    impl Read for OverstatedLen {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.inner.read(buf)
+        }
+    }
+
+    impl Seek for OverstatedLen {
+        fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+            match pos {
+                SeekFrom::End(offset) => {
+                    let end = self.inner.get_ref().len() as u64 + self.extra;
+                    let position = end.checked_add_signed(offset).unwrap();
+                    self.inner.set_position(position);
+                    Ok(position)
+                }
+                pos => self.inner.seek(pos),
+            }
+        }
+    }
+
+    fn two_path_graph() -> CoreGraphDTO {
+        one_based(CoreGraphDTO {
+            nodes: Nodes::from_seq(vec![b"ACGT".to_vec(), b"GGA".to_vec()]),
+            edges: vec![edge(0, Forward, 1, Reverse)],
+            paths: vec![
+                path("a", &[(0, Forward), (1, Reverse)]),
+                path("b", &[(1, Forward), (0, Reverse)]),
+            ],
+            node_name_map: None,
+        })
+    }
+
+    #[test]
+    fn truncated_input_with_overstated_length_is_rejected() {
+        let mut buf = Vec::new();
+        ODGICodec.serialize(&two_path_graph(), &mut buf).unwrap();
+        buf.truncate(buf.len() / 2);
+        let mut reader = OverstatedLen {
+            inner: Cursor::new(buf),
+            extra: 1 << 20,
+        };
+        assert!(ODGICodec.parse(&mut reader).is_err());
+    }
+
+    #[test]
+    fn step_count_is_bounded_by_stored_words() {
+        // A live record whose step vector claims 6 * 2^27 values in 0 words.
+        let mut record = Vec::new();
+        push_u64(&mut record, 1);
+        record.push(b'A');
+        push_u64(&mut record, 1);
+        for _ in 0..2 {
+            push_packed(&mut record, &[]);
+        }
+        for value in [0, 0, 6 << 27] {
+            push_u64(&mut record, value);
+        }
+        record.extend_from_slice(&[1, 64]);
+        let span = scan_record(&record, 0).unwrap();
+        assert_eq!((span.end, span.steps), (record.len(), 0));
+        assert!(
+            Fields {
+                bytes: &record[9 + 8 + 2 * 26..]
+            }
+            .packed(&mut Vec::new())
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn paths_longer_than_the_stored_steps_are_rejected() {
+        let mut buf = Vec::new();
+        ODGICodec.serialize(&two_path_graph(), &mut buf).unwrap();
+        // Each path record: length, first and last step (4 values), name length, name.
+        let record = 8 * 6 + 1;
+        for start in [buf.len() - 2 * record, buf.len() - record] {
+            buf[start..start + 8].copy_from_slice(&4_u64.to_le_bytes());
+        }
+        let error = ODGICodec.parse(&mut Cursor::new(buf)).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("longer than the number of stored steps")
+        );
     }
 
     #[test]
