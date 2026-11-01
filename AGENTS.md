@@ -42,7 +42,7 @@ pangraphx-core/src/
   core/
     core_types.rs        NodeId, Sequence, Orientation, Node, Edge, Step, Path, Nodes
     graph_dto.rs         CoreGraphDTO (validated transfer object), GraphParts (its unvalidated fields)
-    graph.rs             CoreGraph (mutable; private adjacency list + ordered paths with name index)
+    graph.rs             CoreGraph (mutable; ordered paths + name index, lazy per-node incident-edge index)
     graph_utils.rs       path sequence helpers
     serialization.rs     CoreGraphDTO::load/load_from_file/save/save_to_file
     stats.rs             CoreGraph::compute_stats → GraphStats (N50, components, degrees, paths)
