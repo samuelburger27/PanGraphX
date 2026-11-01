@@ -15,7 +15,7 @@ use super::*;
 
 /// Two nodes, one edge and one path, without node names.
 fn unnamed_graph() -> CoreGraphDTO {
-    CoreGraphDTO::new(GraphParts {
+    CoreGraphDTO::try_from(GraphParts {
         nodes: Nodes::from_seq(vec![b"ACGT".to_vec(), b"GGA".to_vec()]),
         edges: vec![Edge {
             from_node: 0,
@@ -67,9 +67,9 @@ fn id_names_do_not_add_a_translation() {
     assert_eq!(rewritten, buf);
 
     // Other names are kept in a translation.
-    let named = CoreGraphDTO::new(GraphParts {
+    let named = CoreGraphDTO::try_from(GraphParts {
         node_name_map: Some(HashMap::from([(0, b"a".to_vec()), (1, b"b".to_vec())])),
-        ..unnamed_graph().into_parts()
+        ..GraphParts::from(unnamed_graph())
     })
     .unwrap();
     assert!(build_gbz(&named).unwrap().has_translation());

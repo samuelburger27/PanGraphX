@@ -439,7 +439,7 @@ fn edge_case_graph() -> CoreGraphDTO {
         overlap,
     };
     let step = |id, o| Step::new(id, o).unwrap();
-    CoreGraphDTO::new(GraphParts {
+    CoreGraphDTO::try_from(GraphParts {
         nodes: Nodes::from_seq(vec![
             b"acgtACGTac".to_vec(),
             b"GATTACA".to_vec(),

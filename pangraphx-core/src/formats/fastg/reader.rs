@@ -208,7 +208,7 @@ impl FastgReader {
             };
             sequences.push(sequence);
         }
-        CoreGraphDTO::new(GraphParts {
+        CoreGraphDTO::try_from(GraphParts {
             nodes: Nodes::from_seq(sequences),
             edges: self.edges,
             paths: Vec::new(),

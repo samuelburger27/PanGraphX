@@ -213,7 +213,7 @@ pub(super) fn parse_vg<R: Read>(reader: &mut R, window: usize) -> PanResult<Core
         })
         .collect::<PanResult<Vec<Path>>>()?;
 
-    CoreGraphDTO::new(GraphParts {
+    CoreGraphDTO::try_from(GraphParts {
         nodes,
         edges,
         paths,

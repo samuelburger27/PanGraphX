@@ -162,7 +162,7 @@ fn read_graph<R: Read>(reader: &mut R, input_len: u64) -> PanResult<CoreGraphDTO
         rank_to_node,
     };
     let ((), paths) = rayon::join(|| namer.add(&unnamed), || table.walk_all(metas));
-    CoreGraphDTO::new(GraphParts {
+    CoreGraphDTO::try_from(GraphParts {
         nodes,
         edges,
         paths: paths?,
