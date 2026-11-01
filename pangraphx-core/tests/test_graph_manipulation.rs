@@ -404,6 +404,7 @@ fn test_get_outgoing_edges() {
 
 #[test]
 fn test_has_edge() {
+    use Orientation::{Forward, Reverse};
     let mut graph = CoreGraph::new(CoreGraphDTO::default());
     let n1 = graph.add_node(b"ACGT".to_vec(), None);
     let n2 = graph.add_node(b"TGCA".to_vec(), None);
@@ -419,9 +420,13 @@ fn test_has_edge() {
         })
         .unwrap();
 
-    assert!(graph.has_edge(n1, n2));
-    assert!(!graph.has_edge(n2, n1));
-    assert!(!graph.has_edge(n1, n3));
+    assert!(graph.has_edge(n1, Forward, n2, Forward));
+    // The same link read from the other side: n2- -> n1-.
+    assert!(graph.has_edge(n2, Reverse, n1, Reverse));
+    assert!(!graph.has_edge(n2, Forward, n1, Forward));
+    assert!(!graph.has_edge(n1, Forward, n2, Reverse));
+    assert!(!graph.has_edge(n1, Forward, n3, Forward));
+    assert!(!graph.has_edge(7, Forward, n1, Forward));
 }
 
 fn forward(id: usize) -> Step {

@@ -18,6 +18,17 @@ pub enum Orientation {
     Reverse,
 }
 
+impl Orientation {
+    /// The opposite orientation.
+    #[must_use]
+    pub const fn flip(self) -> Self {
+        match self {
+            Self::Forward => Self::Reverse,
+            Self::Reverse => Self::Forward,
+        }
+    }
+}
+
 impl Display for Orientation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -56,6 +67,29 @@ pub struct Edge {
     pub to_orient: Orientation,
     /// Represents overlap
     pub overlap: u32,
+}
+
+impl Edge {
+    /// Whether this edge is the link from `from_node` (in `from_orient`) to
+    /// `to_node` (in `to_orient`), stored in either direction: `a+ -> b+` is
+    /// the same link as `b- -> a-`. The overlap is not compared.
+    #[must_use]
+    pub fn is_link(
+        &self,
+        from_node: NodeId,
+        from_orient: Orientation,
+        to_node: NodeId,
+        to_orient: Orientation,
+    ) -> bool {
+        let stored = (
+            self.from_node,
+            self.from_orient,
+            self.to_node,
+            self.to_orient,
+        );
+        stored == (from_node, from_orient, to_node, to_orient)
+            || stored == (to_node, to_orient.flip(), from_node, from_orient.flip())
+    }
 }
 
 /// A single step in a path: a node traversed in a given orientation.

@@ -1,5 +1,7 @@
 use super::graph_dto::{CoreGraphDTO, GraphParts};
-use crate::core::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path, PathName, Sequence};
+use crate::core::core_types::{
+    Edge, Node, NodeId, NodeName, Nodes, Orientation, Path, PathName, Sequence,
+};
 use crate::error::{PanGraphXError, PanResult};
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -413,13 +415,20 @@ impl CoreGraph {
             .collect())
     }
 
-    /// Checks if an edge is stored from `from_node` to `to_node`.
+    /// Checks if the graph links `from_node` (in `from_orient`) to `to_node`
+    /// (in `to_orient`), whichever of its two equivalent forms is stored
+    /// (`a+ -> b+` or `b- -> a-`; see [`Edge::is_link`]).
     #[must_use]
-    pub fn has_edge(&self, from_node: NodeId, to_node: NodeId) -> bool {
-        self.incident_edge_indices(from_node).iter().any(|&idx| {
-            let edge = &self.edges[idx];
-            edge.from_node == from_node && edge.to_node == to_node
-        })
+    pub fn has_edge(
+        &self,
+        from_node: NodeId,
+        from_orient: Orientation,
+        to_node: NodeId,
+        to_orient: Orientation,
+    ) -> bool {
+        self.incident_edge_indices(from_node)
+            .iter()
+            .any(|&idx| self.edges[idx].is_link(from_node, from_orient, to_node, to_orient))
     }
 
     /// Releases what the path walkers never read (the edges, their index and
