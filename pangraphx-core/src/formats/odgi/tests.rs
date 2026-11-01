@@ -85,7 +85,7 @@ fn roundtrip_self_loops_revisits_and_empty_paths() {
     });
     // Edges come back grouped by node, so compare them as a set.
     let parsed = roundtrip(&original);
-    assert!(parsed.isomorphic(&original));
+    assert!(parsed.eq_by_node_names(&original));
     assert_eq!(parsed.paths, original.paths);
 }
 
@@ -122,7 +122,7 @@ fn numeric_names_are_kept_with_gaps() {
     let parsed = roundtrip(&original);
     // Nodes come back in id order; ids 2 and 4..=6 are deleted records.
     assert_eq!(parsed.nodes.len(), 3);
-    assert!(parsed.isomorphic(&original));
+    assert!(parsed.eq_by_node_names(&original));
 }
 
 #[test]

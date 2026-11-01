@@ -212,7 +212,10 @@ fn written_ids(graph: &CoreGraphDTO) -> Vec<i64> {
     let mut buf = Vec::new();
     VGCodec.serialize(graph, &mut buf).unwrap();
     let parsed = VGCodec.parse(&mut Cursor::new(&buf)).unwrap();
-    assert!(parsed.isomorphic(graph), "VG round-trip changed the graph");
+    assert!(
+        parsed.eq_by_node_names(graph),
+        "VG round-trip changed the graph"
+    );
     VgWriteContext::new(graph).vg_ids
 }
 
@@ -501,7 +504,7 @@ fn test_large_graph_is_chunked_and_roundtrips() {
         && g.path.iter().all(|p| p.mapping.len() <= VG_CHUNK_SIZE)));
 
     let parsed = VGCodec.parse(&mut Cursor::new(&buf)).unwrap();
-    assert!(parsed.isomorphic(&CoreGraphDTO {
+    assert!(parsed.eq_by_node_names(&CoreGraphDTO {
         node_name_map: parsed.node_name_map.clone(),
         ..original
     }));
@@ -544,7 +547,7 @@ fn test_parallel_parse_is_deterministic() {
         pool.install(|| parse_vg(&mut Cursor::new(&buf), window).unwrap())
     };
     let expected = parse(1, VG_READ_WINDOW);
-    assert!(expected.isomorphic(&CoreGraphDTO {
+    assert!(expected.eq_by_node_names(&CoreGraphDTO {
         node_name_map: expected.node_name_map.clone(),
         ..original
     }));
