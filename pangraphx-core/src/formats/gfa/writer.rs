@@ -3,8 +3,9 @@
 use super::{GFA_HEADER, orientation_byte};
 use crate::core::core_types::{Edge, Node, Path};
 use crate::core::graph_dto::CoreGraphDTO;
-use crate::error::PanResult;
+use crate::error::{PanGraphXError, PanResult};
 use crate::formats::common::chunked::{RECORDS_PER_CHUNK, write_records};
+use crate::formats::common::names::node_names;
 use std::borrow::Cow;
 use std::io::Write;
 
@@ -58,7 +59,15 @@ fn format_path(names: &[Cow<'_, [u8]>], path: &Path, buf: &mut Vec<u8>) {
     buf.push(b'\n');
 }
 
-pub(super) fn write_gfa(
+/// Writes `graph` as GFA 1.0, naming nodes by their original names.
+pub(super) fn write(graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
+    if let Some(message) = graph.dangling_reference() {
+        return Err(PanGraphXError::Serialize(message));
+    }
+    write_gfa(graph, &node_names(graph), writer)
+}
+
+fn write_gfa(
     graph: &CoreGraphDTO,
     names: &[Cow<'_, [u8]>],
     writer: &mut dyn Write,

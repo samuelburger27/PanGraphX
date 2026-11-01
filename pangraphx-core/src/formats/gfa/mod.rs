@@ -9,11 +9,11 @@ mod writer;
 
 use crate::core::core_types::Orientation;
 use crate::core::graph_dto::CoreGraphDTO;
-use crate::error::{PanGraphXError, PanResult};
-use crate::formats::common::names::node_names;
+use crate::error::PanResult;
 use crate::traits::{GraphParser, GraphSerializer};
 use std::io::{Read, Seek, Write};
 
+/// Codec for GFA 1.0 / 1.1 text files.
 pub struct GFACodec;
 
 /// Implementation of `GraphParser` for GFA format; see the `reader` module for details.
@@ -25,10 +25,7 @@ impl<R: Read + Seek> GraphParser<R> for GFACodec {
 
 impl GraphSerializer for GFACodec {
     fn serialize(&self, graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
-        if let Some(message) = graph.dangling_reference() {
-            return Err(PanGraphXError::Serialize(message));
-        }
-        writer::write_gfa(graph, &node_names(graph), writer)
+        writer::write(graph, writer)
     }
 }
 
