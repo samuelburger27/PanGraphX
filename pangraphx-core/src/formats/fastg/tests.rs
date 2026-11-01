@@ -26,7 +26,7 @@ fn err(data: &[u8]) -> String {
 }
 
 fn name(graph: &CoreGraphDTO, id: NodeId) -> String {
-    graph.get_name_from_id(id)
+    graph.node_label(id).to_string()
 }
 
 fn edge(from: NodeId, fo: Orientation, to: NodeId, to_o: Orientation) -> Edge {

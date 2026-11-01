@@ -67,7 +67,7 @@ pub mod traits;
 
 /// Common graph primitive types used throughout the crate.
 pub use core::core_types::{
-    Edge, Node, NodeId, NodeName, Orientation, Path, PathName, Sequence, Step,
+    Edge, Node, NodeId, NodeLabel, NodeName, Orientation, Path, PathName, Sequence, Step,
 };
 /// Graph statistics summary types produced by [`CoreGraph::compute_stats`].
 pub use core::stats::{DegreeStats, GraphStats, LenStats, PathStats};

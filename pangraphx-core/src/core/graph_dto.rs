@@ -1,4 +1,4 @@
-use super::core_types::{Edge, NodeId, NodeName, Nodes, Path};
+use super::core_types::{Edge, NodeId, NodeLabel, NodeName, Nodes, Path};
 use crate::error::{PanGraphXError, PanResult};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -103,14 +103,13 @@ impl CoreGraphDTO {
         self.node_name_map.as_ref()
     }
 
+    /// The name of a node: its original name if it has one, its id otherwise.
     #[must_use]
-    pub fn get_name_from_id(&self, node_id: NodeId) -> String {
-        if let Some(map) = &self.node_name_map
-            && let Some(name) = map.get(&node_id)
-        {
-            return String::from_utf8_lossy(name).to_string();
-        }
-        node_id.to_string()
+    pub fn node_label(&self, node_id: NodeId) -> NodeLabel<'_> {
+        self.node_name_map
+            .as_ref()
+            .and_then(|map| map.get(&node_id))
+            .map_or(NodeLabel::Id(node_id), |name| NodeLabel::Name(name))
     }
 }
 
@@ -178,11 +177,11 @@ impl CoreGraphDTO {
         }
 
         // Build name → NodeId maps for both graphs
-        let self_name_to_id: HashMap<String, NodeId> = (0..self.nodes.len())
-            .map(|id| (self.get_name_from_id(id), id))
+        let self_name_to_id: HashMap<NodeLabel<'_>, NodeId> = (0..self.nodes.len())
+            .map(|id| (self.node_label(id), id))
             .collect();
-        let other_name_to_id: HashMap<String, NodeId> = (0..other.nodes.len())
-            .map(|id| (other.get_name_from_id(id), id))
+        let other_name_to_id: HashMap<NodeLabel<'_>, NodeId> = (0..other.nodes.len())
+            .map(|id| (other.node_label(id), id))
             .collect();
 
         if self_name_to_id.len() != self.nodes.len() || other_name_to_id.len() != other.nodes.len()
