@@ -162,7 +162,7 @@ mod tests {
     use super::*;
     use crate::core::core_types::{Orientation, Step};
     use crate::error::PanGraphXError;
-    use crate::formats::{gbz_format::GBZCodec, gfa::GFACodec, vg_format::VGCodec};
+    use crate::formats::{gbz_format::GBZCodec, gfa::GFACodec, vg::VGCodec};
     use crate::traits::GraphSerializer;
 
     fn graph(edge_to: NodeId, step_node: NodeId) -> CoreGraphDTO {
