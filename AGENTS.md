@@ -41,8 +41,8 @@ pangraphx-core/src/
   proto_gen.rs           generated VG protobuf types
   core/
     core_types.rs        NodeId, Sequence, Orientation, Node, Edge, Step, Path, Nodes
-    graph_dto.rs         CoreGraphDTO (transfer object), dangling_reference(), isomorphic()
-    graph.rs             CoreGraph (mutable; adjacency list + path map)
+    graph_dto.rs         CoreGraphDTO (validated transfer object), GraphParts (its unvalidated fields)
+    graph.rs             CoreGraph (mutable; private adjacency list + ordered paths with name index)
     graph_utils.rs       path sequence helpers
     serialization.rs     CoreGraphDTO::load/load_from_file/save/save_to_file
     stats.rs             CoreGraph::compute_stats → GraphStats (N50, components, degrees, paths)
@@ -87,8 +87,8 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 - `Edge { from_node, from_orient, to_node, to_orient, overlap }`. `a+ → b+` and `b- → a-` are the same link.
 - `Step` packs a node and orientation into a `u32` (`id << 1 | is_reverse`). Build with `Step::new` (fails with `NodeIdTooLarge` above `Step::MAX_NODE_ID` = 2^31 − 1).
 - `Path { name, steps, overlaps }`.
-- `CoreGraphDTO` is what parsers return and serializers take. Its fields are public, so serializers call `dangling_reference()` once and then index nodes directly.
-- `CoreGraph` is the mutable form (built with `CoreGraph::new(dto)`, back with `CoreGraphDTO::from`). Keep `adjacency_list` and `path_map` in sync when editing.
+- `CoreGraphDTO` is what parsers return and serializers take. Its fields are private: build it with `CoreGraphDTO::new(GraphParts { .. })`, which rejects edges or steps to missing nodes, names for missing nodes and duplicate path names (`PanGraphXError::InvalidGraph`). Read it through `nodes()`/`edges()`/`paths()`/`node_name_map()`; to edit, `into_parts()` and `new` again. Code holding a DTO may index nodes directly.
+- `CoreGraph` is the mutable form (built with `CoreGraph::new(dto)`, back with `CoreGraphDTO::from`, which keeps path order). Its fields are private and every edit method keeps it valid and its indices in sync. `Nodes` never hands out `&mut Node` (use `sequence_mut`), so ids stay equal to indices.
 
 ## Format notes
 
@@ -127,7 +127,7 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 ## Testing
 
 - Integration tests live in `pangraphx-core/tests/` (one `test_<format>.rs` per format, plus stats, graph manipulation, DBG oracle) and `pangraphx-cli/tests/cli.rs`.
-- Compare graphs with `tests/common` (`canonical(graph, Fidelity::X)` + `assert_same` / `assert_equivalent`), not `CoreGraphDTO::isomorphic`. Writer tests round-trip in memory (`common::round_trip`).
+- Compare graphs with `tests/common` (`canonical(graph, Fidelity::X)` + `assert_same` / `assert_equivalent`), not the name-based `CoreGraphDTO::eq_by_node_names` that the VG/ODGI unit tests use. Writer tests round-trip in memory (`common::round_trip`).
 - Fixtures: `tests/test_files/gfa/` is the source of truth. `vg/`, `gbz/`, `og/` and `MANIFEST.tsv` are written by real `vg`/`odgi` via `utils/generate_test_files.sh` — never by PanGraphX — and are checked tool-free by `test_reference_files.rs`. `utils/generate_gfa.py` generates synthetic GFA.
 - DBG changes: `test_dbg_oracle.rs` checks construction against a naive oracle.
 - After changing the VG, GBZ or ODGI codecs run
