@@ -78,7 +78,7 @@ pub(super) fn parse_position(field: &[u8], what: &str) -> RecordResult<Option<u6
 /// - any other sample: haplotype path `sample#haplotype#seq_id#0`
 ///
 /// followed by the subrange `[start-end]` (`[start]` if the end is `*`), unless
-/// the start is 0 or `*`. The GBZ reader (`gbz_format::path_name`) builds the
+/// the start is 0 or `*`. The GBZ reader (`gbz::reader::path_name`) builds the
 /// same names from GBZ metadata, which keeps only the subrange start.
 pub(super) fn walk_path_name(
     sample: &[u8],
