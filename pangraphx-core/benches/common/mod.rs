@@ -368,7 +368,7 @@ pub fn parse_bytes(bytes: &[u8], format: GraphFormat) -> CoreGraphDTO {
 
 /// Parses a file on disk into a [`CoreGraphDTO`] through a buffered reader.
 pub fn parse_file(path: &Path, format: GraphFormat) -> CoreGraphDTO {
-    CoreGraphDTO::load_from_file(&path.to_string_lossy(), format)
+    CoreGraphDTO::load_from_file(path, format)
         .unwrap_or_else(|e| panic!("failed to parse {format} from {}: {e}", path.display()))
 }
 
