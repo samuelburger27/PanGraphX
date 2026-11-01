@@ -180,11 +180,11 @@ mod tests {
             let compacted = dbg().into_compacted_dto().unwrap();
             assert_eq!(unitigs.len(), compacted.nodes().len());
             let mut expected = String::new();
-            for node in compacted.nodes().iter() {
+            for (id, node) in compacted.nodes().iter().enumerate() {
                 writeln!(
                     expected,
                     ">{}\n{}",
-                    node.id,
+                    id,
                     String::from_utf8_lossy(&node.sequence)
                 )
                 .unwrap();

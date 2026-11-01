@@ -1,4 +1,4 @@
-use super::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path};
+use super::core_types::{Edge, NodeId, NodeName, Nodes, Path};
 use crate::error::{PanGraphXError, PanResult};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -101,11 +101,6 @@ impl CoreGraphDTO {
     #[must_use]
     pub const fn node_name_map(&self) -> Option<&HashMap<NodeId, NodeName>> {
         self.node_name_map.as_ref()
-    }
-
-    #[must_use]
-    pub fn get_node_name(&self, node: &Node) -> String {
-        self.get_name_from_id(node.id)
     }
 
     #[must_use]

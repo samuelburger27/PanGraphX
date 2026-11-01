@@ -2,7 +2,7 @@ use super::compaction::{self, Unitigs};
 use super::extraction::DbgSets;
 use super::k_mers::{OrientedKmer, validate_k};
 use super::word::{KmerWord, MAX_SMALL_K, decode_word, edge_ends};
-use crate::core::core_types::{Edge, Node, Nodes};
+use crate::core::core_types::{Edge, Nodes};
 use crate::core::graph::CoreGraph;
 use crate::error::{PanGraphXError, PanResult};
 use crate::{CoreGraphDTO, GraphParts, Kmer};
@@ -63,16 +63,9 @@ impl<W: KmerWord> DbgCore<W> {
             edges: words,
         } = self;
         drop(words);
-        let nodes = kmers
-            .par_iter()
-            .enumerate()
-            .map(|(id, &kmer)| Node {
-                sequence: decode_word(kmer, k),
-                id,
-            })
-            .collect();
+        let sequences = kmers.par_iter().map(|&kmer| decode_word(kmer, k)).collect();
         drop(kmers);
-        Ok((Nodes::from_node_vec(nodes)?, edges))
+        Ok((Nodes::from_seq(sequences), edges))
     }
 }
 

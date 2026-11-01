@@ -1,7 +1,7 @@
 //! GFA 1.0 writer: `S`, `L` and `P` lines.
 
 use super::{GFA_HEADER, orientation_byte};
-use crate::core::core_types::{Edge, Node, Path};
+use crate::core::core_types::{Edge, Node, NodeId, Path};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::PanResult;
 use crate::formats::common::chunked::{RECORDS_PER_CHUNK, write_records};
@@ -9,9 +9,9 @@ use crate::formats::common::names::node_names;
 use std::borrow::Cow;
 use std::io::Write;
 
-fn format_segment(names: &[Cow<'_, [u8]>], node: &Node, buf: &mut Vec<u8>) {
+fn format_segment(names: &[Cow<'_, [u8]>], id: NodeId, node: &Node, buf: &mut Vec<u8>) {
     buf.extend_from_slice(b"S\t");
-    buf.extend_from_slice(&names[node.id]);
+    buf.extend_from_slice(&names[id]);
     buf.push(b'\t');
     buf.extend_from_slice(&node.sequence);
     buf.push(b'\n');
@@ -74,8 +74,8 @@ fn write_gfa(
         writer,
         graph.nodes().as_slice(),
         RECORDS_PER_CHUNK,
-        |_, node, buf| {
-            format_segment(names, node, buf);
+        |id, node, buf| {
+            format_segment(names, id, node, buf);
             Ok(())
         },
     )?;
