@@ -1,7 +1,7 @@
 use crate::core::core_types::{Edge, Node, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
-use crate::formats::id_map::{IdMap, parse_canonical_int};
+use crate::formats::common::id_map::{IdMap, parse_canonical_int};
 use crate::proto_gen::vg as vg_proto;
 use crate::proto_gen::vg_read;
 use crate::traits::{GraphParser, GraphSerializer};

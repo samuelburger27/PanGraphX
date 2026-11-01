@@ -14,7 +14,8 @@ use super::de_bruijn_graph::{DbgCore, DbgTables, DeBruijn, edge_overlap, with_co
 use super::word::{KmerWord, decode_word_into, edge_ends};
 use crate::core::core_types::Sequence;
 use crate::error::PanResult;
-use crate::formats::gfa_format::{GFA_HEADER, RECORDS_PER_CHUNK, orientation_byte, write_records};
+use crate::formats::common::chunked::{RECORDS_PER_CHUNK, write_records};
+use crate::formats::gfa_format::{GFA_HEADER, orientation_byte};
 use std::io::Write;
 
 /// Appends the decimal form of `value` to `buf`.

@@ -20,7 +20,8 @@
 use crate::core::core_types::{Edge, NodeId, NodeName, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
-use crate::formats::id_map::{IdMap, parse_canonical_int};
+use crate::formats::common::id_map::{IdMap, parse_canonical_int};
+use crate::formats::common::text::{line_error, lossy};
 use log::{debug, warn};
 use memchr::{memchr, memchr_iter, memchr2, memrchr};
 use rayon::prelude::*;
@@ -59,6 +60,7 @@ fn parse_with_block_size<R: Read + Seek>(
             reader.seek(SeekFrom::Start(start))?;
             let line_no = segment_line(&mut BlockReader::new(reader, block_size), duplicate)?;
             return Err(line_error(
+                "GFA",
                 line_no,
                 &format!(
                     "duplicate segment name {}",
@@ -84,14 +86,6 @@ fn parse_with_block_size<R: Read + Seek>(
         paths,
         node_name_map: Some(node_name_map),
     })
-}
-
-fn line_error(line_no: usize, message: &str) -> PanGraphXError {
-    PanGraphXError::Parse(format!("GFA line {line_no}: {message}"))
-}
-
-fn lossy(bytes: &[u8]) -> std::borrow::Cow<'_, str> {
-    String::from_utf8_lossy(bytes)
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +278,7 @@ fn read_segments<R: Read>(blocks: &mut BlockReader<'_, R>) -> PanResult<Segments
 
         let parsed = segment_lines
             .par_iter()
-            .map(|&(n, line)| parse_segment(line).map_err(|e| line_error(n, &e)))
+            .map(|&(n, line)| parse_segment(line).map_err(|e| line_error("GFA", n, &e)))
             .collect::<PanResult<Vec<_>>>()?;
         for (name, sequence) in parsed {
             segments.nodes.push(sequence.to_vec());
@@ -448,7 +442,7 @@ fn read_links_and_paths<R: Read>(
 
         let block_edges = link_lines
             .par_iter()
-            .map(|&(n, line)| parse_link(line, index).map_err(|e| line_error(n, &e)))
+            .map(|&(n, line)| parse_link(line, index).map_err(|e| line_error("GFA", n, &e)))
             .collect::<PanResult<Vec<Edge>>>()?;
         edges.extend(block_edges);
 
@@ -460,7 +454,7 @@ fn read_links_and_paths<R: Read>(
                 } else {
                     parse_path(line, index)
                 };
-                path.map_err(|e| line_error(n, &e))
+                path.map_err(|e| line_error("GFA", n, &e))
             })
             .collect::<PanResult<Vec<Path>>>()?;
         paths.extend(block_paths);

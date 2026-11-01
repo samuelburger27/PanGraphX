@@ -1,8 +1,8 @@
+pub(crate) mod common;
 pub mod fastg_format;
 pub mod gbz_format;
 pub mod gfa_format;
 mod gfa_parser;
-mod id_map;
 pub mod odgi_format;
 pub mod vg_format;
 
