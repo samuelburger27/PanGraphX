@@ -30,7 +30,7 @@ impl CoreGraph {
             edges,
             paths,
             node_name_map,
-        } = graph.into_parts();
+        } = GraphParts::from(graph);
         Self {
             adjacency_list: build_adjacency_list(&edges),
             path_index: index_paths(&paths),

@@ -224,7 +224,7 @@ impl TryFrom<ColoredDBG> for CoreGraphDTO {
         });
         drop(graph);
         let (nodes, edges) = with_core!(dbg.tables, core => core.into_dto_parts(k)?);
-        Self::new(GraphParts {
+        Self::try_from(GraphParts {
             nodes,
             edges,
             paths,

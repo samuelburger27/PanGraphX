@@ -248,7 +248,7 @@ pub(crate) fn unitigs_to_dto(
             overlap,
         })
         .collect();
-    CoreGraphDTO::new(GraphParts {
+    CoreGraphDTO::try_from(GraphParts {
         nodes: Nodes::from_seq(unitigs.sequences),
         edges,
         paths,
@@ -274,7 +274,7 @@ impl TryFrom<DeBruijn> for CoreGraphDTO {
     fn try_from(db_graph: DeBruijn) -> PanResult<Self> {
         let k = db_graph.k;
         let (nodes, edges) = with_core!(db_graph.tables, core => core.into_dto_parts(k)?);
-        Self::new(GraphParts {
+        Self::try_from(GraphParts {
             nodes,
             edges,
             paths: Vec::new(), // Paths are not represented in de Bruijn graph
@@ -297,7 +297,7 @@ pub(crate) mod tests {
         edges: &[(usize, bool, usize, bool)],
         paths: &[(&str, &[(usize, bool)])],
     ) -> CoreGraphDTO {
-        CoreGraphDTO::new(parts(seqs, edges, paths)).unwrap()
+        CoreGraphDTO::try_from(parts(seqs, edges, paths)).unwrap()
     }
 
     /// The unvalidated parts [`graph`] builds its DTO from.
@@ -369,7 +369,7 @@ pub(crate) mod tests {
     fn test_missing_node_cannot_reach_the_builders() {
         let invalid = parts(&[b"ACGT"], &[(0, false, 1, false)], &[]);
         assert!(matches!(
-            CoreGraphDTO::new(invalid),
+            CoreGraphDTO::try_from(invalid),
             Err(PanGraphXError::InvalidGraph(_))
         ));
     }
@@ -416,10 +416,13 @@ pub(crate) mod tests {
     #[test]
     fn test_path_overlaps_are_skipped() {
         // ACG and CGT overlap by 2: the path spells ACGT.
-        let mut parts =
-            graph(&[b"ACG", b"CGT"], &[], &[("p", &[(0, false), (1, false)])]).into_parts();
+        let mut parts = GraphParts::from(graph(
+            &[b"ACG", b"CGT"],
+            &[],
+            &[("p", &[(0, false), (1, false)])],
+        ));
         parts.paths[0].overlaps = vec![2];
-        let g = CoreGraphDTO::new(parts).unwrap();
+        let g = CoreGraphDTO::try_from(parts).unwrap();
         let dbg = DeBruijn::from_directed_graph(g, 3).unwrap();
         assert_eq!(kmer_set(&dbg), strs(&[b"ACG", b"CGT"]));
         assert_eq!(edge_set(&dbg), strs(&[b"ACGT"]));

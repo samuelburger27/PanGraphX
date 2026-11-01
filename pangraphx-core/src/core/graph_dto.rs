@@ -3,8 +3,8 @@ use crate::error::{PanGraphXError, PanResult};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 
-/// The parts of a graph, before validation. [`CoreGraphDTO::new`] checks them
-/// and [`CoreGraphDTO::into_parts`] gives them back.
+/// The parts of a graph, before validation. `CoreGraphDTO::try_from` checks
+/// them and `GraphParts::from` gives them back.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GraphParts {
     pub nodes: Nodes,
@@ -30,20 +30,37 @@ pub struct CoreGraphDTO {
     node_name_map: Option<HashMap<NodeId, NodeName>>,
 }
 
-impl CoreGraphDTO {
+impl TryFrom<GraphParts> for CoreGraphDTO {
+    type Error = PanGraphXError;
+
     /// Validates `parts` and builds a graph from them.
     ///
     /// # Errors
     /// Returns [`PanGraphXError::InvalidGraph`] if an edge or path step refers
     /// to a missing node, a `node_name_map` key is not a node, or two paths
     /// share a name.
-    pub fn new(parts: GraphParts) -> PanResult<Self> {
+    fn try_from(parts: GraphParts) -> PanResult<Self> {
         if let Some(message) = invalid_reference(&parts) {
             return Err(PanGraphXError::InvalidGraph(message));
         }
         Ok(Self::from_valid_parts(parts))
     }
+}
 
+/// Takes a graph apart, e.g. to edit it and validate it again with
+/// `CoreGraphDTO::try_from`.
+impl From<CoreGraphDTO> for GraphParts {
+    fn from(graph: CoreGraphDTO) -> Self {
+        Self {
+            nodes: graph.nodes,
+            edges: graph.edges,
+            paths: graph.paths,
+            node_name_map: graph.node_name_map,
+        }
+    }
+}
+
+impl CoreGraphDTO {
     /// Builds a graph from parts that are already known to be valid, such as
     /// those of a `CoreGraph`, which keeps the same invariants.
     pub(crate) fn from_valid_parts(parts: GraphParts) -> Self {
@@ -58,18 +75,6 @@ impl CoreGraphDTO {
             edges,
             paths,
             node_name_map,
-        }
-    }
-
-    /// Takes the graph apart, e.g. to edit it and validate it again with
-    /// [`CoreGraphDTO::new`].
-    #[must_use]
-    pub fn into_parts(self) -> GraphParts {
-        GraphParts {
-            nodes: self.nodes,
-            edges: self.edges,
-            paths: self.paths,
-            node_name_map: self.node_name_map,
         }
     }
 
@@ -280,7 +285,7 @@ mod tests {
     }
 
     fn rejection(parts: GraphParts) -> String {
-        match CoreGraphDTO::new(parts) {
+        match CoreGraphDTO::try_from(parts) {
             Err(PanGraphXError::InvalidGraph(message)) => message,
             other => panic!("expected InvalidGraph, got {other:?}"),
         }
@@ -288,9 +293,9 @@ mod tests {
 
     #[test]
     fn valid_parts_round_trip() {
-        let graph = CoreGraphDTO::new(parts(1, 1)).unwrap();
-        assert_eq!(graph.into_parts(), parts(1, 1));
-        assert!(CoreGraphDTO::new(GraphParts::default()).is_ok());
+        let graph = CoreGraphDTO::try_from(parts(1, 1)).unwrap();
+        assert_eq!(GraphParts::from(graph), parts(1, 1));
+        assert!(CoreGraphDTO::try_from(GraphParts::default()).is_ok());
     }
 
     #[test]

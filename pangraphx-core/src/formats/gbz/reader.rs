@@ -76,7 +76,7 @@ pub(super) fn parse<R: Read + Seek>(reader: &mut R) -> PanResult<CoreGraphDTO> {
     let edges = collect_edges(&gbz, &id_map)?;
     let paths = collect_paths(&gbz, metadata, &id_map)?;
 
-    CoreGraphDTO::new(GraphParts {
+    CoreGraphDTO::try_from(GraphParts {
         nodes,
         edges,
         paths,

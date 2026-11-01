@@ -87,7 +87,7 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 - `Edge { from_node, from_orient, to_node, to_orient, overlap }`. `a+ → b+` and `b- → a-` are the same link.
 - `Step` packs a node and orientation into a `u32` (`id << 1 | is_reverse`). Build with `Step::new` (fails with `NodeIdTooLarge` above `Step::MAX_NODE_ID` = 2^31 − 1).
 - `Path { name, steps, overlaps }`.
-- `CoreGraphDTO` is what parsers return and serializers take. Its fields are private: build it with `CoreGraphDTO::new(GraphParts { .. })`, which rejects edges or steps to missing nodes, names for missing nodes and duplicate path names (`PanGraphXError::InvalidGraph`). Read it through `nodes()`/`edges()`/`paths()`/`node_name_map()`; to edit, `into_parts()` and `new` again. Code holding a DTO may index nodes directly.
+- `CoreGraphDTO` is what parsers return and serializers take. Its fields are private: build it with `CoreGraphDTO::try_from(GraphParts { .. })`, which rejects edges or steps to missing nodes, names for missing nodes and duplicate path names (`PanGraphXError::InvalidGraph`). Read it through `nodes()`/`edges()`/`paths()`/`node_name_map()`; to edit, take it apart with `GraphParts::from(dto)` and `try_from` again. Code holding a DTO may index nodes directly.
 - `CoreGraph` is the mutable form (built with `CoreGraph::new(dto)`, back with `CoreGraphDTO::from`, which keeps path order). Its fields are private and every edit method keeps it valid and its indices in sync. `Nodes` never hands out `&mut Node` (use `sequence_mut`), so ids stay equal to indices.
 
 ## Format notes

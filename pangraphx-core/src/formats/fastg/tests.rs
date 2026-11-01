@@ -166,7 +166,7 @@ fn referenced_node_without_record() {
 }
 
 fn sample_graph() -> CoreGraphDTO {
-    CoreGraphDTO::new(GraphParts {
+    CoreGraphDTO::try_from(GraphParts {
         nodes: Nodes::from_seq(vec![b"AACG".to_vec(), b"GT".to_vec(), b"T".to_vec()]),
         edges: vec![edge(0, F, 1, F), edge(1, R, 2, F), edge(2, F, 2, R)],
         paths: Vec::new(),
@@ -208,9 +208,9 @@ fn round_trip_keeps_names_sequences_and_edges() {
 
 #[test]
 fn unsafe_names_fall_back_to_numbers() {
-    let mut parts = sample_graph().into_parts();
+    let mut parts = GraphParts::from(sample_graph());
     parts.node_name_map = Some(HashMap::from([(0, b"a_b".to_vec())]));
-    let graph = CoreGraphDTO::new(parts).unwrap();
+    let graph = CoreGraphDTO::try_from(parts).unwrap();
     let text = serialize(&graph);
     assert!(text.starts_with(">EDGE_1_length_4_cov_1:EDGE_2_length_2_cov_1;\n"));
     let back = parse(text.as_bytes()).unwrap();

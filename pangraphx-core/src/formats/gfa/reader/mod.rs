@@ -86,7 +86,7 @@ fn parse_with_block_size<R: Read + Seek>(
     drop(index);
 
     let node_name_map = segments.names.into_iter().enumerate().collect();
-    CoreGraphDTO::new(GraphParts {
+    CoreGraphDTO::try_from(GraphParts {
         nodes: segments.nodes,
         edges,
         paths,

@@ -61,7 +61,7 @@ fn make_simple_graph() -> CoreGraphDTO {
     name_map.insert(1, b"2".to_vec());
     name_map.insert(2, b"3".to_vec());
 
-    CoreGraphDTO::new(GraphParts {
+    CoreGraphDTO::try_from(GraphParts {
         nodes,
         edges: vec![
             Edge {
@@ -165,7 +165,7 @@ fn test_single_node_no_edges() {
     let mut name_map = HashMap::new();
     name_map.insert(0, b"42".to_vec());
 
-    let graph = CoreGraphDTO::new(GraphParts {
+    let graph = CoreGraphDTO::try_from(GraphParts {
         nodes,
         edges: vec![],
         paths: vec![],
@@ -188,7 +188,7 @@ fn test_single_node_no_edges() {
 /// A chain of single-base nodes named `names`, with a path through all of them.
 fn named_chain(names: &[&str]) -> CoreGraphDTO {
     let bases = [b"A", b"C", b"G", b"T"];
-    CoreGraphDTO::new(GraphParts {
+    CoreGraphDTO::try_from(GraphParts {
         nodes: Nodes::from_seq((0..names.len()).map(|i| bases[i % 4].to_vec()).collect()),
         edges: (1..names.len())
             .map(|i| Edge {
@@ -295,7 +295,7 @@ fn test_all_orientation_combinations() {
     ];
 
     for (from_o, to_o) in orientations {
-        let graph = CoreGraphDTO::new(GraphParts {
+        let graph = CoreGraphDTO::try_from(GraphParts {
             nodes: nodes.clone(),
             edges: vec![Edge {
                 from_node: 0,
@@ -338,7 +338,7 @@ fn test_path_with_reverse_steps() {
     name_map.insert(1, b"2".to_vec());
     name_map.insert(2, b"3".to_vec());
 
-    let graph = CoreGraphDTO::new(GraphParts {
+    let graph = CoreGraphDTO::try_from(GraphParts {
         nodes,
         edges: vec![],
         paths: vec![Path {
@@ -379,7 +379,7 @@ fn test_path_with_reverse_steps() {
 #[test]
 fn test_graph_without_name_map() {
     let nodes = Nodes::from_seq(vec![b"AT".to_vec(), b"GC".to_vec()]);
-    let graph = CoreGraphDTO::new(GraphParts {
+    let graph = CoreGraphDTO::try_from(GraphParts {
         nodes,
         edges: vec![Edge {
             from_node: 0,
@@ -414,7 +414,7 @@ fn test_multiple_paths() {
     name_map.insert(1, b"2".to_vec());
     name_map.insert(2, b"3".to_vec());
 
-    let graph = CoreGraphDTO::new(GraphParts {
+    let graph = CoreGraphDTO::try_from(GraphParts {
         nodes,
         edges: vec![],
         paths: vec![
@@ -460,7 +460,7 @@ fn test_edge_overlap_preserved() {
     name_map.insert(0, b"1".to_vec());
     name_map.insert(1, b"2".to_vec());
 
-    let graph = CoreGraphDTO::new(GraphParts {
+    let graph = CoreGraphDTO::try_from(GraphParts {
         nodes,
         edges: vec![Edge {
             from_node: 0,
@@ -502,7 +502,7 @@ fn test_large_graph_is_chunked_and_roundtrips() {
     let steps: Vec<Step> = (0..node_count)
         .map(|i| Step::new(i, (i % 3 == 0).into()).unwrap())
         .collect();
-    let original = CoreGraphDTO::new(GraphParts {
+    let original = CoreGraphDTO::try_from(GraphParts {
         nodes,
         edges,
         paths: vec![
@@ -533,9 +533,9 @@ fn test_large_graph_is_chunked_and_roundtrips() {
     let parsed = VGCodec.parse(&mut Cursor::new(&buf)).unwrap();
     assert!(
         parsed.eq_by_node_names(
-            &CoreGraphDTO::new(GraphParts {
+            &CoreGraphDTO::try_from(GraphParts {
                 node_name_map: parsed.node_name_map().cloned(),
-                ..original.into_parts()
+                ..GraphParts::from(original)
             })
             .unwrap()
         )
@@ -545,7 +545,7 @@ fn test_large_graph_is_chunked_and_roundtrips() {
 #[test]
 fn test_parallel_parse_is_deterministic() {
     let node_count = 5 * VG_CHUNK_SIZE + 7;
-    let original = CoreGraphDTO::new(GraphParts {
+    let original = CoreGraphDTO::try_from(GraphParts {
         nodes: Nodes::from_seq((0..node_count).map(|i| vec![b"ACGT"[i % 4]]).collect()),
         edges: (1..node_count)
             .map(|i| Edge {
@@ -582,9 +582,9 @@ fn test_parallel_parse_is_deterministic() {
     let expected = parse(1, VG_READ_WINDOW);
     assert!(
         expected.eq_by_node_names(
-            &CoreGraphDTO::new(GraphParts {
+            &CoreGraphDTO::try_from(GraphParts {
                 node_name_map: expected.node_name_map().cloned(),
-                ..original.into_parts()
+                ..GraphParts::from(original)
             })
             .unwrap()
         )
