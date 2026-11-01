@@ -17,7 +17,7 @@ fn step_names(graph: &CoreGraphDTO, path: usize) -> Vec<(String, Orientation)> {
     graph.paths()[path]
         .steps
         .iter()
-        .map(|s| (graph.get_name_from_id(s.node_id()), s.orientation()))
+        .map(|s| (graph.node_label(s.node_id()).to_string(), s.orientation()))
         .collect()
 }
 
@@ -36,7 +36,7 @@ fn parses_small_graph() {
     assert_eq!(g.nodes().len(), 3);
     assert_eq!(g.nodes()[0].sequence, b"ACGT");
     assert_eq!(g.nodes()[2].sequence, b"*");
-    assert_eq!(g.get_name_from_id(1), "2");
+    assert_eq!(g.node_label(1), "2");
     assert_eq!(g.edges().len(), 2);
     assert_eq!(g.edges()[0].overlap, 3);
     assert_eq!(g.edges()[0].to_orient, Orientation::Reverse);
@@ -119,7 +119,7 @@ fn crlf_and_missing_final_newline() {
 fn records_before_their_segments() {
     let text = "P\tp\tb+,a-\t*\nL\ta\t+\tb\t+\t0M\nS\ta\tA\nS\tb\tC\n";
     let g = parse_str(text).unwrap();
-    assert_eq!(g.get_name_from_id(0), "a");
+    assert_eq!(g.node_label(0), "a");
     assert_eq!(
         step_names(&g, 0),
         vec![

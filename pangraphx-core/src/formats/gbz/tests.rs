@@ -51,8 +51,8 @@ fn nodes_without_translation_are_named_by_gbz_id() {
     let mut buf = Vec::new();
     GBZCodec.serialize(&unnamed_graph(), &mut buf).unwrap();
     let parsed = GBZCodec.parse(&mut Cursor::new(&buf)).unwrap();
-    assert_eq!(parsed.get_name_from_id(0), "1");
-    assert_eq!(parsed.get_name_from_id(1), "2");
+    assert_eq!(parsed.node_label(0), "1");
+    assert_eq!(parsed.node_label(1), "2");
 }
 
 #[test]

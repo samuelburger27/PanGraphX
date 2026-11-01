@@ -148,13 +148,13 @@ fn positive_int(name: &str) -> Option<u64> {
 pub fn has_numeric_names(g: &CoreGraphDTO) -> bool {
     let mut seen = BTreeSet::new();
     (0..g.nodes().len())
-        .all(|id| positive_int(&g.get_name_from_id(id)).is_some_and(|n| seen.insert(n)))
+        .all(|id| positive_int(&g.node_label(id).to_string()).is_some_and(|n| seen.insert(n)))
 }
 
 fn labels(g: &CoreGraphDTO, names: Names) -> Vec<String> {
     match names {
         Names::Kept => (0..g.nodes().len())
-            .map(|id| g.get_name_from_id(id))
+            .map(|id| g.node_label(id).to_string())
             .collect(),
         Names::Renumbered if has_numeric_names(g) => labels(g, Names::Kept),
         Names::Renumbered => (1..=g.nodes().len()).map(|id| id.to_string()).collect(),

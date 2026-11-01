@@ -1,7 +1,7 @@
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::{PanResult, error::PanGraphXError};
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 use std::ops::Index;
 
 /// A unique identifier for a node/segment in the graph.
@@ -10,6 +10,77 @@ pub type NodeId = usize;
 pub type PathName = Vec<u8>;
 pub type NodeName = Vec<u8>;
 pub type Sequence = Vec<u8>;
+
+/// A node's name as [`CoreGraphDTO::node_label`](crate::CoreGraphDTO::node_label)
+/// gives it: the original name, or the node id when it has none.
+///
+/// Labels compare and hash by their bytes, an id label's bytes being its
+/// decimal form, so `Name(b"7")` equals `Id(7)`. `Display` writes the name as
+/// lossy UTF-8. Nothing here allocates.
+#[derive(Clone, Copy)]
+pub enum NodeLabel<'a> {
+    Name(&'a [u8]),
+    Id(NodeId),
+}
+
+impl NodeLabel<'_> {
+    /// Calls `f` with the label's bytes.
+    fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+        match *self {
+            Self::Name(name) => f(name),
+            Self::Id(id) => f(itoa::Buffer::new().format(id).as_bytes()),
+        }
+    }
+}
+
+impl Display for NodeLabel<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::Name(name) => {
+                for chunk in name.utf8_chunks() {
+                    f.write_str(chunk.valid())?;
+                    if !chunk.invalid().is_empty() {
+                        f.write_char(char::REPLACEMENT_CHARACTER)?;
+                    }
+                }
+                Ok(())
+            }
+            Self::Id(id) => write!(f, "{id}"),
+        }
+    }
+}
+
+impl std::fmt::Debug for NodeLabel<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NodeLabel(\"{self}\")")
+    }
+}
+
+impl PartialEq for NodeLabel<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.with_bytes(|a| other.with_bytes(|b| a == b))
+    }
+}
+
+impl Eq for NodeLabel<'_> {}
+
+impl std::hash::Hash for NodeLabel<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.with_bytes(|bytes| bytes.hash(state));
+    }
+}
+
+impl PartialEq<str> for NodeLabel<'_> {
+    fn eq(&self, other: &str) -> bool {
+        self.with_bytes(|bytes| bytes == other.as_bytes())
+    }
+}
+
+impl PartialEq<&str> for NodeLabel<'_> {
+    fn eq(&self, other: &&str) -> bool {
+        *self == **other
+    }
+}
 
 /// Represents the orientation of a node traversal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -273,6 +344,24 @@ impl<'a> IntoIterator for &'a Nodes {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_labels_compare_by_bytes() {
+        use std::collections::HashSet;
+        assert_eq!(NodeLabel::Name(b"7"), NodeLabel::Id(7));
+        assert_ne!(NodeLabel::Name(b"07"), NodeLabel::Id(7));
+        assert_eq!(NodeLabel::Id(12), "12");
+        assert_eq!(NodeLabel::Name(b"s1"), "s1");
+        let set: HashSet<NodeLabel<'_>> = [NodeLabel::Name(b"7"), NodeLabel::Id(7)].into();
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn node_labels_display_lossy_utf8() {
+        assert_eq!(NodeLabel::Name(b"a\xffb").to_string(), "a\u{fffd}b");
+        assert_eq!(NodeLabel::Id(3).to_string(), "3");
+        assert_eq!(format!("{:?}", NodeLabel::Name(b"x")), "NodeLabel(\"x\")");
+    }
 
     #[test]
     fn step_is_four_bytes() {

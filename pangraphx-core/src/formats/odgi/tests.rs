@@ -57,8 +57,8 @@ fn roundtrip_keeps_orientations() {
     })
     .unwrap();
     let parsed = roundtrip(&original);
-    assert_eq!(parsed.get_name_from_id(0), "1");
-    assert_eq!(parsed.get_name_from_id(1), "2");
+    assert_eq!(parsed.node_label(0), "1");
+    assert_eq!(parsed.node_label(1), "2");
     assert_eq!(parsed, one_based(original));
 }
 
@@ -145,8 +145,8 @@ fn non_numeric_names_are_replaced() {
     })
     .unwrap();
     let parsed = roundtrip(&original);
-    assert_eq!(parsed.get_name_from_id(0), "1");
-    assert_eq!(parsed.get_name_from_id(1), "2");
+    assert_eq!(parsed.node_label(0), "1");
+    assert_eq!(parsed.node_label(1), "2");
 }
 
 #[test]
