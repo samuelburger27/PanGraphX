@@ -9,9 +9,10 @@ pub trait GraphParser<R: Read + Seek> {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO>;
 }
 
-/// A trait for any structure that can serialize a `CoreGraph` to a stream.
+/// A trait for any structure that can serialize a `CoreGraphDTO` to a stream.
 pub trait GraphSerializer {
-    /// Writes a `CoreGraph` to a writer in a specific format.
+    /// Writes a `CoreGraphDTO` to a writer in a specific format. The graph is
+    /// valid by construction, so serializers may index its nodes directly.
     ///
     /// # Errors
     /// Returns an error if writing to the writer fails.

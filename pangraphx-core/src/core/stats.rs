@@ -123,7 +123,11 @@ fn mean(total: usize, count: usize) -> f64 {
 }
 
 fn node_length_stats(graph: &CoreGraph) -> LenStats {
-    let mut lengths: Vec<usize> = graph.nodes.iter().map(|node| node.sequence.len()).collect();
+    let mut lengths: Vec<usize> = graph
+        .nodes()
+        .iter()
+        .map(|node| node.sequence.len())
+        .collect();
     let count = lengths.len();
     if count == 0 {
         return LenStats::default();
@@ -158,13 +162,13 @@ fn node_length_stats(graph: &CoreGraph) -> LenStats {
 
 /// Returns `(component_count, largest_component_size)` for weakly connected components.
 fn component_stats(graph: &CoreGraph) -> (usize, usize) {
-    let n = graph.nodes.len();
+    let n = graph.nodes().len();
     if n == 0 {
         return (0, 0);
     }
 
     let mut uf = UnionFind::new(n);
-    for edge in &graph.edges {
+    for edge in graph.edges() {
         uf.union(edge.from_node, edge.to_node);
     }
 
@@ -188,10 +192,10 @@ struct DegreeBundle {
 }
 
 fn degree_stats(graph: &CoreGraph) -> DegreeBundle {
-    let n = graph.nodes.len();
+    let n = graph.nodes().len();
     let mut in_deg = vec![0usize; n];
     let mut out_deg = vec![0usize; n];
-    for edge in &graph.edges {
+    for edge in graph.edges() {
         out_deg[edge.from_node] += 1;
         in_deg[edge.to_node] += 1;
     }
@@ -224,7 +228,7 @@ fn degree_summary(degrees: &[usize]) -> DegreeStats {
 }
 
 fn path_stats(graph: &CoreGraph) -> PathStats {
-    let count = graph.path_map.len();
+    let count = graph.path_count();
     if count == 0 {
         return PathStats::default();
     }
@@ -236,12 +240,12 @@ fn path_stats(graph: &CoreGraph) -> PathStats {
     let mut steps_min = usize::MAX;
     let mut steps_max = 0usize;
 
-    for path in graph.path_map.values() {
+    for path in graph.paths() {
         let steps = path.steps.len();
         let node_bp: usize = path
             .steps
             .iter()
-            .map(|step| graph.nodes[step.node_id()].sequence.len())
+            .map(|step| graph.nodes()[step.node_id()].sequence.len())
             .sum();
         let overlap: usize = path.overlaps.iter().map(|&o| o as usize).sum();
         let bp = node_bp.saturating_sub(overlap);
