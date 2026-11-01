@@ -19,7 +19,7 @@ workspace = true
 
 [dependencies]
 bio = "3.0.0"
-gbz-construct = "0.1.0"
+gbz-construct = "0.1.1"
 log = "0.4.28"
 prost = "0.13"
 rayon = "1.7"
