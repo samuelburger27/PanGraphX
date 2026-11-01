@@ -33,17 +33,14 @@ pub(super) fn write(graph: &CoreGraphDTO, mut writer: &mut dyn Write) -> PanResu
 /// translation), nodes are written with 1-based identifiers derived from their
 /// dense index and no translation is stored.
 pub(super) fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
-    if let Some(message) = graph.dangling_reference() {
-        return Err(PanGraphXError::Serialize(message));
-    }
     let mut graph_builder = GraphBuilder::new();
 
     if let Some(name_map) = graph
-        .node_name_map
+        .node_name_map()
         .as_ref()
-        .filter(|map| !names_are_gbz_ids(map, graph.nodes.len()))
+        .filter(|map| !names_are_gbz_ids(map, graph.nodes().len()))
     {
-        for node in graph.nodes.iter() {
+        for node in graph.nodes().iter() {
             let name = name_map.get(&node.id).ok_or_else(|| {
                 PanGraphXError::Serialize(format!("Missing name for node {}", node.id))
             })?;
@@ -55,7 +52,7 @@ pub(super) fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
                 .map_err(PanGraphXError::Serialize)?;
         }
     } else {
-        for node in graph.nodes.iter() {
+        for node in graph.nodes().iter() {
             graph_builder
                 .add_node(node.id + 1, &node.sequence)
                 .map_err(PanGraphXError::Serialize)?;
@@ -64,7 +61,7 @@ pub(super) fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
 
     let mut gbwt_builder = GBWTBuilder::new(true, true, GBWT_BUFFER_SIZE);
     let mut encoded_path = Vec::new();
-    for path in &graph.paths {
+    for path in graph.paths() {
         let contig_name = std::str::from_utf8(&path.name)
             .map_err(|e| PanGraphXError::Serialize(format!("Invalid UTF-8 path name: {e}")))?;
         encoded_path.clear();

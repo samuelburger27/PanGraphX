@@ -1,21 +1,103 @@
 use super::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path};
+use crate::error::{PanGraphXError, PanResult};
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+/// The parts of a graph, before validation. [`CoreGraphDTO::new`] checks them
+/// and [`CoreGraphDTO::into_parts`] gives them back.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GraphParts {
+    pub nodes: Nodes,
+    pub edges: Vec<Edge>,
+    pub paths: Vec<Path>,
+    /// Mapping from `NodeId` to original node names (if available).
+    pub node_name_map: Option<HashMap<NodeId, NodeName>>,
+}
 
 /// The main graph data transfer object (DTO) containing nodes, edges, and paths
 /// for serialization and deserialization.
 ///
+/// A `CoreGraphDTO` is always valid: every edge and path step refers to an
+/// existing node, every `node_name_map` key is a node, and path names are
+/// unique. Code holding one can therefore index nodes directly.
+///
 /// For graph manipulation consider using `CoreGraph` for efficient lookup and manipulation
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CoreGraphDTO {
-    pub nodes: Nodes,
-    pub edges: Vec<Edge>,
-    pub paths: Vec<Path>,
-    /// mapping from `NodeId` to original node names (if available).
-    pub node_name_map: Option<HashMap<NodeId, NodeName>>,
+    nodes: Nodes,
+    edges: Vec<Edge>,
+    paths: Vec<Path>,
+    node_name_map: Option<HashMap<NodeId, NodeName>>,
 }
 
 impl CoreGraphDTO {
+    /// Validates `parts` and builds a graph from them.
+    ///
+    /// # Errors
+    /// Returns [`PanGraphXError::InvalidGraph`] if an edge or path step refers
+    /// to a missing node, a `node_name_map` key is not a node, or two paths
+    /// share a name.
+    pub fn new(parts: GraphParts) -> PanResult<Self> {
+        if let Some(message) = invalid_reference(&parts) {
+            return Err(PanGraphXError::InvalidGraph(message));
+        }
+        Ok(Self::from_valid_parts(parts))
+    }
+
+    /// Builds a graph from parts that are already known to be valid, such as
+    /// those of a `CoreGraph`, which keeps the same invariants.
+    pub(crate) fn from_valid_parts(parts: GraphParts) -> Self {
+        let GraphParts {
+            nodes,
+            edges,
+            paths,
+            node_name_map,
+        } = parts;
+        Self {
+            nodes,
+            edges,
+            paths,
+            node_name_map,
+        }
+    }
+
+    /// Takes the graph apart, e.g. to edit it and validate it again with
+    /// [`CoreGraphDTO::new`].
+    #[must_use]
+    pub fn into_parts(self) -> GraphParts {
+        GraphParts {
+            nodes: self.nodes,
+            edges: self.edges,
+            paths: self.paths,
+            node_name_map: self.node_name_map,
+        }
+    }
+
+    /// The nodes, indexed by `NodeId`.
+    #[must_use]
+    pub const fn nodes(&self) -> &Nodes {
+        &self.nodes
+    }
+
+    /// The edges, in input order.
+    #[must_use]
+    pub const fn edges(&self) -> &[Edge] {
+        self.edges.as_slice()
+    }
+
+    /// The paths, in input order.
+    #[must_use]
+    pub const fn paths(&self) -> &[Path] {
+        self.paths.as_slice()
+    }
+
+    /// Mapping from `NodeId` to original node names (if available). Nodes
+    /// without an entry are named by their id.
+    #[must_use]
+    pub const fn node_name_map(&self) -> Option<&HashMap<NodeId, NodeName>> {
+        self.node_name_map.as_ref()
+    }
+
     #[must_use]
     pub fn get_node_name(&self, node: &Node) -> String {
         self.get_name_from_id(node.id)
@@ -30,34 +112,50 @@ impl CoreGraphDTO {
         }
         node_id.to_string()
     }
+}
 
-    /// Describes the first edge or path step that refers to a missing node, if any.
-    ///
-    /// The fields are public, so serializers check this once up front and can
-    /// then index nodes directly.
-    #[must_use]
-    pub fn dangling_reference(&self) -> Option<String> {
-        let n = self.nodes.len();
-        if let Some(edge) = self
-            .edges
-            .par_iter()
-            .find_first(|e| e.from_node >= n || e.to_node >= n)
-        {
-            return Some(format!(
-                "edge {} -> {} refers to a missing node",
-                edge.from_node, edge.to_node
-            ));
-        }
-        self.paths.par_iter().find_map_first(|path| {
-            path.steps.iter().find(|s| s.node_id() >= n).map(|step| {
-                format!(
-                    "path {} refers to missing node {}",
-                    String::from_utf8_lossy(&path.name),
-                    step.node_id()
-                )
-            })
-        })
+/// Describes the first reason `parts` do not form a valid graph, if any.
+fn invalid_reference(parts: &GraphParts) -> Option<String> {
+    let n = parts.nodes.len();
+    if let Some(edge) = parts
+        .edges
+        .par_iter()
+        .find_first(|e| e.from_node >= n || e.to_node >= n)
+    {
+        return Some(format!(
+            "edge {} -> {} refers to a missing node",
+            edge.from_node, edge.to_node
+        ));
     }
+    if let Some(message) = parts.paths.par_iter().find_map_first(|path| {
+        path.steps.iter().find(|s| s.node_id() >= n).map(|step| {
+            format!(
+                "path {} refers to missing node {}",
+                String::from_utf8_lossy(&path.name),
+                step.node_id()
+            )
+        })
+    }) {
+        return Some(message);
+    }
+    if let Some(id) = parts
+        .node_name_map
+        .as_ref()
+        .and_then(|map| map.keys().filter(|&&id| id >= n).min())
+    {
+        return Some(format!("node name given for missing node {id}"));
+    }
+    let mut names = HashSet::with_capacity(parts.paths.len());
+    parts
+        .paths
+        .iter()
+        .find(|path| !names.insert(path.name.as_slice()))
+        .map(|path| {
+            format!(
+                "duplicate path name {}",
+                String::from_utf8_lossy(&path.name)
+            )
+        })
 }
 
 #[cfg(test)]
@@ -71,8 +169,6 @@ impl CoreGraphDTO {
     /// overlaps are ignored. The integration tests compare graphs with
     /// `tests/common::canonical` instead.
     pub(crate) fn eq_by_node_names(&self, other: &Self) -> bool {
-        use std::collections::HashSet;
-
         // Quick cardinality checks
         if self.nodes.len() != other.nodes.len()
             || self.edges.len() != other.edges.len()
@@ -163,12 +259,9 @@ impl CoreGraphDTO {
 mod tests {
     use super::*;
     use crate::core::core_types::{Orientation, Step};
-    use crate::error::PanGraphXError;
-    use crate::formats::{gbz::GBZCodec, gfa::GFACodec, vg::VGCodec};
-    use crate::traits::GraphSerializer;
 
-    fn graph(edge_to: NodeId, step_node: NodeId) -> CoreGraphDTO {
-        CoreGraphDTO {
+    fn parts(edge_to: NodeId, step_node: NodeId) -> GraphParts {
+        GraphParts {
             nodes: Nodes::from_seq(vec![b"A".to_vec(), b"C".to_vec()]),
             edges: vec![Edge {
                 from_node: 0,
@@ -186,26 +279,37 @@ mod tests {
         }
     }
 
-    #[test]
-    fn dangling_references_are_reported() {
-        assert_eq!(graph(1, 1).dangling_reference(), None);
-        assert!(
-            graph(2, 1)
-                .dangling_reference()
-                .unwrap()
-                .contains("edge 0 -> 2")
-        );
-        assert!(graph(1, 5).dangling_reference().unwrap().contains("node 5"));
+    fn rejection(parts: GraphParts) -> String {
+        match CoreGraphDTO::new(parts) {
+            Err(PanGraphXError::InvalidGraph(message)) => message,
+            other => panic!("expected InvalidGraph, got {other:?}"),
+        }
     }
 
     #[test]
-    fn serializers_reject_dangling_references() {
-        let serializers: [&dyn GraphSerializer; 3] = [&GFACodec, &VGCodec, &GBZCodec];
-        for serializer in serializers {
-            for bad in [graph(2, 1), graph(1, 5)] {
-                let result = serializer.serialize(&bad, &mut Vec::new());
-                assert!(matches!(result, Err(PanGraphXError::Serialize(_))));
-            }
-        }
+    fn valid_parts_round_trip() {
+        let graph = CoreGraphDTO::new(parts(1, 1)).unwrap();
+        assert_eq!(graph.into_parts(), parts(1, 1));
+        assert!(CoreGraphDTO::new(GraphParts::default()).is_ok());
+    }
+
+    #[test]
+    fn dangling_references_are_rejected() {
+        assert!(rejection(parts(2, 1)).contains("edge 0 -> 2"));
+        assert!(rejection(parts(1, 5)).contains("node 5"));
+    }
+
+    #[test]
+    fn names_of_missing_nodes_are_rejected() {
+        let mut bad = parts(1, 1);
+        bad.node_name_map = Some(HashMap::from([(0, b"a".to_vec()), (7, b"b".to_vec())]));
+        assert!(rejection(bad).contains("missing node 7"));
+    }
+
+    #[test]
+    fn duplicate_path_names_are_rejected() {
+        let mut bad = parts(1, 1);
+        bad.paths.push(bad.paths[0].clone());
+        assert!(rejection(bad).contains("duplicate path name p"));
     }
 }

@@ -12,7 +12,7 @@ pub(super) use steps::MAX_RANK_HINTS;
 
 use crate::core::core_types::NodeId;
 use crate::core::graph_dto::CoreGraphDTO;
-use crate::error::{PanGraphXError, PanResult};
+use crate::error::PanResult;
 use crate::formats::odgi::encoding::{push_packed, push_u64};
 use crate::formats::odgi::{ODGI_MAGIC, STEP_END, STEP_START};
 use edges::{EDGE_TYPE_BITS, EdgeIndex};
@@ -98,8 +98,8 @@ impl<I: StepNumber> OdgiWriter<'_, I> {
         push_u64(&mut buf, ranks().next().unwrap_or(0));
         push_u64(&mut buf, self.numbering.records as u64);
         push_u64(&mut buf, self.edges.edge_count as u64);
-        push_u64(&mut buf, self.graph.paths.len() as u64);
-        push_u64(&mut buf, self.graph.paths.len() as u64);
+        push_u64(&mut buf, self.graph.paths().len() as u64);
+        push_u64(&mut buf, self.graph.paths().len() as u64);
         push_u64(&mut buf, 0); // id increment
         buf
     }
@@ -116,7 +116,7 @@ impl<I: StepNumber> OdgiWriter<'_, I> {
             return;
         };
         let own_id = rank as u64 + 1;
-        let sequence = &self.graph.nodes.as_slice()[node].sequence;
+        let sequence = &self.graph.nodes().as_slice()[node].sequence;
         push_u64(buf, sequence.len() as u64);
         buf.extend_from_slice(sequence);
         push_u64(buf, own_id);
@@ -146,7 +146,7 @@ impl<I: StepNumber> OdgiWriter<'_, I> {
         for &slot in &steps.slots[steps.offsets[node]..steps.offsets[node + 1]] {
             let global = slot.index();
             let (path_index, position) = steps.locate_after(&mut path_end, global);
-            let path = &self.graph.paths[path_index].steps;
+            let path = &self.graph.paths()[path_index].steps;
             let is_start = position == 0;
             let is_end = position + 1 == path.len();
             let (prev_id, prev_rank) = if is_start {
@@ -190,7 +190,7 @@ impl<I: StepNumber> OdgiWriter<'_, I> {
         let records = self.numbering.records.max(1);
         let sequence_bytes: usize = self
             .graph
-            .nodes
+            .nodes()
             .par_iter()
             .map(|node| node.sequence.len())
             .sum();
@@ -246,7 +246,7 @@ impl<I: StepNumber> OdgiWriter<'_, I> {
 
     fn write_paths(&self, writer: &mut dyn Write) -> PanResult<()> {
         let mut buf = Vec::new();
-        for (index, path) in self.graph.paths.iter().enumerate() {
+        for (index, path) in self.graph.paths().iter().enumerate() {
             let step_handle = |position: usize| {
                 let step = path.steps[position];
                 let rank = self.numbering.id(step.node_id()) - 1;
@@ -280,16 +280,16 @@ pub(super) fn write_odgi<I: StepNumber>(
     graph: &CoreGraphDTO,
     writer: &mut dyn Write,
 ) -> PanResult<()> {
-    let node_count = graph.nodes.len();
+    let node_count = graph.nodes().len();
     // The indexes are independent and partly sequential, so build them side by side.
     let ((numbering, edges), steps) = rayon::join(
         || {
             rayon::join(
                 || Numbering::new(graph),
-                || EdgeIndex::new(node_count, &graph.edges),
+                || EdgeIndex::new(node_count, graph.edges()),
             )
         },
-        || StepIndex::new(node_count, &graph.paths),
+        || StepIndex::new(node_count, graph.paths()),
     );
     let odgi = OdgiWriter::<I> {
         graph,
@@ -304,18 +304,15 @@ pub(super) fn write_odgi<I: StepNumber>(
 
 /// Writes `graph` in ODGI format; overlaps are dropped.
 pub(super) fn write(graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
-    if let Some(message) = graph.dangling_reference() {
-        return Err(PanGraphXError::Serialize(message));
-    }
-    if graph.edges.par_iter().any(|edge| edge.overlap != 0)
+    if graph.edges().par_iter().any(|edge| edge.overlap != 0)
         || graph
-            .paths
+            .paths()
             .par_iter()
             .any(|path| path.overlaps.iter().any(|&overlap| overlap != 0))
     {
         warn!("ODGI files don't support overlaps; overlaps are dropped.");
     }
-    let total_steps: usize = graph.paths.iter().map(|path| path.steps.len()).sum();
+    let total_steps: usize = graph.paths().iter().map(|path| path.steps.len()).sum();
     if u32::try_from(total_steps).is_ok() {
         write_odgi::<u32>(graph, writer)
     } else {

@@ -11,6 +11,9 @@ pub enum PanGraphXError {
     #[error("Serialization Error: {0}")]
     Serialize(String),
 
+    #[error("Invalid graph: {0}")]
+    InvalidGraph(String),
+
     #[error("de Bruijn Error: {0}")]
     DeBruijn(String),
 

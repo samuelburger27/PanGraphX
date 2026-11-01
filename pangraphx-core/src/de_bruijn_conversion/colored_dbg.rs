@@ -23,7 +23,7 @@ use super::output::push_number;
 use super::word::{KmerWord, MAX_SMALL_K, Spelled};
 use crate::core::core_types::{Path, PathName, Step};
 use crate::core::graph::CoreGraph;
-use crate::core::graph_dto::CoreGraphDTO;
+use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::error::{PanGraphXError, PanResult};
 use crate::formats::gfa::orientation_byte;
 use log::debug;
@@ -69,8 +69,7 @@ impl ColoredDBG {
     /// The walks themselves are produced on output.
     ///
     /// # Errors
-    /// Returns an error if `k` is not in `1..=63` or the graph refers to
-    /// missing nodes.
+    /// Returns an error if `k` is not in `1..=63`.
     pub fn from_directed_graph(graph: CoreGraphDTO, k: usize) -> PanResult<Self> {
         Self::with_chunk_bases(graph, k, CHUNK_BASES)
     }
@@ -225,7 +224,7 @@ impl TryFrom<ColoredDBG> for CoreGraphDTO {
         });
         drop(graph);
         let (nodes, edges) = with_core!(dbg.tables, core => core.into_dto_parts(k)?);
-        Ok(Self {
+        Self::new(GraphParts {
             nodes,
             edges,
             paths,
@@ -786,7 +785,7 @@ mod tests {
     fn spell(dto: &CoreGraphDTO, path: &Path, k: usize) -> Vec<u8> {
         let mut out = Vec::new();
         for (i, step) in path.steps.iter().enumerate() {
-            let seq = oriented(&dto.nodes[step.node_id()].sequence, step.orientation());
+            let seq = oriented(&dto.nodes()[step.node_id()].sequence, step.orientation());
             out.extend_from_slice(if i == 0 { &seq } else { &seq[k - 1..] });
         }
         out
@@ -796,7 +795,7 @@ mod tests {
     fn input_spell(g: &CoreGraphDTO, path: &Path) -> Vec<u8> {
         path.steps
             .iter()
-            .flat_map(|s| oriented(&g.nodes[s.node_id()].sequence, s.orientation()))
+            .flat_map(|s| oriented(&g.nodes()[s.node_id()].sequence, s.orientation()))
             .collect()
     }
 
@@ -811,9 +810,9 @@ mod tests {
         assert_eq!(colored.path_count(), 2);
         assert_eq!(colored.path_names().next(), Some(b"path1".as_slice()));
         let dto = CoreGraphDTO::try_from(colored).unwrap();
-        assert_eq!(dto.paths[0].steps.len(), 2);
-        assert_eq!(spell(&dto, &dto.paths[0], 4), b"ACGTA");
-        assert_eq!(spell(&dto, &dto.paths[1], 4), b"TTGCA");
+        assert_eq!(dto.paths()[0].steps.len(), 2);
+        assert_eq!(spell(&dto, &dto.paths()[0], 4), b"ACGTA");
+        assert_eq!(spell(&dto, &dto.paths()[1], 4), b"TTGCA");
     }
 
     #[test]
@@ -842,8 +841,8 @@ mod tests {
         let names: Vec<&[u8]> = colored.path_names().collect();
         assert_eq!(names, [b"p.1".as_slice(), b"p.2".as_slice()]);
         let dto = CoreGraphDTO::try_from(colored).unwrap();
-        assert_eq!(spell(&dto, &dto.paths[0], 3), b"ACGTA");
-        assert_eq!(spell(&dto, &dto.paths[1], 3), b"CCGTA");
+        assert_eq!(spell(&dto, &dto.paths()[0], 3), b"ACGTA");
+        assert_eq!(spell(&dto, &dto.paths()[1], 3), b"CCGTA");
     }
 
     /// Haplotypes with shared sequence, a SNP, an indel, a reverse step and
@@ -875,11 +874,11 @@ mod tests {
             let colored = ColoredDBG::from_directed_graph(g.clone(), k).unwrap();
             let names: Vec<PathName> = colored.path_names().map(<[u8]>::to_vec).collect();
             let dto = colored.into_compacted_dto().unwrap();
-            assert!(dto.nodes.len() > 1);
-            for (path, name) in dto.paths.iter().zip(&names) {
+            assert!(dto.nodes().len() > 1);
+            for (path, name) in dto.paths().iter().zip(&names) {
                 assert_eq!(&path.name, name);
                 let base = name.split(|&b| b == b'.').next().unwrap();
-                let input = g.paths.iter().find(|p| p.name == base).unwrap();
+                let input = g.paths().iter().find(|p| p.name == base).unwrap();
                 let full = input_spell(&g, input);
                 // Each segment is one of the N-free pieces of the input.
                 let pieces: Vec<&[u8]> = full
@@ -911,17 +910,17 @@ mod tests {
             .unwrap()
             .into_compacted_dto()
             .unwrap();
-        assert!(compact.nodes.len() < plain.nodes.len());
+        assert!(compact.nodes().len() < plain.nodes().len());
         // Every k-mer of the plain graph appears in some unitig.
         let unitig_kmers: std::collections::HashSet<String> = compact
-            .nodes
+            .nodes()
             .iter()
             .flat_map(|n| n.sequence.windows(k).map(canon).collect::<Vec<_>>())
             .collect();
-        for node in plain.nodes.iter() {
+        for node in plain.nodes().iter() {
             assert!(unitig_kmers.contains(&canon(&node.sequence)));
         }
-        assert_eq!(unitig_kmers.len(), plain.nodes.len());
+        assert_eq!(unitig_kmers.len(), plain.nodes().len());
     }
 
     /// GFA bytes of the uncompacted graph (streamed and via the DTO) and of

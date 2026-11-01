@@ -41,7 +41,7 @@ fn canon(s: &[u8]) -> Seq {
 
 /// The node's sequence, upper-case, in orientation `rev`.
 fn oriented(g: &CoreGraphDTO, node: NodeId, rev: bool) -> Seq {
-    let seq = g.nodes[node].sequence.to_ascii_uppercase();
+    let seq = g.nodes()[node].sequence.to_ascii_uppercase();
     if rev { revcomp(&seq) } else { seq }
 }
 
@@ -99,7 +99,7 @@ fn pieces(g: &CoreGraphDTO, path: &Path, k: usize) -> Vec<Seq> {
 /// Path mode: the windows of every path's sequence.
 fn path_oracle(g: &CoreGraphDTO, k: usize) -> KmerSets {
     let mut sets = KmerSets::default();
-    for path in &g.paths {
+    for path in g.paths() {
         sets.add_all(&spell(g, path), k);
     }
     sets
@@ -109,7 +109,7 @@ fn path_oracle(g: &CoreGraphDTO, k: usize) -> KmerSets {
 /// all walks through the bidirected graph.
 fn topology_oracle(g: &CoreGraphDTO, k: usize) -> KmerSets {
     let mut successors: HashMap<Side, Vec<(Side, usize)>> = HashMap::new();
-    for e in &g.edges {
+    for e in g.edges() {
         let (a, ar) = (e.from_node, e.from_orient == Orientation::Reverse);
         let (b, br) = (e.to_node, e.to_orient == Orientation::Reverse);
         let overlap = e.overlap as usize;
@@ -125,7 +125,7 @@ fn topology_oracle(g: &CoreGraphDTO, k: usize) -> KmerSets {
 
     let mut sets = KmerSets::default();
     let mut seen = HashSet::new();
-    for node in 0..g.nodes.len() {
+    for node in 0..g.nodes().len() {
         for rev in [false, true] {
             let seq = oriented(g, node, rev);
             for start in 0..seq.len() {
@@ -206,7 +206,7 @@ fn assert_sets(expected: &BTreeSet<Seq>, actual: &BTreeSet<Seq>, what: &str, con
 /// and no unitig could be extended into a neighbour.
 fn check_compaction(dto: &CoreGraphDTO, expected: &KmerSets, k: usize, context: &str) {
     let mut seen: BTreeMap<Seq, usize> = BTreeMap::new();
-    for node in dto.nodes.iter() {
+    for node in dto.nodes().iter() {
         assert!(node.sequence.len() >= k, "{context}: unitig shorter than k");
         for window in node.sequence.windows(k) {
             *seen.entry(canon(window)).or_default() += 1;
@@ -239,7 +239,7 @@ fn check_compaction(dto: &CoreGraphDTO, expected: &KmerSets, k: usize, context: 
             .collect()
     };
     let predecessors = |kmer: &[u8]| successors(&revcomp(kmer));
-    for node in dto.nodes.iter() {
+    for node in dto.nodes().iter() {
         let unitig = &node.sequence;
         let own: BTreeSet<Seq> = unitig.windows(k).map(canon).collect();
         for strand in [unitig.clone(), revcomp(unitig)] {
@@ -287,7 +287,7 @@ fn check_colored(g: &CoreGraphDTO, k: usize, context: &str) {
 /// paths of `g`.
 fn check_colored_paths(g: &CoreGraphDTO, dto: &CoreGraphDTO, k: usize, context: &str) {
     let mut expected = BTreeMap::new();
-    for path in &g.paths {
+    for path in g.paths() {
         let name = show(&path.name);
         let pieces = pieces(g, path, k);
         if let [piece] = pieces.as_slice() {
@@ -299,7 +299,7 @@ fn check_colored_paths(g: &CoreGraphDTO, dto: &CoreGraphDTO, k: usize, context: 
         }
     }
     let actual: BTreeMap<String, Seq> = dto
-        .paths
+        .paths()
         .iter()
         .map(|p| {
             let mut spelled = Seq::new();
@@ -357,14 +357,14 @@ fn check_streamed(build: impl Fn() -> DeBruijn, expected: &KmerSets, context: &s
 
     let parsed = from_bytes(streamed, GraphFormat::GFA);
     let kmers: BTreeSet<Seq> = parsed
-        .nodes
+        .nodes()
         .as_slice()
         .iter()
         .map(|n| canon(&n.sequence))
         .collect();
     assert_sets(&expected.kmers, &kmers, "streamed k-mers", context);
     assert_eq!(
-        parsed.edges.len(),
+        parsed.edges().len(),
         expected.edges.len(),
         "{context}: streamed edge count"
     );
@@ -439,7 +439,7 @@ fn edge_case_graph() -> CoreGraphDTO {
         overlap,
     };
     let step = |id, o| Step::new(id, o).unwrap();
-    CoreGraphDTO {
+    CoreGraphDTO::new(GraphParts {
         nodes: Nodes::from_seq(vec![
             b"acgtACGTac".to_vec(),
             b"GATTACA".to_vec(),
@@ -470,7 +470,8 @@ fn edge_case_graph() -> CoreGraphDTO {
             },
         ],
         node_name_map: None,
-    }
+    })
+    .unwrap()
 }
 
 #[rstest]

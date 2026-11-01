@@ -203,7 +203,7 @@ fn stream_kmers(dbg: &DeBruijn) -> (usize, usize) {
 }
 
 const fn counts(dto: &CoreGraphDTO) -> (usize, usize) {
-    (dto.nodes.len(), dto.edges.len())
+    (dto.nodes().len(), dto.edges().len())
 }
 
 fn standard(graph: CoreGraphDTO, k: usize) -> DeBruijn {

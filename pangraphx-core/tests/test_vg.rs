@@ -27,8 +27,8 @@ fn test_vg_names_mixed_regression() {
     let original = load(&fixture("gfa/names_mixed.gfa"), GraphFormat::GFA);
     let reloaded = round_trip(&original, GraphFormat::VG);
 
-    assert_eq!(reloaded.nodes.len(), 6);
-    let steps = &reloaded.paths[0].steps;
+    assert_eq!(reloaded.nodes().len(), 6);
+    let steps = &reloaded.paths()[0].steps;
     let distinct: HashSet<_> = steps.iter().map(|s| s.node_id()).collect();
     assert_eq!((steps.len(), distinct.len()), (6, 6));
     assert_equivalent(&original, &reloaded, Fidelity::VG, "names_mixed via VG");

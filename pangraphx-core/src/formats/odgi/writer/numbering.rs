@@ -20,13 +20,13 @@ impl Numbering {
     /// Keeps numeric node names as odgi ids when they are distinct, positive,
     /// written canonically and dense enough that the gaps stay small.
     pub(super) fn new(graph: &CoreGraphDTO) -> Self {
-        let n = graph.nodes.len();
+        let n = graph.nodes().len();
         let sequential = Self {
             ids: None,
             by_rank: None,
             records: n,
         };
-        let Some(map) = &graph.node_name_map else {
+        let Some(map) = graph.node_name_map() else {
             return sequential;
         };
         let ids: Option<Vec<u64>> = (0..n)

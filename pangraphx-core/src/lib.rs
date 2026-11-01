@@ -72,7 +72,10 @@ pub use core::core_types::{
 /// Graph statistics summary types produced by [`CoreGraph::compute_stats`].
 pub use core::stats::{DegreeStats, GraphStats, LenStats, PathStats};
 /// Internal graph model with efficient lookup and manipulation utilities.
-pub use core::{graph::CoreGraph, graph_dto::CoreGraphDTO};
+pub use core::{
+    graph::CoreGraph,
+    graph_dto::{CoreGraphDTO, GraphParts},
+};
 /// de Bruijn graph data structures and helpers.
 pub use de_bruijn_conversion::{
     UnitigSequences, colored_dbg::ColoredDBG, de_bruijn_graph::DeBruijn, k_mers::Kmer,

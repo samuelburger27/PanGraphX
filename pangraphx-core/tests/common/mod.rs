@@ -147,18 +147,18 @@ fn positive_int(name: &str) -> Option<u64> {
 #[must_use]
 pub fn has_numeric_names(g: &CoreGraphDTO) -> bool {
     let mut seen = BTreeSet::new();
-    (0..g.nodes.len())
+    (0..g.nodes().len())
         .all(|id| positive_int(&g.get_name_from_id(id)).is_some_and(|n| seen.insert(n)))
 }
 
 fn labels(g: &CoreGraphDTO, names: Names) -> Vec<String> {
     match names {
-        Names::Kept => (0..g.nodes.len())
+        Names::Kept => (0..g.nodes().len())
             .map(|id| g.get_name_from_id(id))
             .collect(),
         Names::Renumbered if has_numeric_names(g) => labels(g, Names::Kept),
-        Names::Renumbered => (1..=g.nodes.len()).map(|id| id.to_string()).collect(),
-        Names::BySequence => g.nodes.iter().map(|n| sequence(&n.sequence)).collect(),
+        Names::Renumbered => (1..=g.nodes().len()).map(|id| id.to_string()).collect(),
+        Names::BySequence => g.nodes().iter().map(|n| sequence(&n.sequence)).collect(),
     }
 }
 
@@ -172,7 +172,7 @@ const fn is_rev(o: Orientation) -> bool {
 
 /// Links traversed by a path, by node id, each in canonical orientation.
 fn traversed(g: &CoreGraphDTO) -> BTreeSet<(NodeId, bool, NodeId, bool)> {
-    g.paths
+    g.paths()
         .iter()
         .flat_map(|p| p.steps.windows(2))
         .map(|w| {
@@ -193,7 +193,7 @@ pub fn canonical(g: &CoreGraphDTO, f: Fidelity) -> CanonicalGraph {
     let label = labels(g, f.names);
 
     let mut segments = BTreeMap::new();
-    for node in g.nodes.iter() {
+    for node in g.nodes().iter() {
         *segments
             .entry((label[node.id].clone(), sequence(&node.sequence)))
             .or_insert(0) += 1;
@@ -202,7 +202,7 @@ pub fn canonical(g: &CoreGraphDTO, f: Fidelity) -> CanonicalGraph {
     // Without off-path edges, only the links some path traverses survive.
     let on_path = (!f.off_path_edges).then(|| traversed(g));
     let mut links = BTreeMap::new();
-    for e in &g.edges {
+    for e in g.edges() {
         let (a, ar, b, br) = (
             e.from_node,
             is_rev(e.from_orient),
@@ -228,7 +228,7 @@ pub fn canonical(g: &CoreGraphDTO, f: Fidelity) -> CanonicalGraph {
 
     let mut paths = BTreeMap::new();
     if f.paths {
-        for p in &g.paths {
+        for p in g.paths() {
             let steps = p
                 .steps
                 .iter()

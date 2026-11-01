@@ -3,7 +3,7 @@ use super::reader::*;
 use super::writer::*;
 use super::*;
 use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
-use crate::core::graph_dto::CoreGraphDTO;
+use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::error::{PanGraphXError, PanResult};
 use crate::proto_gen::vg as vg_proto;
 use crate::traits::{GraphParser, GraphSerializer};
@@ -61,7 +61,7 @@ fn make_simple_graph() -> CoreGraphDTO {
     name_map.insert(1, b"2".to_vec());
     name_map.insert(2, b"3".to_vec());
 
-    CoreGraphDTO {
+    CoreGraphDTO::new(GraphParts {
         nodes,
         edges: vec![
             Edge {
@@ -89,7 +89,8 @@ fn make_simple_graph() -> CoreGraphDTO {
             overlaps: vec![],
         }],
         node_name_map: Some(name_map),
-    }
+    })
+    .unwrap()
 }
 
 #[test]
@@ -107,31 +108,38 @@ fn test_serialize_then_parse_roundtrip() {
     let parsed = codec.parse(&mut cursor).unwrap();
 
     // Verify nodes
-    assert_eq!(parsed.nodes.len(), original.nodes.len());
-    for (i, node) in parsed.nodes.iter().enumerate() {
+    assert_eq!(parsed.nodes().len(), original.nodes().len());
+    for (i, node) in parsed.nodes().iter().enumerate() {
         assert_eq!(
-            node.sequence, original.nodes[i].sequence,
+            node.sequence,
+            original.nodes()[i].sequence,
             "Node {i} sequence mismatch"
         );
     }
 
     // Verify edges
-    assert_eq!(parsed.edges.len(), original.edges.len());
-    for (i, edge) in parsed.edges.iter().enumerate() {
-        assert_eq!(edge.from_node, original.edges[i].from_node);
-        assert_eq!(edge.to_node, original.edges[i].to_node);
-        assert_eq!(edge.from_orient, original.edges[i].from_orient);
-        assert_eq!(edge.to_orient, original.edges[i].to_orient);
-        assert_eq!(edge.overlap, original.edges[i].overlap);
+    assert_eq!(parsed.edges().len(), original.edges().len());
+    for (i, edge) in parsed.edges().iter().enumerate() {
+        assert_eq!(edge.from_node, original.edges()[i].from_node);
+        assert_eq!(edge.to_node, original.edges()[i].to_node);
+        assert_eq!(edge.from_orient, original.edges()[i].from_orient);
+        assert_eq!(edge.to_orient, original.edges()[i].to_orient);
+        assert_eq!(edge.overlap, original.edges()[i].overlap);
     }
 
     // Verify paths
-    assert_eq!(parsed.paths.len(), original.paths.len());
-    assert_eq!(parsed.paths[0].name, original.paths[0].name);
-    assert_eq!(parsed.paths[0].steps.len(), original.paths[0].steps.len());
-    for (i, step) in parsed.paths[0].steps.iter().enumerate() {
-        assert_eq!(step.node_id(), original.paths[0].steps[i].node_id());
-        assert_eq!(step.orientation(), original.paths[0].steps[i].orientation());
+    assert_eq!(parsed.paths().len(), original.paths().len());
+    assert_eq!(parsed.paths()[0].name, original.paths()[0].name);
+    assert_eq!(
+        parsed.paths()[0].steps.len(),
+        original.paths()[0].steps.len()
+    );
+    for (i, step) in parsed.paths()[0].steps.iter().enumerate() {
+        assert_eq!(step.node_id(), original.paths()[0].steps[i].node_id());
+        assert_eq!(
+            step.orientation(),
+            original.paths()[0].steps[i].orientation()
+        );
     }
 }
 
@@ -146,9 +154,9 @@ fn test_empty_graph_roundtrip() {
     let mut cursor = Cursor::new(&buf);
     let parsed = codec.parse(&mut cursor).unwrap();
 
-    assert_eq!(parsed.nodes.len(), 0);
-    assert_eq!(parsed.edges.len(), 0);
-    assert_eq!(parsed.paths.len(), 0);
+    assert_eq!(parsed.nodes().len(), 0);
+    assert_eq!(parsed.edges().len(), 0);
+    assert_eq!(parsed.paths().len(), 0);
 }
 
 #[test]
@@ -157,12 +165,13 @@ fn test_single_node_no_edges() {
     let mut name_map = HashMap::new();
     name_map.insert(0, b"42".to_vec());
 
-    let graph = CoreGraphDTO {
+    let graph = CoreGraphDTO::new(GraphParts {
         nodes,
         edges: vec![],
         paths: vec![],
         node_name_map: Some(name_map),
-    };
+    })
+    .unwrap();
 
     let codec = VGCodec;
     let mut buf = Vec::new();
@@ -171,15 +180,15 @@ fn test_single_node_no_edges() {
     let mut cursor = Cursor::new(&buf);
     let parsed = codec.parse(&mut cursor).unwrap();
 
-    assert_eq!(parsed.nodes.len(), 1);
-    assert_eq!(parsed.nodes[0].sequence, b"GATTACA");
-    assert_eq!(parsed.edges.len(), 0);
+    assert_eq!(parsed.nodes().len(), 1);
+    assert_eq!(parsed.nodes()[0].sequence, b"GATTACA");
+    assert_eq!(parsed.edges().len(), 0);
 }
 
 /// A chain of single-base nodes named `names`, with a path through all of them.
 fn named_chain(names: &[&str]) -> CoreGraphDTO {
     let bases = [b"A", b"C", b"G", b"T"];
-    CoreGraphDTO {
+    CoreGraphDTO::new(GraphParts {
         nodes: Nodes::from_seq((0..names.len()).map(|i| bases[i % 4].to_vec()).collect()),
         edges: (1..names.len())
             .map(|i| Edge {
@@ -204,7 +213,8 @@ fn named_chain(names: &[&str]) -> CoreGraphDTO {
                 .map(|(i, name)| (i, name.as_bytes().to_vec()))
                 .collect(),
         ),
-    }
+    })
+    .unwrap()
 }
 
 /// The VG ids `graph` is written with; also checks the graph round-trips.
@@ -251,7 +261,7 @@ fn parse_chunks(nodes: &[(i64, &str)]) -> PanResult<CoreGraphDTO> {
 #[test]
 fn test_identical_repeated_node_is_merged() {
     let parsed = parse_chunks(&[(1, "ACGT"), (2, "GG"), (1, "ACGT")]).unwrap();
-    assert_eq!(parsed.nodes.len(), 2);
+    assert_eq!(parsed.nodes().len(), 2);
 }
 
 #[test]
@@ -285,7 +295,7 @@ fn test_all_orientation_combinations() {
     ];
 
     for (from_o, to_o) in orientations {
-        let graph = CoreGraphDTO {
+        let graph = CoreGraphDTO::new(GraphParts {
             nodes: nodes.clone(),
             edges: vec![Edge {
                 from_node: 0,
@@ -296,7 +306,8 @@ fn test_all_orientation_combinations() {
             }],
             paths: vec![],
             node_name_map: Some(name_map.clone()),
-        };
+        })
+        .unwrap();
 
         let codec = VGCodec;
         let mut buf = Vec::new();
@@ -305,13 +316,15 @@ fn test_all_orientation_combinations() {
         let mut cursor = Cursor::new(&buf);
         let parsed = codec.parse(&mut cursor).unwrap();
 
-        assert_eq!(parsed.edges.len(), 1);
+        assert_eq!(parsed.edges().len(), 1);
         assert_eq!(
-            parsed.edges[0].from_orient, from_o,
+            parsed.edges()[0].from_orient,
+            from_o,
             "from_orient mismatch for {from_o:?} → {to_o:?}"
         );
         assert_eq!(
-            parsed.edges[0].to_orient, to_o,
+            parsed.edges()[0].to_orient,
+            to_o,
             "to_orient mismatch for {from_o:?} → {to_o:?}"
         );
     }
@@ -325,7 +338,7 @@ fn test_path_with_reverse_steps() {
     name_map.insert(1, b"2".to_vec());
     name_map.insert(2, b"3".to_vec());
 
-    let graph = CoreGraphDTO {
+    let graph = CoreGraphDTO::new(GraphParts {
         nodes,
         edges: vec![],
         paths: vec![Path {
@@ -338,7 +351,8 @@ fn test_path_with_reverse_steps() {
             overlaps: vec![],
         }],
         node_name_map: Some(name_map),
-    };
+    })
+    .unwrap();
 
     let codec = VGCodec;
     let mut buf = Vec::new();
@@ -347,16 +361,25 @@ fn test_path_with_reverse_steps() {
     let mut cursor = Cursor::new(&buf);
     let parsed = codec.parse(&mut cursor).unwrap();
 
-    assert_eq!(parsed.paths.len(), 1);
-    assert_eq!(parsed.paths[0].steps[0].orientation(), Orientation::Forward);
-    assert_eq!(parsed.paths[0].steps[1].orientation(), Orientation::Reverse);
-    assert_eq!(parsed.paths[0].steps[2].orientation(), Orientation::Forward);
+    assert_eq!(parsed.paths().len(), 1);
+    assert_eq!(
+        parsed.paths()[0].steps[0].orientation(),
+        Orientation::Forward
+    );
+    assert_eq!(
+        parsed.paths()[0].steps[1].orientation(),
+        Orientation::Reverse
+    );
+    assert_eq!(
+        parsed.paths()[0].steps[2].orientation(),
+        Orientation::Forward
+    );
 }
 
 #[test]
 fn test_graph_without_name_map() {
     let nodes = Nodes::from_seq(vec![b"AT".to_vec(), b"GC".to_vec()]);
-    let graph = CoreGraphDTO {
+    let graph = CoreGraphDTO::new(GraphParts {
         nodes,
         edges: vec![Edge {
             from_node: 0,
@@ -367,7 +390,8 @@ fn test_graph_without_name_map() {
         }],
         paths: vec![],
         node_name_map: None,
-    };
+    })
+    .unwrap();
 
     let codec = VGCodec;
     let mut buf = Vec::new();
@@ -376,10 +400,10 @@ fn test_graph_without_name_map() {
     let mut cursor = Cursor::new(&buf);
     let parsed = codec.parse(&mut cursor).unwrap();
 
-    assert_eq!(parsed.nodes.len(), 2);
-    assert_eq!(parsed.nodes[0].sequence, b"AT");
-    assert_eq!(parsed.nodes[1].sequence, b"GC");
-    assert_eq!(parsed.edges.len(), 1);
+    assert_eq!(parsed.nodes().len(), 2);
+    assert_eq!(parsed.nodes()[0].sequence, b"AT");
+    assert_eq!(parsed.nodes()[1].sequence, b"GC");
+    assert_eq!(parsed.edges().len(), 1);
 }
 
 #[test]
@@ -390,7 +414,7 @@ fn test_multiple_paths() {
     name_map.insert(1, b"2".to_vec());
     name_map.insert(2, b"3".to_vec());
 
-    let graph = CoreGraphDTO {
+    let graph = CoreGraphDTO::new(GraphParts {
         nodes,
         edges: vec![],
         paths: vec![
@@ -412,7 +436,8 @@ fn test_multiple_paths() {
             },
         ],
         node_name_map: Some(name_map),
-    };
+    })
+    .unwrap();
 
     let codec = VGCodec;
     let mut buf = Vec::new();
@@ -421,11 +446,11 @@ fn test_multiple_paths() {
     let mut cursor = Cursor::new(&buf);
     let parsed = codec.parse(&mut cursor).unwrap();
 
-    assert_eq!(parsed.paths.len(), 2);
-    assert_eq!(parsed.paths[0].name, b"ref");
-    assert_eq!(parsed.paths[1].name, b"alt");
-    assert_eq!(parsed.paths[0].steps.len(), 2);
-    assert_eq!(parsed.paths[1].steps.len(), 2);
+    assert_eq!(parsed.paths().len(), 2);
+    assert_eq!(parsed.paths()[0].name, b"ref");
+    assert_eq!(parsed.paths()[1].name, b"alt");
+    assert_eq!(parsed.paths()[0].steps.len(), 2);
+    assert_eq!(parsed.paths()[1].steps.len(), 2);
 }
 
 #[test]
@@ -435,7 +460,7 @@ fn test_edge_overlap_preserved() {
     name_map.insert(0, b"1".to_vec());
     name_map.insert(1, b"2".to_vec());
 
-    let graph = CoreGraphDTO {
+    let graph = CoreGraphDTO::new(GraphParts {
         nodes,
         edges: vec![Edge {
             from_node: 0,
@@ -446,7 +471,8 @@ fn test_edge_overlap_preserved() {
         }],
         paths: vec![],
         node_name_map: Some(name_map),
-    };
+    })
+    .unwrap();
 
     let codec = VGCodec;
     let mut buf = Vec::new();
@@ -455,7 +481,7 @@ fn test_edge_overlap_preserved() {
     let mut cursor = Cursor::new(&buf);
     let parsed = codec.parse(&mut cursor).unwrap();
 
-    assert_eq!(parsed.edges[0].overlap, 2);
+    assert_eq!(parsed.edges()[0].overlap, 2);
 }
 
 #[test]
@@ -476,7 +502,7 @@ fn test_large_graph_is_chunked_and_roundtrips() {
     let steps: Vec<Step> = (0..node_count)
         .map(|i| Step::new(i, (i % 3 == 0).into()).unwrap())
         .collect();
-    let original = CoreGraphDTO {
+    let original = CoreGraphDTO::new(GraphParts {
         nodes,
         edges,
         paths: vec![
@@ -492,7 +518,8 @@ fn test_large_graph_is_chunked_and_roundtrips() {
             },
         ],
         node_name_map: None,
-    };
+    })
+    .unwrap();
 
     let mut buf = Vec::new();
     VGCodec.serialize(&original, &mut buf).unwrap();
@@ -504,16 +531,21 @@ fn test_large_graph_is_chunked_and_roundtrips() {
         && g.path.iter().all(|p| p.mapping.len() <= VG_CHUNK_SIZE)));
 
     let parsed = VGCodec.parse(&mut Cursor::new(&buf)).unwrap();
-    assert!(parsed.eq_by_node_names(&CoreGraphDTO {
-        node_name_map: parsed.node_name_map.clone(),
-        ..original
-    }));
+    assert!(
+        parsed.eq_by_node_names(
+            &CoreGraphDTO::new(GraphParts {
+                node_name_map: parsed.node_name_map().cloned(),
+                ..original.into_parts()
+            })
+            .unwrap()
+        )
+    );
 }
 
 #[test]
 fn test_parallel_parse_is_deterministic() {
     let node_count = 5 * VG_CHUNK_SIZE + 7;
-    let original = CoreGraphDTO {
+    let original = CoreGraphDTO::new(GraphParts {
         nodes: Nodes::from_seq((0..node_count).map(|i| vec![b"ACGT"[i % 4]]).collect()),
         edges: (1..node_count)
             .map(|i| Edge {
@@ -535,7 +567,8 @@ fn test_parallel_parse_is_deterministic() {
             })
             .collect(),
         node_name_map: None,
-    };
+    })
+    .unwrap();
     let mut buf = Vec::new();
     VGCodec.serialize(&original, &mut buf).unwrap();
 
@@ -547,10 +580,15 @@ fn test_parallel_parse_is_deterministic() {
         pool.install(|| parse_vg(&mut Cursor::new(&buf), window).unwrap())
     };
     let expected = parse(1, VG_READ_WINDOW);
-    assert!(expected.eq_by_node_names(&CoreGraphDTO {
-        node_name_map: expected.node_name_map.clone(),
-        ..original
-    }));
+    assert!(
+        expected.eq_by_node_names(
+            &CoreGraphDTO::new(GraphParts {
+                node_name_map: expected.node_name_map().cloned(),
+                ..original.into_parts()
+            })
+            .unwrap()
+        )
+    );
     // Windows of one message each, and of a few messages, on several threads.
     for (threads, window) in [(1, 1), (4, 1), (4, 50_000), (3, VG_READ_WINDOW)] {
         assert_eq!(
@@ -627,7 +665,7 @@ fn test_invalid_utf8_name_is_rejected() {
         write_vg_group(&mut buf, &[graph]).unwrap();
         VGCodec.parse(&mut Cursor::new(&buf))
     };
-    assert_eq!(parse(b'x').unwrap().node_name_map.unwrap()[&0], b"x");
+    assert_eq!(parse(b'x').unwrap().node_name_map().unwrap()[&0], b"x");
     let error = parse(0xFF).unwrap_err();
     assert!(matches!(error, PanGraphXError::Parse(_)), "{error}");
 }

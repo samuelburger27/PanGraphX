@@ -41,9 +41,9 @@ pub fn load_graph(args: &InputArgs) -> Result<CoreGraphDTO> {
 
     info!(
         "Loaded {} nodes, {} edges, {} paths in {:.2?}",
-        group(graph.nodes.len()),
-        group(graph.edges.len()),
-        group(graph.paths.len()),
+        group(graph.nodes().len()),
+        group(graph.edges().len()),
+        group(graph.paths().len()),
         start.elapsed()
     );
     Ok(graph)

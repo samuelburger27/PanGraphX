@@ -1,6 +1,6 @@
 use super::*;
 use crate::core::core_types::{Edge, NodeId, Nodes, Orientation, Path, Step};
-use crate::core::graph_dto::CoreGraphDTO;
+use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::formats::odgi::encoding::{Fields, push_packed, push_u64};
 use crate::formats::odgi::reader::{BLOCK_BYTES, scan_record};
 use crate::formats::odgi::writer::{MAX_RANK_HINTS, SMALL_DECODING, SMALL_NODE_DEGREE, write_odgi};
@@ -37,23 +37,25 @@ fn roundtrip(graph: &CoreGraphDTO) -> CoreGraphDTO {
 }
 
 /// Names nodes by their 1-based id, as they come back from odgi.
-fn one_based(mut graph: CoreGraphDTO) -> CoreGraphDTO {
-    graph.node_name_map = Some(
-        (0..graph.nodes.len())
+fn one_based(graph: CoreGraphDTO) -> CoreGraphDTO {
+    let mut parts = graph.into_parts();
+    parts.node_name_map = Some(
+        (0..parts.nodes.len())
             .map(|id| (id, (id + 1).to_string().into_bytes()))
             .collect(),
     );
-    graph
+    CoreGraphDTO::new(parts).unwrap()
 }
 
 #[test]
 fn roundtrip_keeps_orientations() {
-    let original = CoreGraphDTO {
+    let original = CoreGraphDTO::new(GraphParts {
         nodes: Nodes::from_seq(vec![b"ACGT".to_vec(), b"GGA".to_vec()]),
         edges: vec![edge(0, Forward, 1, Reverse)],
         paths: vec![path("p", &[(0, Forward), (1, Reverse)])],
         node_name_map: None,
-    };
+    })
+    .unwrap();
     let parsed = roundtrip(&original);
     assert_eq!(parsed.get_name_from_id(0), "1");
     assert_eq!(parsed.get_name_from_id(1), "2");
@@ -62,36 +64,39 @@ fn roundtrip_keeps_orientations() {
 
 #[test]
 fn roundtrip_self_loops_revisits_and_empty_paths() {
-    let original = one_based(CoreGraphDTO {
-        nodes: Nodes::from_seq(vec![b"A".to_vec(), b"CC".to_vec(), b"GGG".to_vec()]),
-        edges: vec![
-            edge(0, Forward, 0, Forward),
-            edge(1, Forward, 1, Reverse),
-            edge(2, Reverse, 0, Forward),
-            edge(0, Forward, 1, Forward),
-        ],
-        paths: vec![
-            path(
-                "a",
-                &[(0, Forward), (1, Forward), (0, Forward), (0, Reverse)],
-            ),
-            path("empty", &[]),
-            path(
-                "b",
-                &[(2, Reverse), (0, Forward), (1, Forward), (1, Reverse)],
-            ),
-        ],
-        node_name_map: None,
-    });
+    let original = one_based(
+        CoreGraphDTO::new(GraphParts {
+            nodes: Nodes::from_seq(vec![b"A".to_vec(), b"CC".to_vec(), b"GGG".to_vec()]),
+            edges: vec![
+                edge(0, Forward, 0, Forward),
+                edge(1, Forward, 1, Reverse),
+                edge(2, Reverse, 0, Forward),
+                edge(0, Forward, 1, Forward),
+            ],
+            paths: vec![
+                path(
+                    "a",
+                    &[(0, Forward), (1, Forward), (0, Forward), (0, Reverse)],
+                ),
+                path("empty", &[]),
+                path(
+                    "b",
+                    &[(2, Reverse), (0, Forward), (1, Forward), (1, Reverse)],
+                ),
+            ],
+            node_name_map: None,
+        })
+        .unwrap(),
+    );
     // Edges come back grouped by node, so compare them as a set.
     let parsed = roundtrip(&original);
     assert!(parsed.eq_by_node_names(&original));
-    assert_eq!(parsed.paths, original.paths);
+    assert_eq!(parsed.paths(), original.paths());
 }
 
 #[test]
 fn reverse_complement_edges_are_merged() {
-    let graph = CoreGraphDTO {
+    let graph = CoreGraphDTO::new(GraphParts {
         nodes: Nodes::from_seq(vec![b"A".to_vec(), b"C".to_vec()]),
         edges: vec![
             edge(0, Forward, 1, Forward),
@@ -100,14 +105,18 @@ fn reverse_complement_edges_are_merged() {
         ],
         paths: Vec::new(),
         node_name_map: None,
-    };
-    assert_eq!(roundtrip(&graph).edges, vec![edge(0, Forward, 1, Forward)]);
+    })
+    .unwrap();
+    assert_eq!(
+        roundtrip(&graph).edges(),
+        vec![edge(0, Forward, 1, Forward)]
+    );
 }
 
 #[test]
 fn numeric_names_are_kept_with_gaps() {
     let names = ["7", "3", "1"];
-    let original = CoreGraphDTO {
+    let original = CoreGraphDTO::new(GraphParts {
         nodes: Nodes::from_seq(vec![b"A".to_vec(), b"C".to_vec(), b"G".to_vec()]),
         edges: vec![edge(0, Forward, 1, Reverse), edge(2, Forward, 0, Forward)],
         paths: vec![path("p", &[(2, Forward), (0, Forward), (1, Reverse)])],
@@ -118,21 +127,23 @@ fn numeric_names_are_kept_with_gaps() {
                 .map(|(id, name)| (id, name.as_bytes().to_vec()))
                 .collect(),
         ),
-    };
+    })
+    .unwrap();
     let parsed = roundtrip(&original);
     // Nodes come back in id order; ids 2 and 4..=6 are deleted records.
-    assert_eq!(parsed.nodes.len(), 3);
+    assert_eq!(parsed.nodes().len(), 3);
     assert!(parsed.eq_by_node_names(&original));
 }
 
 #[test]
 fn non_numeric_names_are_replaced() {
-    let original = CoreGraphDTO {
+    let original = CoreGraphDTO::new(GraphParts {
         nodes: Nodes::from_seq(vec![b"A".to_vec(), b"C".to_vec()]),
         edges: vec![edge(0, Forward, 1, Forward)],
         paths: Vec::new(),
         node_name_map: Some(HashMap::from([(0, b"x".to_vec()), (1, b"01".to_vec())])),
-    };
+    })
+    .unwrap();
     let parsed = roundtrip(&original);
     assert_eq!(parsed.get_name_from_id(0), "1");
     assert_eq!(parsed.get_name_from_id(1), "2");
@@ -142,22 +153,25 @@ fn non_numeric_names_are_replaced() {
 fn records_spanning_blocks() {
     // Records larger than a block and records cut by a block boundary.
     let big = |base: u8, len: usize| (0..len).map(|i| b"ACGT"[(i + base as usize) % 4]).collect();
-    let original = one_based(CoreGraphDTO {
-        nodes: Nodes::from_seq(vec![
-            b"A".to_vec(),
-            big(0, BLOCK_BYTES + 100),
-            big(1, BLOCK_BYTES / 3),
-            big(2, BLOCK_BYTES / 3),
-            big(3, BLOCK_BYTES / 2),
-            b"C".to_vec(),
-        ]),
-        edges: (0..5).map(|i| edge(i, Forward, i + 1, Forward)).collect(),
-        paths: vec![
-            path("p", &(0..6).map(|i| (i, Forward)).collect::<Vec<_>>()),
-            path("q", &[(5, Reverse), (4, Reverse), (3, Reverse)]),
-        ],
-        node_name_map: None,
-    });
+    let original = one_based(
+        CoreGraphDTO::new(GraphParts {
+            nodes: Nodes::from_seq(vec![
+                b"A".to_vec(),
+                big(0, BLOCK_BYTES + 100),
+                big(1, BLOCK_BYTES / 3),
+                big(2, BLOCK_BYTES / 3),
+                big(3, BLOCK_BYTES / 2),
+                b"C".to_vec(),
+            ]),
+            edges: (0..5).map(|i| edge(i, Forward, i + 1, Forward)).collect(),
+            paths: vec![
+                path("p", &(0..6).map(|i| (i, Forward)).collect::<Vec<_>>()),
+                path("q", &[(5, Reverse), (4, Reverse), (3, Reverse)]),
+            ],
+            node_name_map: None,
+        })
+        .unwrap(),
+    );
     assert_eq!(roundtrip(&original), original);
 }
 
@@ -177,31 +191,37 @@ fn high_degree_nodes() {
             &[(i, Forward), (0, Forward), (n - i, Forward)],
         ));
     }
-    let original = one_based(CoreGraphDTO {
-        nodes: Nodes::from_seq((0..n).map(|i| vec![b"ACGT"[i % 4]]).collect()),
-        edges,
-        paths,
-        node_name_map: None,
-    });
+    let original = one_based(
+        CoreGraphDTO::new(GraphParts {
+            nodes: Nodes::from_seq((0..n).map(|i| vec![b"ACGT"[i % 4]]).collect()),
+            edges,
+            paths,
+            node_name_map: None,
+        })
+        .unwrap(),
+    );
     let parsed = roundtrip(&original);
-    assert_eq!(parsed.edges.len(), 2 * (n - 1));
-    assert_eq!(parsed.paths, original.paths);
+    assert_eq!(parsed.edges().len(), 2 * (n - 1));
+    assert_eq!(parsed.paths(), original.paths());
 }
 
 #[test]
 fn step_number_widths_agree() {
-    let graph = one_based(CoreGraphDTO {
-        nodes: Nodes::from_seq(vec![b"A".to_vec(), b"CC".to_vec(), b"GGG".to_vec()]),
-        edges: vec![edge(0, Forward, 1, Forward), edge(1, Forward, 2, Reverse)],
-        paths: vec![
-            path(
-                "a",
-                &[(0, Forward), (1, Forward), (2, Reverse), (1, Reverse)],
-            ),
-            path("b", &[(1, Forward), (2, Reverse)]),
-        ],
-        node_name_map: None,
-    });
+    let graph = one_based(
+        CoreGraphDTO::new(GraphParts {
+            nodes: Nodes::from_seq(vec![b"A".to_vec(), b"CC".to_vec(), b"GGG".to_vec()]),
+            edges: vec![edge(0, Forward, 1, Forward), edge(1, Forward, 2, Reverse)],
+            paths: vec![
+                path(
+                    "a",
+                    &[(0, Forward), (1, Forward), (2, Reverse), (1, Reverse)],
+                ),
+                path("b", &[(1, Forward), (2, Reverse)]),
+            ],
+            node_name_map: None,
+        })
+        .unwrap(),
+    );
     let (mut narrow, mut wide) = (Vec::new(), Vec::new());
     write_odgi::<u32>(&graph, &mut narrow).unwrap();
     write_odgi::<u64>(&graph, &mut wide).unwrap();
@@ -235,15 +255,18 @@ impl Seek for OverstatedLen {
 }
 
 fn two_path_graph() -> CoreGraphDTO {
-    one_based(CoreGraphDTO {
-        nodes: Nodes::from_seq(vec![b"ACGT".to_vec(), b"GGA".to_vec()]),
-        edges: vec![edge(0, Forward, 1, Reverse)],
-        paths: vec![
-            path("a", &[(0, Forward), (1, Reverse)]),
-            path("b", &[(1, Forward), (0, Reverse)]),
-        ],
-        node_name_map: None,
-    })
+    one_based(
+        CoreGraphDTO::new(GraphParts {
+            nodes: Nodes::from_seq(vec![b"ACGT".to_vec(), b"GGA".to_vec()]),
+            edges: vec![edge(0, Forward, 1, Reverse)],
+            paths: vec![
+                path("a", &[(0, Forward), (1, Reverse)]),
+                path("b", &[(1, Forward), (0, Reverse)]),
+            ],
+            node_name_map: None,
+        })
+        .unwrap(),
+    )
 }
 
 #[test]
@@ -304,19 +327,26 @@ fn paths_longer_than_the_stored_steps_are_rejected() {
 fn empty_graph() {
     let parsed = roundtrip(&CoreGraphDTO::default());
     assert_eq!(
-        (parsed.nodes.len(), parsed.edges.len(), parsed.paths.len()),
+        (
+            parsed.nodes().len(),
+            parsed.edges().len(),
+            parsed.paths().len()
+        ),
         (0, 0, 0)
     );
 }
 
 #[test]
 fn rejects_truncated_and_corrupt_input() {
-    let graph = one_based(CoreGraphDTO {
-        nodes: Nodes::from_seq(vec![b"ACGT".to_vec(), b"GGA".to_vec()]),
-        edges: vec![edge(0, Forward, 1, Reverse)],
-        paths: vec![path("p", &[(0, Forward), (1, Reverse)])],
-        node_name_map: None,
-    });
+    let graph = one_based(
+        CoreGraphDTO::new(GraphParts {
+            nodes: Nodes::from_seq(vec![b"ACGT".to_vec(), b"GGA".to_vec()]),
+            edges: vec![edge(0, Forward, 1, Reverse)],
+            paths: vec![path("p", &[(0, Forward), (1, Reverse)])],
+            node_name_map: None,
+        })
+        .unwrap(),
+    );
     let mut buf = Vec::new();
     ODGICodec.serialize(&graph, &mut buf).unwrap();
     for len in [0, 3, 20, buf.len() / 2, buf.len() - 1] {

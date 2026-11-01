@@ -1,4 +1,4 @@
-use super::graph_dto::CoreGraphDTO;
+use super::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::core::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path, PathName, Sequence};
 use crate::error::{PanGraphXError, PanResult};
 use std::collections::HashMap;
@@ -16,26 +16,31 @@ pub struct CoreGraph {
 impl CoreGraph {
     #[must_use]
     pub fn new(graph: CoreGraphDTO) -> Self {
-        let adjacency_list = Self::build_adjacency_list(&graph);
+        let GraphParts {
+            nodes,
+            edges,
+            paths,
+            node_name_map,
+        } = graph.into_parts();
+        let adjacency_list = Self::build_adjacency_list(&edges);
 
-        let path_map = graph
-            .paths
+        let path_map = paths
             .into_iter()
             .map(|path| (path.name.clone(), path))
             .collect();
 
         Self {
-            nodes: graph.nodes,
-            edges: graph.edges,
+            nodes,
+            edges,
             path_map,
-            node_name_map: graph.node_name_map,
+            node_name_map,
             adjacency_list,
         }
     }
 
-    fn build_adjacency_list(graph: &CoreGraphDTO) -> HashMap<NodeId, Vec<usize>> {
+    fn build_adjacency_list(edges: &[Edge]) -> HashMap<NodeId, Vec<usize>> {
         let mut adjacency_list: HashMap<NodeId, Vec<usize>> = HashMap::new();
-        for (i, edge) in graph.edges.iter().enumerate() {
+        for (i, edge) in edges.iter().enumerate() {
             let from_node = &edge.from_node;
             adjacency_list.entry(*from_node).or_default().push(i);
         }
@@ -215,12 +220,7 @@ impl CoreGraph {
         }
 
         // Rebuild adjacency list
-        self.adjacency_list = Self::build_adjacency_list(&CoreGraphDTO {
-            nodes: self.nodes.clone(),
-            edges: self.edges.clone(),
-            paths: Vec::new(),
-            node_name_map: None,
-        });
+        self.adjacency_list = Self::build_adjacency_list(&self.edges);
 
         // Update paths: remove steps with deleted node and update node IDs
         // TODO update overlaps if needed
@@ -300,12 +300,7 @@ impl CoreGraph {
         self.edges.remove(edge_idx);
 
         // Rebuild adjacency list since edge indices have changed
-        self.adjacency_list = Self::build_adjacency_list(&CoreGraphDTO {
-            nodes: self.nodes.clone(),
-            edges: self.edges.clone(),
-            paths: Vec::new(),
-            node_name_map: None,
-        });
+        self.adjacency_list = Self::build_adjacency_list(&self.edges);
 
         Ok(())
     }
@@ -452,11 +447,11 @@ impl CoreGraph {
 
 impl From<CoreGraph> for CoreGraphDTO {
     fn from(graph: CoreGraph) -> Self {
-        Self {
+        Self::from_valid_parts(GraphParts {
             nodes: graph.nodes,
             edges: graph.edges,
             paths: graph.path_map.into_values().collect(),
             node_name_map: graph.node_name_map,
-        }
+        })
     }
 }

@@ -1,5 +1,5 @@
 use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
-use crate::core::graph_dto::CoreGraphDTO;
+use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::traits::{GraphParser, GraphSerializer};
 use gbz_construct::sequences::Sequences;
 use gbz_construct::{
@@ -15,7 +15,7 @@ use super::*;
 
 /// Two nodes, one edge and one path, without node names.
 fn unnamed_graph() -> CoreGraphDTO {
-    CoreGraphDTO {
+    CoreGraphDTO::new(GraphParts {
         nodes: Nodes::from_seq(vec![b"ACGT".to_vec(), b"GGA".to_vec()]),
         edges: vec![Edge {
             from_node: 0,
@@ -33,7 +33,8 @@ fn unnamed_graph() -> CoreGraphDTO {
             overlaps: Vec::new(),
         }],
         node_name_map: None,
-    }
+    })
+    .unwrap()
 }
 
 #[test]
@@ -66,10 +67,11 @@ fn id_names_do_not_add_a_translation() {
     assert_eq!(rewritten, buf);
 
     // Other names are kept in a translation.
-    let named = CoreGraphDTO {
+    let named = CoreGraphDTO::new(GraphParts {
         node_name_map: Some(HashMap::from([(0, b"a".to_vec()), (1, b"b".to_vec())])),
-        ..unnamed_graph()
-    };
+        ..unnamed_graph().into_parts()
+    })
+    .unwrap();
     assert!(build_gbz(&named).unwrap().has_translation());
 }
 
@@ -105,7 +107,7 @@ fn reads_reference_and_haplotype_paths() {
         .unwrap();
 
     let parsed = GBZCodec.parse(&mut Cursor::new(&buf)).unwrap();
-    let names: Vec<&[u8]> = parsed.paths.iter().map(|p| p.name.as_slice()).collect();
+    let names: Vec<&[u8]> = parsed.paths().iter().map(|p| p.name.as_slice()).collect();
     assert_eq!(
         names,
         [
@@ -122,7 +124,7 @@ fn reads_reference_and_haplotype_paths() {
         Step::new(0, Orientation::Forward).unwrap(),
         Step::new(1, Orientation::Forward).unwrap(),
     ];
-    for path in &parsed.paths {
+    for path in parsed.paths() {
         assert_eq!(path.steps, expected_steps);
     }
 }

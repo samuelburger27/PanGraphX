@@ -269,10 +269,10 @@ pub fn dbg_max_path_bp() -> u64 {
 /// Total bases spelled out by all paths of a graph (overlaps not subtracted, so
 /// this slightly over-counts, which is the safe direction for a memory cap).
 pub fn path_bases(dto: &CoreGraphDTO) -> u64 {
-    dto.paths
+    dto.paths()
         .iter()
         .flat_map(|path| &path.steps)
-        .map(|step| as_u64(dto.nodes[step.node_id()].sequence.len()))
+        .map(|step| as_u64(dto.nodes()[step.node_id()].sequence.len()))
         .sum()
 }
 
