@@ -23,7 +23,7 @@ fn test_fastg_roundtrip_from_gfa(#[files("tests/test_files/gfa/*.gfa")] path: Pa
         Fidelity::FASTG,
         &format!("GFA -> FASTG -> back, {}", path.display()),
     );
-    assert_eq!(reloaded.paths, Vec::new());
+    assert_eq!(reloaded.paths(), Vec::new());
 }
 
 /// A hand-authored SPAdes-style file: both strands, multi-line sequences,

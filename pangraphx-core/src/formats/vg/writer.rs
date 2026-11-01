@@ -4,7 +4,7 @@ use super::framing::write_vg_group;
 use super::orientations_to_vg_edge;
 use crate::core::core_types::{Edge, Node, Path};
 use crate::core::graph_dto::CoreGraphDTO;
-use crate::error::{PanGraphXError, PanResult};
+use crate::error::PanResult;
 use crate::formats::common::id_map::{IdMap, parse_canonical_int};
 use crate::proto_gen::vg as vg_proto;
 use log::debug;
@@ -37,13 +37,13 @@ pub(super) enum VgChunk<'a> {
 /// Splits the graph into chunks of at most `VG_CHUNK_SIZE` entities.
 pub(super) fn vg_chunks(graph: &CoreGraphDTO) -> Vec<VgChunk<'_>> {
     let mut chunks: Vec<VgChunk<'_>> = graph
-        .nodes
+        .nodes()
         .as_slice()
         .chunks(VG_CHUNK_SIZE)
         .map(VgChunk::Nodes)
         .collect();
-    chunks.extend(graph.edges.chunks(VG_CHUNK_SIZE).map(VgChunk::Edges));
-    for path in &graph.paths {
+    chunks.extend(graph.edges().chunks(VG_CHUNK_SIZE).map(VgChunk::Edges));
+    for path in graph.paths() {
         // An empty path still gets one (empty) chunk so that its name is kept.
         let len = path.steps.len();
         let mut start = 0;
@@ -79,8 +79,8 @@ impl<'a> VgWriteContext<'a> {
     /// and `x` at index 1 both becoming id 2). Renumbered nodes keep their
     /// names in the VG `name` field.
     pub(super) fn new(graph: &'a CoreGraphDTO) -> Self {
-        let n = graph.nodes.len();
-        let named = graph.node_name_map.as_ref().and_then(|map| {
+        let n = graph.nodes().len();
+        let named = graph.node_name_map().as_ref().and_then(|map| {
             let ids: Option<Vec<i64>> = (0..n)
                 .into_par_iter()
                 .map(|id| parse_canonical_int(map.get(&id)?).filter(|&vg_id| vg_id > 0))
@@ -99,7 +99,7 @@ impl<'a> VgWriteContext<'a> {
         // Only set name if it differs from the ID string
         let name = self
             .graph
-            .node_name_map
+            .node_name_map()
             .as_ref()
             .and_then(|m| m.get(&node.id))
             .filter(|name| name.as_slice() != itoa::Buffer::new().format(vg_id).as_bytes())
@@ -130,7 +130,7 @@ impl<'a> VgWriteContext<'a> {
             .map(|(step, index)| {
                 let node_seq_len = self
                     .graph
-                    .nodes
+                    .nodes()
                     .get(step.node_id())
                     .map_or(0, |n| n.sequence.len()) as i32;
                 vg_proto::Mapping {
@@ -178,9 +178,6 @@ impl<'a> VgWriteContext<'a> {
 
 /// Writes `graph` as a VG stream.
 pub(super) fn write_vg(graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
-    if let Some(message) = graph.dangling_reference() {
-        return Err(PanGraphXError::Serialize(message));
-    }
     let context = VgWriteContext::new(graph);
     let chunks = vg_chunks(graph);
 

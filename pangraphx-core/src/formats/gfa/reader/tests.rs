@@ -14,7 +14,7 @@ fn err(text: &str) -> String {
 }
 
 fn step_names(graph: &CoreGraphDTO, path: usize) -> Vec<(String, Orientation)> {
-    graph.paths[path]
+    graph.paths()[path]
         .steps
         .iter()
         .map(|s| (graph.get_name_from_id(s.node_id()), s.orientation()))
@@ -33,14 +33,14 @@ const SMALL: &str = "H\tVN:Z:1.0\n\
 #[test]
 fn parses_small_graph() {
     let g = parse_str(SMALL).unwrap();
-    assert_eq!(g.nodes.len(), 3);
-    assert_eq!(g.nodes[0].sequence, b"ACGT");
-    assert_eq!(g.nodes[2].sequence, b"*");
+    assert_eq!(g.nodes().len(), 3);
+    assert_eq!(g.nodes()[0].sequence, b"ACGT");
+    assert_eq!(g.nodes()[2].sequence, b"*");
     assert_eq!(g.get_name_from_id(1), "2");
-    assert_eq!(g.edges.len(), 2);
-    assert_eq!(g.edges[0].overlap, 3);
-    assert_eq!(g.edges[0].to_orient, Orientation::Reverse);
-    assert_eq!(g.edges[1].overlap, 0);
+    assert_eq!(g.edges().len(), 2);
+    assert_eq!(g.edges()[0].overlap, 3);
+    assert_eq!(g.edges()[0].to_orient, Orientation::Reverse);
+    assert_eq!(g.edges()[1].overlap, 0);
     assert_eq!(
         step_names(&g, 0),
         vec![
@@ -49,8 +49,8 @@ fn parses_small_graph() {
             ("3".into(), Orientation::Forward)
         ]
     );
-    assert_eq!(g.paths[0].overlaps, vec![3, 0]);
-    assert_eq!(g.paths[1].overlaps, Vec::<u32>::new());
+    assert_eq!(g.paths()[0].overlaps, vec![3, 0]);
+    assert_eq!(g.paths()[1].overlaps, Vec::<u32>::new());
 }
 
 /// Every vg naming case: reference (`RS`), haplotype and generic walks,
@@ -70,7 +70,7 @@ const WALKS: &str = "H\tVN:Z:1.1\tRS:Z:GRCh38  CHM13\n\
 #[test]
 fn parses_walks_as_named_paths() {
     let g = parse_str(WALKS).unwrap();
-    let names: Vec<String> = g.paths.iter().map(|p| lossy(&p.name).into()).collect();
+    let names: Vec<String> = g.paths().iter().map(|p| lossy(&p.name).into()).collect();
     assert_eq!(
         names,
         [
@@ -99,13 +99,13 @@ fn parses_walks_as_named_paths() {
             ("1".into(), Orientation::Forward)
         ]
     );
-    assert!(g.paths.iter().all(|p| p.overlaps.is_empty()));
+    assert!(g.paths().iter().all(|p| p.overlaps.is_empty()));
 }
 
 #[test]
 fn walks_without_reference_samples_are_haplotypes() {
     let g = parse_str("S\ta\tA\nW\tGRCh38\t0\tchr1\t0\t1\t>a\n").unwrap();
-    assert_eq!(g.paths[0].name, b"GRCh38#0#chr1#0");
+    assert_eq!(g.paths()[0].name, b"GRCh38#0#chr1#0");
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn records_before_their_segments() {
             ("a".into(), Orientation::Reverse)
         ]
     );
-    assert_eq!((g.edges[0].from_node, g.edges[0].to_node), (0, 1));
+    assert_eq!((g.edges()[0].from_node, g.edges()[0].to_node), (0, 1));
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn non_canonical_numbers_are_names() {
     // Mixed names fall back to hashing; `007` and `7` are different segments.
     let g = parse_str("S\t7\tA\nS\t007\tC\nP\tp\t007+,7+\t*\n").unwrap();
     assert_eq!(step_names(&g, 0)[0].0, "007");
-    assert_eq!(g.paths[0].steps[0].node_id(), 1);
+    assert_eq!(g.paths()[0].steps[0].node_id(), 1);
     // With numeric names, a non-canonical reference does not resolve.
     assert!(err("S\t7\tA\nP\tp\t007+\t*\n").contains("undefined segment 007"));
 }
@@ -144,14 +144,14 @@ fn non_canonical_numbers_are_names() {
 fn skips_other_record_types() {
     let text = "# comment\nH\tVN:Z:1.2\nS\t1\tA\n\nC\t1\t+\t1\t+\t0\t1M\nJ\t1\t+\t1\t+\t*\n";
     let g = parse_str(text).unwrap();
-    assert_eq!(g.nodes.len(), 1);
-    assert!(g.edges.is_empty() && g.paths.is_empty());
+    assert_eq!(g.nodes().len(), 1);
+    assert!(g.edges().is_empty() && g.paths().is_empty());
 }
 
 #[test]
 fn empty_input() {
     let g = parse_str("").unwrap();
-    assert!(g.nodes.is_empty() && g.edges.is_empty() && g.paths.is_empty());
+    assert!(g.nodes().is_empty() && g.edges().is_empty() && g.paths().is_empty());
 }
 
 #[test]
@@ -278,9 +278,9 @@ fn long_step_lists_are_split_in_pieces() {
     text.push_str("\t*\n");
     let g = parse_str(&text).unwrap();
     assert!(steps.join(",").len() > PATH_PIECE_SIZE);
-    assert_eq!(g.paths[0].steps.len(), 300_000);
+    assert_eq!(g.paths()[0].steps.len(), 300_000);
     assert!(
-        g.paths[0]
+        g.paths()[0]
             .steps
             .iter()
             .enumerate()
@@ -315,9 +315,9 @@ fn long_walks_are_split_in_pieces() {
     text.push('\n');
     let g = parse_str(&text).unwrap();
     assert!(text.lines().last().unwrap().len() > PATH_PIECE_SIZE);
-    assert_eq!(g.paths[0].steps.len(), 300_000);
+    assert_eq!(g.paths()[0].steps.len(), 300_000);
     assert!(
-        g.paths[0]
+        g.paths()[0]
             .steps
             .iter()
             .enumerate()

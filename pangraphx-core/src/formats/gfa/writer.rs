@@ -3,7 +3,7 @@
 use super::{GFA_HEADER, orientation_byte};
 use crate::core::core_types::{Edge, Node, Path};
 use crate::core::graph_dto::CoreGraphDTO;
-use crate::error::{PanGraphXError, PanResult};
+use crate::error::PanResult;
 use crate::formats::common::chunked::{RECORDS_PER_CHUNK, write_records};
 use crate::formats::common::names::node_names;
 use std::borrow::Cow;
@@ -61,9 +61,6 @@ fn format_path(names: &[Cow<'_, [u8]>], path: &Path, buf: &mut Vec<u8>) {
 
 /// Writes `graph` as GFA 1.0, naming nodes by their original names.
 pub(super) fn write(graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
-    if let Some(message) = graph.dangling_reference() {
-        return Err(PanGraphXError::Serialize(message));
-    }
     write_gfa(graph, &node_names(graph), writer)
 }
 
@@ -75,19 +72,19 @@ fn write_gfa(
     writer.write_all(GFA_HEADER)?;
     write_records(
         writer,
-        graph.nodes.as_slice(),
+        graph.nodes().as_slice(),
         RECORDS_PER_CHUNK,
         |_, node, buf| {
             format_segment(names, node, buf);
             Ok(())
         },
     )?;
-    write_records(writer, &graph.edges, RECORDS_PER_CHUNK, |_, edge, buf| {
+    write_records(writer, graph.edges(), RECORDS_PER_CHUNK, |_, edge, buf| {
         format_link(names, edge, buf);
         Ok(())
     })?;
     // A single path line can be hundreds of MB, so each path is its own task.
-    write_records(writer, &graph.paths, 1, |_, path, buf| {
+    write_records(writer, graph.paths(), 1, |_, path, buf| {
         format_path(names, path, buf);
         Ok(())
     })?;

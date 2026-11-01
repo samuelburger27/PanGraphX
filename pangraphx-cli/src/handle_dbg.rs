@@ -39,7 +39,7 @@ pub fn handle_dbg(args: &DbgArgs) -> Result<()> {
     let (node_count, edge_count) = match &built {
         Built::Kmers(dbg) => (dbg.node_count(), Some(dbg.edge_count())),
         Built::Colored(dbg) => (dbg.dbg.node_count(), Some(dbg.dbg.edge_count())),
-        Built::Unitigs(dto) => (dto.nodes.len(), Some(dto.edges.len())),
+        Built::Unitigs(dto) => (dto.nodes().len(), Some(dto.edges().len())),
         Built::Sequences(unitigs) => (unitigs.len(), None),
     };
     let edges = edge_count.map_or_else(String::new, |n| format!(", {} edges", group(n)));

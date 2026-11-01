@@ -3,7 +3,7 @@
 use crate::core::core_types::{Edge, Node, NodeId, Nodes, Orientation};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::core::graph_utils::oriented_bases;
-use crate::error::{PanGraphXError, PanResult};
+use crate::error::PanResult;
 use crate::formats::common::chunked::{RECORDS_PER_CHUNK, write_records};
 use crate::formats::common::names::{node_names, one_based_names};
 use log::warn;
@@ -79,7 +79,7 @@ pub(super) fn record_names(graph: &CoreGraphDTO) -> Vec<Cow<'_, [u8]>> {
     }
     warn!(
         "Some node names contain characters FASTG reserves (`_`, `:`, `,`, `;`, `'`, `>` or whitespace); nodes are renamed to 1..={}.",
-        graph.nodes.len()
+        graph.nodes().len()
     );
     one_based_names(graph)
 }
@@ -154,28 +154,25 @@ pub(super) fn nodes_per_chunk(nodes: &Nodes) -> usize {
 
 /// Writes `graph` as FASTG; paths and overlaps are dropped.
 pub(super) fn write(graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<()> {
-    if let Some(message) = graph.dangling_reference() {
-        return Err(PanGraphXError::Serialize(message));
-    }
-    if !graph.paths.is_empty() {
+    if !graph.paths().is_empty() {
         warn!(
             "FASTG files don't support paths; {} paths are dropped.",
-            graph.paths.len()
+            graph.paths().len()
         );
     }
-    if graph.edges.par_iter().any(|edge| edge.overlap != 0) {
+    if graph.edges().par_iter().any(|edge| edge.overlap != 0) {
         warn!("FASTG files don't support overlaps; edge overlaps are dropped.");
     }
 
     let names = record_names(graph);
-    let successors = Successors::new(graph.nodes.len(), &graph.edges);
+    let successors = Successors::new(graph.nodes().len(), graph.edges());
     write_records(
         writer,
-        graph.nodes.as_slice(),
-        nodes_per_chunk(&graph.nodes),
+        graph.nodes().as_slice(),
+        nodes_per_chunk(graph.nodes()),
         |_, node, buf| {
             for orientation in [Orientation::Forward, Orientation::Reverse] {
-                format_record(&graph.nodes, &names, &successors, node, orientation, buf);
+                format_record(graph.nodes(), &names, &successors, node, orientation, buf);
             }
             Ok(())
         },

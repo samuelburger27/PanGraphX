@@ -466,9 +466,9 @@ mod tests {
 
     /// Every edge must join two unitigs that overlap by k-1 bases.
     fn assert_edges_overlap(dto: &CoreGraphDTO, k: usize) {
-        for e in &dto.edges {
-            let from = oriented(&dto.nodes[e.from_node].sequence, e.from_orient);
-            let to = oriented(&dto.nodes[e.to_node].sequence, e.to_orient);
+        for e in dto.edges() {
+            let from = oriented(&dto.nodes()[e.from_node].sequence, e.from_orient);
+            let to = oriented(&dto.nodes()[e.to_node].sequence, e.to_orient);
             assert_eq!(
                 from[from.len() - (k - 1)..],
                 to[..k - 1],
@@ -480,10 +480,10 @@ mod tests {
     #[test]
     fn test_linear_sequence_is_one_unitig() {
         let dto = compacted(&[b"AACTGGCATTCGAGTC"], &[("p", &[(0, false)])], 5);
-        assert_eq!(dto.nodes.len(), 1);
-        let seq = &dto.nodes[0].sequence;
+        assert_eq!(dto.nodes().len(), 1);
+        let seq = &dto.nodes()[0].sequence;
         assert!(seq == b"AACTGGCATTCGAGTC" || canon(seq) == canon(b"AACTGGCATTCGAGTC"));
-        assert_eq!(dto.edges.len(), 0);
+        assert_eq!(dto.edges().len(), 0);
     }
 
     #[test]
@@ -493,8 +493,8 @@ mod tests {
         let a: &[u8] = b"TTGACCAGTAGGCAT";
         let b: &[u8] = b"TTGACCACTAGGCAT";
         let dto = compacted(&[a, b], &[("a", &[(0, false)]), ("b", &[(1, false)])], 5);
-        assert_eq!(dto.nodes.len(), 4);
-        assert_eq!(dto.edges.len(), 4);
+        assert_eq!(dto.nodes().len(), 4);
+        assert_eq!(dto.edges().len(), 4);
         assert_edges_overlap(&dto, 5);
     }
 
@@ -502,8 +502,8 @@ mod tests {
     fn test_cycle_is_one_unitig_with_self_edge() {
         // The circular sequence AACGC repeated: every 3-mer has one successor.
         let dto = compacted(&[b"AACGCAACGCAACGCAA"], &[("p", &[(0, false)])], 3);
-        assert_eq!(dto.nodes.len(), 1);
-        assert_eq!(dto.edges.len(), 1);
+        assert_eq!(dto.nodes().len(), 1);
+        assert_eq!(dto.edges().len(), 1);
         assert_edges_overlap(&dto, 3);
     }
 }

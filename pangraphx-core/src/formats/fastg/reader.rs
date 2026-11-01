@@ -1,7 +1,7 @@
 //! FASTG reader: headers and sequence lines, both strands merged into one node.
 
 use crate::core::core_types::{Edge, NodeId, NodeName, Nodes, Orientation, Sequence};
-use crate::core::graph_dto::CoreGraphDTO;
+use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::core::graph_utils::oriented_bases;
 use crate::error::{PanGraphXError, PanResult};
 use crate::formats::common::text::{line_error, lossy};
@@ -208,7 +208,7 @@ impl FastgReader {
             };
             sequences.push(sequence);
         }
-        Ok(CoreGraphDTO {
+        CoreGraphDTO::new(GraphParts {
             nodes: Nodes::from_seq(sequences),
             edges: self.edges,
             paths: Vec::new(),

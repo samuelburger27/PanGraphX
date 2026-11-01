@@ -178,9 +178,9 @@ mod tests {
             let mut fasta = Vec::new();
             unitigs.write_fasta(&mut fasta).unwrap();
             let compacted = dbg().into_compacted_dto().unwrap();
-            assert_eq!(unitigs.len(), compacted.nodes.len());
+            assert_eq!(unitigs.len(), compacted.nodes().len());
             let mut expected = String::new();
-            for node in compacted.nodes.iter() {
+            for node in compacted.nodes().iter() {
                 writeln!(
                     expected,
                     ">{}\n{}",

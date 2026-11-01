@@ -5,7 +5,7 @@ mod paths;
 use super::framing::{RawWindow, decode_graph, for_each_window};
 use super::vg_edge_to_orientations;
 use crate::core::core_types::{Edge, Nodes, Path, Step};
-use crate::core::graph_dto::CoreGraphDTO;
+use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::error::{PanGraphXError, PanResult};
 use crate::formats::common::id_map::IdMap;
 use crate::proto_gen::vg_read;
@@ -213,7 +213,7 @@ pub(super) fn parse_vg<R: Read>(reader: &mut R, window: usize) -> PanResult<Core
         })
         .collect::<PanResult<Vec<Path>>>()?;
 
-    Ok(CoreGraphDTO {
+    CoreGraphDTO::new(GraphParts {
         nodes,
         edges,
         paths,

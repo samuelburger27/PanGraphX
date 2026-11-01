@@ -30,7 +30,7 @@ mod walks;
 #[cfg(test)]
 mod tests;
 
-use crate::core::graph_dto::CoreGraphDTO;
+use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::error::PanResult;
 use crate::formats::common::text::{line_error, lossy};
 use blocks::BlockReader;
@@ -86,7 +86,7 @@ fn parse_with_block_size<R: Read + Seek>(
     drop(index);
 
     let node_name_map = segments.names.into_iter().enumerate().collect();
-    Ok(CoreGraphDTO {
+    CoreGraphDTO::new(GraphParts {
         nodes: segments.nodes,
         edges,
         paths,

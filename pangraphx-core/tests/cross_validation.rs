@@ -28,7 +28,7 @@ fn write(dir: &TempDir, graph: &CoreGraphDTO, format: GraphFormat) -> PathBuf {
 
 /// The fixture has overlaps, which `vg convert` rejects.
 fn has_overlaps(graph: &CoreGraphDTO) -> bool {
-    graph.edges.iter().any(|e| e.overlap != 0)
+    graph.edges().iter().any(|e| e.overlap != 0)
 }
 
 /// The fixture has GFA 1.1 walks (`W` lines).

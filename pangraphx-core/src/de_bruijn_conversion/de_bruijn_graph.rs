@@ -5,7 +5,7 @@ use super::word::{KmerWord, MAX_SMALL_K, decode_word, edge_ends};
 use crate::core::core_types::{Edge, Node, Nodes};
 use crate::core::graph::CoreGraph;
 use crate::error::{PanGraphXError, PanResult};
-use crate::{CoreGraphDTO, Kmer};
+use crate::{CoreGraphDTO, GraphParts, Kmer};
 use log::debug;
 use rayon::prelude::*;
 
@@ -124,8 +124,7 @@ impl DeBruijn {
     /// `graph`.
     ///
     /// # Errors
-    /// Returns an error if `k` is not in `1..=63` or the graph refers to
-    /// missing nodes.
+    /// Returns an error if `k` is not in `1..=63`.
     pub fn from_directed_graph(graph: CoreGraphDTO, k: usize) -> PanResult<Self> {
         let mut lookup = Self::prepare(graph, k)?;
         lookup.keep_only_paths();
@@ -141,8 +140,7 @@ impl DeBruijn {
     /// edges in both orientations, regardless of the paths.
     ///
     /// # Errors
-    /// Returns an error if `k` is not in `1..=63` or the graph refers to
-    /// missing nodes.
+    /// Returns an error if `k` is not in `1..=63`.
     pub fn from_directed_graph_full_topology(graph: CoreGraphDTO, k: usize) -> PanResult<Self> {
         let lookup = Self::prepare(graph, k)?;
         let tables = if k <= MAX_SMALL_K {
@@ -155,9 +153,7 @@ impl DeBruijn {
 
     pub(crate) fn prepare(graph: CoreGraphDTO, k: usize) -> PanResult<CoreGraph> {
         validate_k(k)?;
-        let lookup = CoreGraph::new(graph);
-        lookup.validate_node_references()?;
-        Ok(lookup)
+        Ok(CoreGraph::new(graph))
     }
 
     pub(crate) fn finish(k: usize, tables: DbgTables) -> Self {
@@ -252,7 +248,7 @@ pub(crate) fn unitigs_to_dto(
             overlap,
         })
         .collect();
-    Ok(CoreGraphDTO {
+    CoreGraphDTO::new(GraphParts {
         nodes: Nodes::from_seq(unitigs.sequences),
         edges,
         paths,
@@ -278,7 +274,7 @@ impl TryFrom<DeBruijn> for CoreGraphDTO {
     fn try_from(db_graph: DeBruijn) -> PanResult<Self> {
         let k = db_graph.k;
         let (nodes, edges) = with_core!(db_graph.tables, core => core.into_dto_parts(k)?);
-        Ok(Self {
+        Self::new(GraphParts {
             nodes,
             edges,
             paths: Vec::new(), // Paths are not represented in de Bruijn graph
@@ -301,7 +297,16 @@ pub(crate) mod tests {
         edges: &[(usize, bool, usize, bool)],
         paths: &[(&str, &[(usize, bool)])],
     ) -> CoreGraphDTO {
-        CoreGraphDTO {
+        CoreGraphDTO::new(parts(seqs, edges, paths)).unwrap()
+    }
+
+    /// The unvalidated parts [`graph`] builds its DTO from.
+    pub fn parts(
+        seqs: &[&[u8]],
+        edges: &[(usize, bool, usize, bool)],
+        paths: &[(&str, &[(usize, bool)])],
+    ) -> GraphParts {
+        GraphParts {
             nodes: Nodes::from_seq(seqs.iter().map(|s| s.to_vec()).collect()),
             edges: edges
                 .iter()
@@ -361,9 +366,12 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_missing_node_is_error() {
-        let g = graph(&[b"ACGT"], &[], &[("p", &[(3, false)])]);
-        assert!(DeBruijn::from_directed_graph(g, 3).is_err());
+    fn test_missing_node_cannot_reach_the_builders() {
+        let invalid = parts(&[b"ACGT"], &[(0, false, 1, false)], &[]);
+        assert!(matches!(
+            CoreGraphDTO::new(invalid),
+            Err(PanGraphXError::InvalidGraph(_))
+        ));
     }
 
     #[test]
@@ -408,8 +416,10 @@ pub(crate) mod tests {
     #[test]
     fn test_path_overlaps_are_skipped() {
         // ACG and CGT overlap by 2: the path spells ACGT.
-        let mut g = graph(&[b"ACG", b"CGT"], &[], &[("p", &[(0, false), (1, false)])]);
-        g.paths[0].overlaps = vec![2];
+        let mut parts =
+            graph(&[b"ACG", b"CGT"], &[], &[("p", &[(0, false), (1, false)])]).into_parts();
+        parts.paths[0].overlaps = vec![2];
+        let g = CoreGraphDTO::new(parts).unwrap();
         let dbg = DeBruijn::from_directed_graph(g, 3).unwrap();
         assert_eq!(kmer_set(&dbg), strs(&[b"ACG", b"CGT"]));
         assert_eq!(edge_set(&dbg), strs(&[b"ACGT"]));
@@ -468,13 +478,13 @@ pub(crate) mod tests {
         let g = graph(&[b"ACGTA"], &[], &[("p", &[(0, false)])]);
         let dbg = DeBruijn::from_directed_graph(g, 4).unwrap();
         let dto = CoreGraphDTO::try_from(dbg).unwrap();
-        assert_eq!(dto.nodes.len(), 2);
-        assert_eq!(dto.edges.len(), 1);
-        let edge = &dto.edges[0];
+        assert_eq!(dto.nodes().len(), 2);
+        assert_eq!(dto.edges().len(), 1);
+        let edge = &dto.edges()[0];
         assert_eq!(edge.overlap, 3);
         // The edge spells ACGTA (or its twin TACGT) along its orientations.
         let spell = |id: usize, o: Orientation| {
-            let k = Kmer::from_bases(&dto.nodes[id].sequence);
+            let k = Kmer::from_bases(&dto.nodes()[id].sequence);
             if o == Orientation::Forward {
                 k
             } else {
@@ -515,8 +525,8 @@ pub(crate) mod tests {
         };
         let one = run(1);
         let many = run(8);
-        assert_eq!(one.nodes, many.nodes);
-        assert_eq!(one.edges, many.edges);
+        assert_eq!(one.nodes(), many.nodes());
+        assert_eq!(one.edges(), many.edges());
     }
     // --- Full topology ---
 

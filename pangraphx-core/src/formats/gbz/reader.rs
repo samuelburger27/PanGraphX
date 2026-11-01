@@ -1,7 +1,7 @@
 //! GBZ reader: nodes, canonical edges and paths named from the GBZ metadata.
 
 use crate::core::core_types::{Edge, NodeId, Nodes, Path, Step};
-use crate::core::graph_dto::CoreGraphDTO;
+use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::error::{PanGraphXError, PanResult};
 use crate::formats::common::id_map::IdMap;
 use gbz_construct::{
@@ -76,7 +76,7 @@ pub(super) fn parse<R: Read + Seek>(reader: &mut R) -> PanResult<CoreGraphDTO> {
     let edges = collect_edges(&gbz, &id_map)?;
     let paths = collect_paths(&gbz, metadata, &id_map)?;
 
-    Ok(CoreGraphDTO {
+    CoreGraphDTO::new(GraphParts {
         nodes,
         edges,
         paths,

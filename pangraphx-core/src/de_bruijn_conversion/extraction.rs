@@ -21,7 +21,7 @@ use super::word::{KmerWord, RollingWindow, Spelled};
 use crate::core::core_types::{Orientation, Path};
 use crate::core::graph::CoreGraph;
 use crate::core::graph_utils::oriented_bases;
-use crate::error::{PanGraphXError, PanResult};
+use crate::error::PanResult;
 
 /// Target number of bases per path chunk processed as one parallel task.
 pub const CHUNK_BASES: usize = 1 << 20;
@@ -91,38 +91,8 @@ pub struct PathChunk<'a> {
 }
 
 impl CoreGraph {
-    /// Checks that every edge and path step refers to an existing node, so
-    /// the walkers can index nodes directly.
-    ///
-    /// # Errors
-    /// Returns `PanGraphXError::DeBruijn` naming the first dangling reference.
-    pub(crate) fn validate_node_references(&self) -> PanResult<()> {
-        let n = self.nodes.len();
-        if let Some(edge) = self
-            .edges
-            .iter()
-            .find(|e| e.from_node >= n || e.to_node >= n)
-        {
-            return Err(PanGraphXError::DeBruijn(format!(
-                "edge {} -> {} refers to a missing node",
-                edge.from_node, edge.to_node
-            )));
-        }
-        for path in self.path_map.values() {
-            if let Some(step) = path.steps.iter().find(|s| s.node_id() >= n) {
-                return Err(PanGraphXError::DeBruijn(format!(
-                    "path {} refers to missing node {}",
-                    String::from_utf8_lossy(&path.name),
-                    step.node_id()
-                )));
-            }
-        }
-        Ok(())
-    }
-
     /// Releases what the path walkers never read (the edges, their adjacency
-    /// index and the node names), keeping the nodes and paths. Call after
-    /// [`validate_node_references`](Self::validate_node_references).
+    /// index and the node names), keeping the nodes and paths.
     pub(crate) fn keep_only_paths(&mut self) {
         self.edges = Vec::new();
         self.adjacency_list = HashMap::new();

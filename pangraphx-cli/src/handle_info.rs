@@ -9,10 +9,10 @@ pub fn handle_info(args: &InputArgs) -> Result<()> {
 
     println!("{}", "Graph Summary:".bold().bright_cyan());
     println!("{}", format!("{:-<50}", "").dimmed());
-    print_count("Nodes:", graph.nodes.len());
-    print_count("Edges:", graph.edges.len());
-    print_count("Paths:", graph.paths.len());
-    let names = if graph.node_name_map.is_some() {
+    print_count("Nodes:", graph.nodes().len());
+    print_count("Edges:", graph.edges().len());
+    print_count("Paths:", graph.paths().len());
+    let names = if graph.node_name_map().is_some() {
         "Available".green()
     } else {
         "Not available (node IDs only)".dimmed()

@@ -9,7 +9,7 @@ mod records;
 pub(super) use records::{BLOCK_BYTES, scan_record};
 
 use crate::core::core_types::{NodeId, Nodes};
-use crate::core::graph_dto::CoreGraphDTO;
+use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::error::{PanGraphXError, PanResult};
 use crate::formats::odgi::encoding::{MAX_PREALLOC, read_bytes, read_u64, to_usize, truncated};
 use crate::formats::odgi::{ODGI_MAGIC, VACANT};
@@ -162,7 +162,7 @@ fn read_graph<R: Read>(reader: &mut R, input_len: u64) -> PanResult<CoreGraphDTO
         rank_to_node,
     };
     let ((), paths) = rayon::join(|| namer.add(&unnamed), || table.walk_all(metas));
-    Ok(CoreGraphDTO {
+    CoreGraphDTO::new(GraphParts {
         nodes,
         edges,
         paths: paths?,
