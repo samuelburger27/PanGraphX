@@ -403,8 +403,7 @@ pub fn stem(path: &Path) -> String {
 /// Parses a file, panicking with its path on failure.
 #[must_use]
 pub fn load(path: &Path, format: GraphFormat) -> CoreGraphDTO {
-    let text = path.to_str().expect("UTF-8 path");
-    CoreGraphDTO::load_from_file(text, format)
+    CoreGraphDTO::load_from_file(path, format)
         .unwrap_or_else(|e| panic!("cannot parse {} as {format}: {e}", path.display()))
 }
 
