@@ -84,7 +84,7 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 - `NodeId = usize` is the node's index in `Nodes`. A `Node` holds only its `sequence` (the id is not stored), so use `enumerate` when you need ids; `write_records` passes each item's index.
 - Original node names live in the optional `node_name_map: HashMap<NodeId, NodeName>`; nodes without an entry are named by their id.
 - `Sequence`, `NodeName`, `PathName` are `Vec<u8>`.
-- `Edge { from_node, from_orient, to_node, to_orient, overlap }`. `a+ → b+` and `b- → a-` are the same link.
+- `Edge { from_node, from_orient, to_node, to_orient, overlap }`. `a+ → b+` and `b- → a-` are the same link (`Edge::is_link` and `CoreGraph::has_edge` match both forms).
 - `Step` packs a node and orientation into a `u32` (`id << 1 | is_reverse`). Build with `Step::new` (fails with `NodeIdTooLarge` above `Step::MAX_NODE_ID` = 2^31 − 1).
 - `Path { name, steps, overlaps }`.
 - `CoreGraphDTO` is what parsers return and serializers take. Its fields are private: build it with `CoreGraphDTO::try_from(GraphParts { .. })`, which rejects edges or steps to missing nodes, names for missing nodes and duplicate path names (`PanGraphXError::InvalidGraph`). Read it through `nodes()`/`edges()`/`paths()`/`node_name_map()`; to edit, take it apart with `GraphParts::from(dto)` and `try_from` again. Code holding a DTO may index nodes directly.
