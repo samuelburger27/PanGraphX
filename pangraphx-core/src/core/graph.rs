@@ -3,6 +3,7 @@ use crate::core::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path, PathNam
 use crate::error::{PanGraphXError, PanResult};
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 /// A `CoreGraph` type providing efficient lookup and graph manipulation capabilities.
 ///
@@ -18,8 +19,10 @@ pub struct CoreGraph {
     /// Path name to its index in `paths`.
     path_index: HashMap<PathName, usize>,
     node_name_map: Option<HashMap<NodeId, NodeName>>,
-    /// `NodeId` to the indices of the edges leaving that node.
-    adjacency_list: HashMap<NodeId, Vec<usize>>,
+    /// For each node, the indices of the edges with it as an endpoint. Built
+    /// on the first lookup (the de Bruijn builders never need it), extended by
+    /// `add_node`/`add_edge` and dropped by removals.
+    incident_edges: OnceLock<Vec<Vec<usize>>>,
 }
 
 impl CoreGraph {
@@ -32,7 +35,7 @@ impl CoreGraph {
             node_name_map,
         } = GraphParts::from(graph);
         Self {
-            adjacency_list: build_adjacency_list(&edges),
+            incident_edges: OnceLock::new(),
             path_index: index_paths(&paths),
             nodes,
             edges,
@@ -67,10 +70,18 @@ impl CoreGraph {
         self.node_name_map.as_ref()
     }
 
-    /// Indices (into [`CoreGraph::edges`]) of the edges leaving `node_id`.
+    /// Indices (into [`CoreGraph::edges`]) of the edges with `node_id` as an
+    /// endpoint, in edge order. Empty for a missing node.
     #[must_use]
-    pub fn outgoing_edge_indices(&self, node_id: NodeId) -> &[usize] {
-        self.adjacency_list.get(&node_id).map_or(&[], Vec::as_slice)
+    pub fn incident_edge_indices(&self, node_id: NodeId) -> &[usize] {
+        self.incident_edges()
+            .get(node_id)
+            .map_or(&[], Vec::as_slice)
+    }
+
+    fn incident_edges(&self) -> &[Vec<usize>] {
+        self.incident_edges
+            .get_or_init(|| build_incident_edges(self.nodes.len(), &self.edges))
     }
 
     // ===== Graph Manipulation Methods =====
@@ -93,6 +104,9 @@ impl CoreGraph {
     pub fn add_node(&mut self, sequence: Sequence, name: Option<NodeName>) -> NodeId {
         self.nodes.push(sequence);
         let node_id = self.nodes.len() - 1;
+        if let Some(incident) = self.incident_edges.get_mut() {
+            incident.push(Vec::new());
+        }
 
         if let Some(node_name) = name {
             self.node_name_map
@@ -132,15 +146,10 @@ impl CoreGraph {
         self.check_node(edge.to_node)?;
 
         let edge_idx = self.edges.len();
-        let edge_from_node = edge.from_node;
+        if let Some(incident) = self.incident_edges.get_mut() {
+            add_incident(incident, &edge, edge_idx);
+        }
         self.edges.push(edge);
-
-        // Update adjacency list
-        self.adjacency_list
-            .entry(edge_from_node)
-            .or_default()
-            .push(edge_idx);
-
         Ok(edge_idx)
     }
 
@@ -216,7 +225,7 @@ impl CoreGraph {
                 edge.to_node -= 1;
             }
         }
-        self.adjacency_list = build_adjacency_list(&self.edges);
+        self.incident_edges = OnceLock::new();
 
         // Drop the node's steps from every path, and paths left empty.
         for path in &mut self.paths {
@@ -274,8 +283,8 @@ impl CoreGraph {
 
         self.edges.remove(edge_idx);
 
-        // Rebuild adjacency list since edge indices have changed
-        self.adjacency_list = build_adjacency_list(&self.edges);
+        // Later edge indices shifted; rebuild the index on the next lookup.
+        self.incident_edges = OnceLock::new();
 
         Ok(())
     }
@@ -389,36 +398,35 @@ impl CoreGraph {
         Ok(std::mem::replace(&mut self.paths[index], path))
     }
 
-    /// Returns all outgoing edges from a node.
+    /// Returns the edges stored with `node_id` as their `from_node`, in edge
+    /// order.
     ///
     /// # Errors
     /// Returns an error if the node doesn't exist.
     pub fn get_outgoing_edges(&self, node_id: NodeId) -> PanResult<Vec<&Edge>> {
         self.check_node(node_id)?;
         Ok(self
-            .outgoing_edge_indices(node_id)
+            .incident_edge_indices(node_id)
             .iter()
             .map(|&idx| &self.edges[idx])
+            .filter(|edge| edge.from_node == node_id)
             .collect())
     }
 
-    /// Checks if an edge exists between two nodes.
+    /// Checks if an edge is stored from `from_node` to `to_node`.
     #[must_use]
     pub fn has_edge(&self, from_node: NodeId, to_node: NodeId) -> bool {
-        self.adjacency_list
-            .get(&from_node)
-            .is_some_and(|edge_indices| {
-                edge_indices
-                    .iter()
-                    .any(|&idx| self.edges[idx].to_node == to_node)
-            })
+        self.incident_edge_indices(from_node).iter().any(|&idx| {
+            let edge = &self.edges[idx];
+            edge.from_node == from_node && edge.to_node == to_node
+        })
     }
 
-    /// Releases what the path walkers never read (the edges, their adjacency
-    /// index and the node names), keeping the nodes and paths.
+    /// Releases what the path walkers never read (the edges, their index and
+    /// the node names), keeping the nodes and paths.
     pub(crate) fn keep_only_paths(&mut self) {
         self.edges = Vec::new();
-        self.adjacency_list = HashMap::new();
+        self.incident_edges = OnceLock::new();
         self.node_name_map = None;
     }
 
@@ -437,12 +445,21 @@ impl CoreGraph {
     }
 }
 
-fn build_adjacency_list(edges: &[Edge]) -> HashMap<NodeId, Vec<usize>> {
-    let mut adjacency_list: HashMap<NodeId, Vec<usize>> = HashMap::new();
+fn build_incident_edges(node_count: usize, edges: &[Edge]) -> Vec<Vec<usize>> {
+    let mut incident = vec![Vec::new(); node_count];
     for (i, edge) in edges.iter().enumerate() {
-        adjacency_list.entry(edge.from_node).or_default().push(i);
+        add_incident(&mut incident, edge, i);
     }
-    adjacency_list
+    incident
+}
+
+/// Records edge `index` at both endpoints (once for a self-loop). Both
+/// endpoints exist, since edges are validated before they are added.
+fn add_incident(incident: &mut [Vec<usize>], edge: &Edge, index: usize) {
+    incident[edge.from_node].push(index);
+    if edge.to_node != edge.from_node {
+        incident[edge.to_node].push(index);
+    }
 }
 
 fn index_paths(paths: &[Path]) -> HashMap<PathName, usize> {

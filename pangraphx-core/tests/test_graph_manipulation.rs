@@ -44,7 +44,8 @@ fn test_add_edge() {
     assert_eq!(graph.edges()[0], edge);
 
     // Check adjacency list
-    assert_eq!(graph.outgoing_edge_indices(n1), &[0]);
+    assert_eq!(graph.incident_edge_indices(n1), &[0]);
+    assert_eq!(graph.incident_edge_indices(n2), &[0]);
 }
 
 #[test]
@@ -510,4 +511,37 @@ fn test_replace_path() {
             })
             .is_err()
     );
+}
+
+#[test]
+fn test_incident_edges_follow_edits() {
+    let edge = |from_node, to_node| Edge {
+        from_node,
+        from_orient: Orientation::Forward,
+        to_node,
+        to_orient: Orientation::Forward,
+        overlap: 0,
+    };
+    let mut graph = CoreGraph::new(CoreGraphDTO::default());
+    let a = graph.add_node(b"A".to_vec(), None);
+    let b = graph.add_node(b"C".to_vec(), None);
+    graph.add_edge(edge(a, b)).unwrap();
+    // The first lookup builds the index; later edits must keep it current.
+    assert_eq!(graph.incident_edge_indices(b), &[0]);
+
+    let c = graph.add_node(b"G".to_vec(), None);
+    graph.add_edge(edge(b, c)).unwrap();
+    graph.add_edge(edge(c, c)).unwrap();
+    assert_eq!(graph.incident_edge_indices(b), &[0, 1]);
+    assert_eq!(graph.incident_edge_indices(c), &[1, 2]);
+    assert_eq!(graph.incident_edge_indices(9), &[] as &[usize]);
+
+    graph.remove_edge(0).unwrap();
+    assert_eq!(graph.incident_edge_indices(a), &[] as &[usize]);
+    assert_eq!(graph.incident_edge_indices(b), &[0]);
+    assert_eq!(graph.incident_edge_indices(c), &[0, 1]);
+
+    graph.remove_node(a).unwrap();
+    assert_eq!(graph.incident_edge_indices(0), &[0]);
+    assert_eq!(graph.incident_edge_indices(1), &[0, 1]);
 }
