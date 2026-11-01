@@ -10,7 +10,7 @@
 //!   node, all walks are followed just far enough to complete the windows that
 //!   start in that node.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ops::Range;
 
 use log::debug;
@@ -91,17 +91,9 @@ pub struct PathChunk<'a> {
 }
 
 impl CoreGraph {
-    /// Releases what the path walkers never read (the edges, their adjacency
-    /// index and the node names), keeping the nodes and paths.
-    pub(crate) fn keep_only_paths(&mut self) {
-        self.edges = Vec::new();
-        self.adjacency_list = HashMap::new();
-        self.node_name_map = None;
-    }
-
     /// Paths in name order, so results do not depend on hash map order.
     pub(crate) fn sorted_paths(&self) -> Vec<&Path> {
-        let mut paths: Vec<&Path> = self.path_map.values().collect();
+        let mut paths: Vec<&Path> = self.paths().iter().collect();
         paths.sort_unstable_by(|a, b| a.name.cmp(&b.name));
         paths
     }
@@ -124,7 +116,7 @@ impl CoreGraph {
             let mut start = 0;
             let mut bases = 0;
             for (i, step) in path.steps.iter().enumerate() {
-                bases += self.nodes[step.node_id()].sequence.len();
+                bases += self.nodes()[step.node_id()].sequence.len();
                 if bases >= chunk_bases {
                     chunks.push(PathChunk {
                         path_index,
@@ -167,7 +159,7 @@ impl CoreGraph {
                 .checked_sub(1)
                 .and_then(|prev| path.overlaps.get(prev))
                 .map_or(0, |&o| overlap_len(o));
-            let sequence = &self.nodes[step.node_id()].sequence;
+            let sequence = &self.nodes()[step.node_id()].sequence;
             for base in oriented_bases(sequence, step.orientation(), skip) {
                 if outside {
                     past_end += 1;
@@ -259,7 +251,7 @@ impl CoreGraph {
     /// Streams the windows of every walk through the graph into `sets`.
     pub(crate) fn extract_topology_windows<W: KmerWord>(&self, k: usize, sets: &DbgSets<W>) {
         let adjacency = BidirectedAdjacency::new(self);
-        let frames: usize = (0..2 * self.nodes.len())
+        let frames: usize = (0..2 * self.nodes().len())
             .into_par_iter()
             .map_init(
                 || (sets.sink(), TopologyScratch::default()),
@@ -268,7 +260,7 @@ impl CoreGraph {
             .sum();
         debug!(
             "full topology: followed {frames} walk extensions from {} oriented nodes",
-            2 * self.nodes.len()
+            2 * self.nodes().len()
         );
     }
 
@@ -285,7 +277,7 @@ impl CoreGraph {
     ) -> usize {
         let (node, orientation) = side_node(start);
         let mut window = RollingWindow::<W>::new(k);
-        for base in oriented_bases(&self.nodes[node].sequence, orientation, 0) {
+        for base in oriented_bases(&self.nodes()[node].sequence, orientation, 0) {
             if !window.push(base) {
                 continue;
             }
@@ -322,7 +314,7 @@ impl CoreGraph {
             } = frame;
             let (node, orientation) = side_node(side);
             let mut extend = true;
-            for base in oriented_bases(&self.nodes[node].sequence, orientation, overlap) {
+            for base in oriented_bases(&self.nodes()[node].sequence, orientation, overlap) {
                 past_end += 1;
                 if !window.push(base) {
                     extend = false;
@@ -390,9 +382,9 @@ struct BidirectedAdjacency {
 
 impl BidirectedAdjacency {
     fn new(graph: &CoreGraph) -> Self {
-        let sides = 2 * graph.nodes.len();
-        let mut arcs: Vec<(usize, usize, usize)> = Vec::with_capacity(2 * graph.edges.len());
-        for edge in &graph.edges {
+        let sides = 2 * graph.nodes().len();
+        let mut arcs: Vec<(usize, usize, usize)> = Vec::with_capacity(2 * graph.edges().len());
+        for edge in graph.edges() {
             let from = side(edge.from_node, edge.from_orient);
             let to = side(edge.to_node, edge.to_orient);
             let overlap = overlap_len(edge.overlap);

@@ -7,7 +7,7 @@ fn test_add_node() {
     let node_id = graph.add_node(b"ACGT".to_vec(), None);
     assert_eq!(node_id, 0);
     assert_eq!(graph.node_count(), 1);
-    assert_eq!(graph.nodes[0].sequence, b"ACGT");
+    assert_eq!(graph.nodes()[0].sequence, b"ACGT");
 }
 
 #[test]
@@ -16,9 +16,9 @@ fn test_add_node_with_name() {
 
     let node_id = graph.add_node(b"ACGT".to_vec(), Some(b"node1".to_vec()));
     assert_eq!(node_id, 0);
-    assert!(graph.node_name_map.is_some());
+    assert!(graph.node_name_map().is_some());
     assert_eq!(
-        graph.node_name_map.as_ref().unwrap().get(&node_id),
+        graph.node_name_map().as_ref().unwrap().get(&node_id),
         Some(&b"node1".to_vec())
     );
 }
@@ -41,11 +41,10 @@ fn test_add_edge() {
     let edge_idx = graph.add_edge(edge.clone()).unwrap();
     assert_eq!(edge_idx, 0);
     assert_eq!(graph.edge_count(), 1);
-    assert_eq!(graph.edges[0], edge);
+    assert_eq!(graph.edges()[0], edge);
 
     // Check adjacency list
-    assert!(graph.adjacency_list.contains_key(&n1));
-    assert_eq!(graph.adjacency_list[&n1], vec![0]);
+    assert_eq!(graph.outgoing_edge_indices(n1), &[0]);
 }
 
 #[test]
@@ -82,7 +81,7 @@ fn test_add_path() {
 
     graph.add_path(path.clone()).unwrap();
     assert_eq!(graph.path_count(), 1);
-    assert_eq!(graph.path_map.get(b"path1".as_slice()), Some(&path));
+    assert_eq!(graph.get_path(b"path1").ok(), Some(&path));
 }
 
 #[test]
@@ -115,10 +114,10 @@ fn test_remove_node() {
     graph.remove_node(n1).unwrap();
 
     assert_eq!(graph.node_count(), 2);
-    assert_eq!(graph.nodes[0].sequence, b"TGCA");
-    assert_eq!(graph.nodes[1].sequence, b"GCTA");
-    assert_eq!(graph.nodes[0].id, 0);
-    assert_eq!(graph.nodes[1].id, 1);
+    assert_eq!(graph.nodes()[0].sequence, b"TGCA");
+    assert_eq!(graph.nodes()[1].sequence, b"GCTA");
+    assert_eq!(graph.nodes()[0].id, 0);
+    assert_eq!(graph.nodes()[1].id, 1);
 }
 
 #[test]
@@ -179,7 +178,7 @@ fn test_remove_node_updates_paths() {
     graph.add_path(path).unwrap();
     graph.remove_node(n2).unwrap();
 
-    let updated_path = graph.path_map.get(b"path1".as_slice()).unwrap();
+    let updated_path = graph.get_path(b"path1").unwrap();
     assert_eq!(updated_path.steps.len(), 2);
     assert_eq!(updated_path.steps[0].node_id(), 0); // n1, still at position 0
     assert_eq!(updated_path.steps[1].node_id(), 1); // n3, now at position 1
@@ -297,11 +296,11 @@ fn test_complex_graph_manipulation() {
     assert_eq!(graph.edge_count(), 0); // Both edges removed
 
     // Check paths were updated
-    let p1 = graph.path_map.get(b"path1".as_slice()).unwrap();
+    let p1 = graph.get_path(b"path1").unwrap();
     assert_eq!(p1.steps.len(), 1);
     assert_eq!(p1.steps[0].node_id(), 0);
 
-    let p2 = graph.path_map.get(b"path2".as_slice()).unwrap();
+    let p2 = graph.get_path(b"path2").unwrap();
     assert_eq!(p2.steps.len(), 1);
     assert_eq!(p2.steps[0].node_id(), 1);
 }
@@ -318,16 +317,13 @@ fn test_get_node() {
 }
 
 #[test]
-fn test_get_node_mut() {
+fn test_set_sequence() {
     let mut graph = CoreGraph::new(CoreGraphDTO::default());
     let n1 = graph.add_node(b"ACGT".to_vec(), None);
 
-    {
-        let node = graph.get_node_mut(n1).unwrap();
-        node.sequence = b"TTTT".to_vec();
-    }
-
-    assert_eq!(graph.nodes[0].sequence, b"TTTT");
+    graph.set_sequence(n1, b"TTTT".to_vec()).unwrap();
+    assert_eq!(graph.nodes()[0].sequence, b"TTTT");
+    assert!(graph.set_sequence(5, b"A".to_vec()).is_err());
 }
 
 #[test]
@@ -427,4 +423,93 @@ fn test_has_edge() {
     assert!(graph.has_edge(n1, n2));
     assert!(!graph.has_edge(n2, n1));
     assert!(!graph.has_edge(n1, n3));
+}
+
+fn forward(id: usize) -> Step {
+    Step::new(id, Orientation::Forward).unwrap()
+}
+
+#[test]
+fn test_remove_node_keeps_overlaps_in_step() {
+    let mut graph = CoreGraph::new(CoreGraphDTO::default());
+    for seq in [b"AAAA", b"CCCC", b"GGGG", b"TTTT"] {
+        graph.add_node(seq.to_vec(), None);
+    }
+    graph
+        .add_path(Path {
+            name: b"p".to_vec(),
+            steps: vec![forward(0), forward(1), forward(2), forward(3)],
+            overlaps: vec![1, 2, 3],
+        })
+        .unwrap();
+
+    graph.remove_node(1).unwrap();
+    let path = graph.get_path(b"p").unwrap();
+    assert_eq!(path.steps, vec![forward(0), forward(1), forward(2)]);
+    // 0 -> 2 were not adjacent, so their junction has no overlap; 2 -> 3 keeps 3.
+    assert_eq!(path.overlaps, vec![0, 3]);
+
+    graph.remove_node(2).unwrap();
+    let path = graph.get_path(b"p").unwrap();
+    assert_eq!(path.steps, vec![forward(0), forward(1)]);
+    assert_eq!(path.overlaps, vec![0]);
+}
+
+#[test]
+fn test_paths_keep_insertion_order() {
+    let mut graph = CoreGraph::new(CoreGraphDTO::default());
+    let n = graph.add_node(b"ACGT".to_vec(), None);
+    let names: Vec<Vec<u8>> = (0..20)
+        .rev()
+        .map(|i| format!("p{i}").into_bytes())
+        .collect();
+    for name in &names {
+        graph
+            .add_path(Path {
+                name: name.clone(),
+                steps: vec![forward(n)],
+                overlaps: vec![],
+            })
+            .unwrap();
+    }
+    graph.remove_path(b"p10").unwrap();
+    assert_eq!(graph.get_path(b"p9").unwrap().name, b"p9");
+
+    let dto = CoreGraphDTO::from(graph);
+    let expected: Vec<&[u8]> = names
+        .iter()
+        .map(Vec::as_slice)
+        .filter(|name| *name != b"p10")
+        .collect();
+    let actual: Vec<&[u8]> = dto.paths().iter().map(|p| p.name.as_slice()).collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn test_replace_path() {
+    let mut graph = CoreGraph::new(CoreGraphDTO::default());
+    let n1 = graph.add_node(b"ACGT".to_vec(), None);
+    let n2 = graph.add_node(b"TGCA".to_vec(), None);
+    let path = |steps| Path {
+        name: b"p".to_vec(),
+        steps,
+        overlaps: vec![],
+    };
+    graph.add_path(path(vec![forward(n1)])).unwrap();
+
+    let old = graph
+        .replace_path(path(vec![forward(n1), forward(n2)]))
+        .unwrap();
+    assert_eq!(old.steps, vec![forward(n1)]);
+    assert_eq!(graph.get_path(b"p").unwrap().steps.len(), 2);
+
+    assert!(graph.replace_path(path(vec![forward(7)])).is_err());
+    assert!(
+        graph
+            .replace_path(Path {
+                name: b"missing".to_vec(),
+                ..path(vec![])
+            })
+            .is_err()
+    );
 }

@@ -1,8 +1,8 @@
-use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::{PanResult, error::PanGraphXError};
 use std::fmt::Display;
-use std::ops::{Index, IndexMut};
+use std::ops::Index;
 
 /// A unique identifier for a node/segment in the graph.
 pub type NodeId = usize;
@@ -168,7 +168,7 @@ impl Nodes {
         // Ensure node IDs are unique and correspond to their index
         for (index, node) in nodes.iter().enumerate() {
             if node.id != index {
-                return Err(PanGraphXError::Other(format!(
+                return Err(PanGraphXError::InvalidGraph(format!(
                     "Node ID {} does not match its index {}",
                     node.id, index
                 )));
@@ -195,8 +195,10 @@ impl Nodes {
         self.0.is_empty()
     }
 
-    pub fn get_mut(&mut self, node_id: NodeId) -> Option<&mut Node> {
-        self.0.get_mut(node_id)
+    /// Returns the sequence of a node for editing. Nodes themselves are not
+    /// handed out mutably, so their ids always match their index.
+    pub fn sequence_mut(&mut self, node_id: NodeId) -> Option<&mut Sequence> {
+        self.0.get_mut(node_id).map(|node| &mut node.sequence)
     }
 
     #[must_use]
@@ -215,14 +217,9 @@ impl Nodes {
         self.0.iter()
     }
 
-    /// Returns a mutable iterator over the nodes in the collection.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Node> {
-        self.0.iter_mut()
-    }
-
     /// Removes a node by its ID and returns it if it exists.
     /// Note: This will shift all subsequent nodes down by one and update their IDs accordingly.
-    pub fn remove(&mut self, node_id: NodeId) -> Option<Node> {
+    pub(crate) fn remove(&mut self, node_id: NodeId) -> Option<Node> {
         if node_id < self.0.len() {
             for i in (node_id + 1)..self.0.len() {
                 self.0[i].id = i - 1;
@@ -238,10 +235,6 @@ impl Nodes {
     pub fn par_iter(&self) -> impl ParallelIterator<Item = &Node> {
         self.0.par_iter()
     }
-    /// Returns a parallel mutable iterator over the nodes in the collection.
-    pub fn par_iter_mut(&mut self) -> impl ParallelIterator<Item = &mut Node> {
-        self.0.par_iter_mut()
-    }
 }
 
 impl Index<usize> for Nodes {
@@ -249,12 +242,6 @@ impl Index<usize> for Nodes {
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
-    }
-}
-
-impl IndexMut<usize> for Nodes {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0[index]
     }
 }
 
@@ -273,15 +260,6 @@ impl<'a> IntoIterator for &'a Nodes {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
-    }
-}
-
-impl<'a> IntoIterator for &'a mut Nodes {
-    type Item = &'a mut Node;
-    type IntoIter = std::slice::IterMut<'a, Node>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter_mut()
     }
 }
 

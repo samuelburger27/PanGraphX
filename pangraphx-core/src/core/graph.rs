@@ -1,16 +1,25 @@
 use super::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::core::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path, PathName, Sequence};
 use crate::error::{PanGraphXError, PanResult};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 /// A `CoreGraph` type providing efficient lookup and graph manipulation capabilities.
+///
+/// Like [`CoreGraphDTO`] it is always valid: edges and path steps refer to
+/// existing nodes and path names are unique. Its lookup indices are private
+/// and kept in sync by every edit.
+#[derive(Debug, Clone)]
 pub struct CoreGraph {
-    pub nodes: Nodes,
-    pub edges: Vec<Edge>,
-    pub path_map: HashMap<PathName, Path>,
-    pub node_name_map: Option<HashMap<NodeId, NodeName>>,
-    // NodeId to list of indexes of edges originating from that node
-    pub adjacency_list: HashMap<NodeId, Vec<usize>>,
+    nodes: Nodes,
+    edges: Vec<Edge>,
+    /// Paths in insertion order, so conversion back to a DTO is deterministic.
+    paths: Vec<Path>,
+    /// Path name to its index in `paths`.
+    path_index: HashMap<PathName, usize>,
+    node_name_map: Option<HashMap<NodeId, NodeName>>,
+    /// `NodeId` to the indices of the edges leaving that node.
+    adjacency_list: HashMap<NodeId, Vec<usize>>,
 }
 
 impl CoreGraph {
@@ -22,29 +31,46 @@ impl CoreGraph {
             paths,
             node_name_map,
         } = graph.into_parts();
-        let adjacency_list = Self::build_adjacency_list(&edges);
-
-        let path_map = paths
-            .into_iter()
-            .map(|path| (path.name.clone(), path))
-            .collect();
-
         Self {
+            adjacency_list: build_adjacency_list(&edges),
+            path_index: index_paths(&paths),
             nodes,
             edges,
-            path_map,
+            paths,
             node_name_map,
-            adjacency_list,
         }
     }
 
-    fn build_adjacency_list(edges: &[Edge]) -> HashMap<NodeId, Vec<usize>> {
-        let mut adjacency_list: HashMap<NodeId, Vec<usize>> = HashMap::new();
-        for (i, edge) in edges.iter().enumerate() {
-            let from_node = &edge.from_node;
-            adjacency_list.entry(*from_node).or_default().push(i);
-        }
-        adjacency_list
+    // ===== Accessors =====
+
+    /// The nodes, indexed by `NodeId`.
+    #[must_use]
+    pub const fn nodes(&self) -> &Nodes {
+        &self.nodes
+    }
+
+    /// The edges; an edge's index is its position here.
+    #[must_use]
+    pub const fn edges(&self) -> &[Edge] {
+        self.edges.as_slice()
+    }
+
+    /// The paths, in insertion order.
+    #[must_use]
+    pub const fn paths(&self) -> &[Path] {
+        self.paths.as_slice()
+    }
+
+    /// Mapping from `NodeId` to original node names (if available).
+    #[must_use]
+    pub const fn node_name_map(&self) -> Option<&HashMap<NodeId, NodeName>> {
+        self.node_name_map.as_ref()
+    }
+
+    /// Indices (into [`CoreGraph::edges`]) of the edges leaving `node_id`.
+    #[must_use]
+    pub fn outgoing_edge_indices(&self, node_id: NodeId) -> &[usize] {
+        self.adjacency_list.get(&node_id).map_or(&[], Vec::as_slice)
     }
 
     // ===== Graph Manipulation Methods =====
@@ -102,19 +128,8 @@ impl CoreGraph {
     /// graph.add_edge(edge).unwrap();
     /// ```
     pub fn add_edge(&mut self, edge: Edge) -> PanResult<usize> {
-        // Validate that nodes exist
-        if edge.from_node >= self.nodes.len() {
-            return Err(PanGraphXError::Other(format!(
-                "From node {} does not exist",
-                edge.from_node
-            )));
-        }
-        if edge.to_node >= self.nodes.len() {
-            return Err(PanGraphXError::Other(format!(
-                "To node {} does not exist",
-                edge.to_node
-            )));
-        }
+        self.check_node(edge.from_node)?;
+        self.check_node(edge.to_node)?;
 
         let edge_idx = self.edges.len();
         let edge_from_node = edge.from_node;
@@ -153,25 +168,15 @@ impl CoreGraph {
     /// graph.add_path(path).unwrap();
     /// ```
     pub fn add_path(&mut self, path: Path) -> PanResult<()> {
-        // Check if path already exists
-        if self.path_map.contains_key(&path.name) {
-            return Err(PanGraphXError::Other(format!(
-                "Path {:?} already exists",
+        if self.path_index.contains_key(&path.name) {
+            return Err(PanGraphXError::InvalidGraph(format!(
+                "path {} already exists",
                 String::from_utf8_lossy(&path.name)
             )));
         }
-
-        // Validate that all nodes in the path exist
-        for step in &path.steps {
-            if step.node_id() >= self.nodes.len() {
-                return Err(PanGraphXError::Other(format!(
-                    "Node {} in path does not exist",
-                    step.node_id()
-                )));
-            }
-        }
-
-        self.path_map.insert(path.name.clone(), path);
+        self.check_steps(&path)?;
+        self.path_index.insert(path.name.clone(), self.paths.len());
+        self.paths.push(path);
         Ok(())
     }
 
@@ -197,19 +202,12 @@ impl CoreGraph {
     /// graph.remove_node(n1).unwrap();
     /// ```
     pub fn remove_node(&mut self, node_id: NodeId) -> PanResult<()> {
-        if node_id >= self.nodes.len() {
-            return Err(PanGraphXError::Other(format!(
-                "Node {node_id} does not exist"
-            )));
-        }
-
-        // Remove the node
+        self.check_node(node_id)?;
         self.nodes.remove(node_id);
 
         // Remove edges connected to this node and update edge node IDs
         self.edges
             .retain(|edge| edge.from_node != node_id && edge.to_node != node_id);
-
         for edge in &mut self.edges {
             if edge.from_node > node_id {
                 edge.from_node -= 1;
@@ -218,50 +216,27 @@ impl CoreGraph {
                 edge.to_node -= 1;
             }
         }
+        self.adjacency_list = build_adjacency_list(&self.edges);
 
-        // Rebuild adjacency list
-        self.adjacency_list = Self::build_adjacency_list(&self.edges);
-
-        // Update paths: remove steps with deleted node and update node IDs
-        // TODO update overlaps if needed
-        let mut paths_to_remove = Vec::new();
-        for (name, path) in &mut self.path_map {
-            path.steps.retain(|step| step.node_id() != node_id);
-
-            // If path is now empty, mark for removal
-            if path.steps.is_empty() {
-                paths_to_remove.push(name.clone());
-            } else {
-                // Update node IDs in remaining steps
-                for step in &mut path.steps {
-                    if step.node_id() > node_id {
-                        *step = step.with_node_id(step.node_id() - 1)?;
-                    }
-                }
-            }
+        // Drop the node's steps from every path, and paths left empty.
+        for path in &mut self.paths {
+            remove_steps_of(path, node_id)?;
         }
+        self.paths.retain(|path| !path.steps.is_empty());
+        self.path_index = index_paths(&self.paths);
 
-        // Remove empty paths
-        for name in paths_to_remove {
-            self.path_map.remove(&name);
+        if let Some(names) = self.node_name_map.take() {
+            self.node_name_map = Some(
+                names
+                    .into_iter()
+                    .filter_map(|(id, name)| match id.cmp(&node_id) {
+                        Ordering::Less => Some((id, name)),
+                        Ordering::Equal => None,
+                        Ordering::Greater => Some((id - 1, name)),
+                    })
+                    .collect(),
+            );
         }
-
-        // Update node_name_map
-        if let Some(ref mut name_map) = self.node_name_map {
-            name_map.remove(&node_id);
-
-            // Update IDs in name_map
-            let mut updated_map = HashMap::new();
-            for (id, name) in name_map.iter() {
-                if *id > node_id {
-                    updated_map.insert(id - 1, name.clone());
-                } else if *id != node_id {
-                    updated_map.insert(*id, name.clone());
-                }
-            }
-            *name_map = updated_map;
-        }
-
         Ok(())
     }
 
@@ -292,15 +267,15 @@ impl CoreGraph {
     /// ```
     pub fn remove_edge(&mut self, edge_idx: usize) -> PanResult<()> {
         if edge_idx >= self.edges.len() {
-            return Err(PanGraphXError::Other(format!(
-                "Edge index {edge_idx} is out of bounds"
+            return Err(PanGraphXError::InvalidGraph(format!(
+                "edge index {edge_idx} is out of bounds"
             )));
         }
 
         self.edges.remove(edge_idx);
 
         // Rebuild adjacency list since edge indices have changed
-        self.adjacency_list = Self::build_adjacency_list(&self.edges);
+        self.adjacency_list = build_adjacency_list(&self.edges);
 
         Ok(())
     }
@@ -328,11 +303,15 @@ impl CoreGraph {
     /// graph.remove_path(b"path1").unwrap();
     /// ```
     pub fn remove_path(&mut self, path_name: &[u8]) -> PanResult<()> {
-        if self.path_map.remove(path_name).is_none() {
-            return Err(PanGraphXError::Other(format!(
-                "Path {:?} does not exist",
-                String::from_utf8_lossy(path_name)
-            )));
+        let index = self
+            .path_index
+            .remove(path_name)
+            .ok_or_else(|| missing_path(path_name))?;
+        self.paths.remove(index);
+        for later in self.path_index.values_mut() {
+            if *later > index {
+                *later -= 1;
+            }
         }
         Ok(())
     }
@@ -351,8 +330,8 @@ impl CoreGraph {
 
     /// Returns the number of paths in the graph.
     #[must_use]
-    pub fn path_count(&self) -> usize {
-        self.path_map.len()
+    pub const fn path_count(&self) -> usize {
+        self.paths.len()
     }
 
     /// Gets a reference to a node by its ID.
@@ -360,22 +339,19 @@ impl CoreGraph {
     /// # Errors
     /// Returns an error if the node doesn't exist.
     pub fn get_node(&self, node_id: NodeId) -> PanResult<&Node> {
-        self.nodes
-            .get(node_id)
-            .ok_or_else(|| PanGraphXError::Other(format!("Node {node_id} does not exist")))
+        self.nodes.get(node_id).ok_or_else(|| missing_node(node_id))
     }
 
-    /// Gets a mutable reference to a node by its ID.
+    /// Replaces the sequence of a node.
     ///
     /// # Errors
     /// Returns an error if the node doesn't exist.
-    pub fn get_node_mut(&mut self, node_id: NodeId) -> PanResult<&mut Node> {
-        let len = self.nodes.len();
-        self.nodes.get_mut(node_id).ok_or_else(|| {
-            PanGraphXError::Other(format!(
-                "Node {node_id} does not exist (graph has {len} nodes)"
-            ))
-        })
+    pub fn set_sequence(&mut self, node_id: NodeId, sequence: Sequence) -> PanResult<()> {
+        *self
+            .nodes
+            .sequence_mut(node_id)
+            .ok_or_else(|| missing_node(node_id))? = sequence;
+        Ok(())
     }
 
     /// Gets a reference to an edge by its index.
@@ -383,9 +359,9 @@ impl CoreGraph {
     /// # Errors
     /// Returns an error if the edge index is out of bounds.
     pub fn get_edge(&self, edge_idx: usize) -> PanResult<&Edge> {
-        self.edges
-            .get(edge_idx)
-            .ok_or_else(|| PanGraphXError::Other(format!("Edge index {edge_idx} is out of bounds")))
+        self.edges.get(edge_idx).ok_or_else(|| {
+            PanGraphXError::InvalidGraph(format!("edge index {edge_idx} is out of bounds"))
+        })
     }
 
     /// Gets a reference to a path by its name.
@@ -393,25 +369,24 @@ impl CoreGraph {
     /// # Errors
     /// Returns an error if the path doesn't exist.
     pub fn get_path(&self, path_name: &[u8]) -> PanResult<&Path> {
-        self.path_map.get(path_name).ok_or_else(|| {
-            PanGraphXError::Other(format!(
-                "Path {:?} does not exist",
-                String::from_utf8_lossy(path_name)
-            ))
-        })
+        self.path_index
+            .get(path_name)
+            .map(|&index| &self.paths[index])
+            .ok_or_else(|| missing_path(path_name))
     }
 
-    /// Gets a mutable reference to a path by its name.
+    /// Replaces the path with the same name as `path`, returning the old one.
     ///
     /// # Errors
-    /// Returns an error if the path doesn't exist.
-    pub fn get_path_mut(&mut self, path_name: &[u8]) -> PanResult<&mut Path> {
-        self.path_map.get_mut(path_name).ok_or_else(|| {
-            PanGraphXError::Other(format!(
-                "Path {:?} does not exist",
-                String::from_utf8_lossy(path_name)
-            ))
-        })
+    /// Returns an error if no path has that name or a step refers to a
+    /// missing node.
+    pub fn replace_path(&mut self, path: Path) -> PanResult<Path> {
+        let index = *self
+            .path_index
+            .get(&path.name)
+            .ok_or_else(|| missing_path(&path.name))?;
+        self.check_steps(&path)?;
+        Ok(std::mem::replace(&mut self.paths[index], path))
     }
 
     /// Returns all outgoing edges from a node.
@@ -419,17 +394,12 @@ impl CoreGraph {
     /// # Errors
     /// Returns an error if the node doesn't exist.
     pub fn get_outgoing_edges(&self, node_id: NodeId) -> PanResult<Vec<&Edge>> {
-        if node_id >= self.nodes.len() {
-            return Err(PanGraphXError::Other(format!(
-                "Node {node_id} does not exist"
-            )));
-        }
-
+        self.check_node(node_id)?;
         Ok(self
-            .adjacency_list
-            .get(&node_id)
-            .map(|indices| indices.iter().map(|&idx| &self.edges[idx]).collect())
-            .unwrap_or_default())
+            .outgoing_edge_indices(node_id)
+            .iter()
+            .map(|&idx| &self.edges[idx])
+            .collect())
     }
 
     /// Checks if an edge exists between two nodes.
@@ -443,14 +413,100 @@ impl CoreGraph {
                     .any(|&idx| self.edges[idx].to_node == to_node)
             })
     }
+
+    /// Releases what the path walkers never read (the edges, their adjacency
+    /// index and the node names), keeping the nodes and paths.
+    pub(crate) fn keep_only_paths(&mut self) {
+        self.edges = Vec::new();
+        self.adjacency_list = HashMap::new();
+        self.node_name_map = None;
+    }
+
+    fn check_node(&self, node_id: NodeId) -> PanResult<()> {
+        if node_id < self.nodes.len() {
+            Ok(())
+        } else {
+            Err(missing_node(node_id))
+        }
+    }
+
+    fn check_steps(&self, path: &Path) -> PanResult<()> {
+        path.steps
+            .iter()
+            .try_for_each(|step| self.check_node(step.node_id()))
+    }
+}
+
+fn build_adjacency_list(edges: &[Edge]) -> HashMap<NodeId, Vec<usize>> {
+    let mut adjacency_list: HashMap<NodeId, Vec<usize>> = HashMap::new();
+    for (i, edge) in edges.iter().enumerate() {
+        adjacency_list.entry(edge.from_node).or_default().push(i);
+    }
+    adjacency_list
+}
+
+fn index_paths(paths: &[Path]) -> HashMap<PathName, usize> {
+    paths
+        .iter()
+        .enumerate()
+        .map(|(index, path)| (path.name.clone(), index))
+        .collect()
+}
+
+/// Removes the steps visiting `node_id` from `path` and renumbers the steps
+/// of later nodes. An overlap is kept while its two steps stay adjacent; the
+/// junction of two steps that were not adjacent gets overlap 0.
+fn remove_steps_of(path: &mut Path, node_id: NodeId) -> PanResult<()> {
+    if !path.steps.iter().any(|step| step.node_id() >= node_id) {
+        return Ok(());
+    }
+    let with_overlaps = !path.overlaps.is_empty();
+    let mut steps = Vec::with_capacity(path.steps.len());
+    let mut overlaps = Vec::new();
+    let mut previous: Option<usize> = None;
+    for (i, &step) in path.steps.iter().enumerate() {
+        let id = step.node_id();
+        if id == node_id {
+            continue;
+        }
+        if with_overlaps && let Some(p) = previous {
+            let adjacent = p + 1 == i;
+            overlaps.push(if adjacent {
+                path.overlaps.get(p).copied().unwrap_or(0)
+            } else {
+                0
+            });
+        }
+        steps.push(if id > node_id {
+            step.with_node_id(id - 1)?
+        } else {
+            step
+        });
+        previous = Some(i);
+    }
+    path.steps = steps;
+    path.overlaps = overlaps;
+    Ok(())
+}
+
+fn missing_node(node_id: NodeId) -> PanGraphXError {
+    PanGraphXError::InvalidGraph(format!("node {node_id} does not exist"))
+}
+
+fn missing_path(name: &[u8]) -> PanGraphXError {
+    PanGraphXError::InvalidGraph(format!(
+        "path {} does not exist",
+        String::from_utf8_lossy(name)
+    ))
 }
 
 impl From<CoreGraph> for CoreGraphDTO {
     fn from(graph: CoreGraph) -> Self {
+        // Every edit keeps the graph valid, so it needs no second check.
         Self::from_valid_parts(GraphParts {
             nodes: graph.nodes,
             edges: graph.edges,
-            paths: graph.path_map.into_values().collect(),
+            paths: graph.paths,
             node_name_map: graph.node_name_map,
         })
     }
