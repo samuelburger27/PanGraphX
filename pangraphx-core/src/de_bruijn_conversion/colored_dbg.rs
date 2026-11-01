@@ -25,7 +25,7 @@ use crate::core::core_types::{Path, PathName, Step};
 use crate::core::graph::CoreGraph;
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
-use crate::formats::gfa_format::orientation_byte;
+use crate::formats::gfa::orientation_byte;
 use log::debug;
 use std::io::Write;
 use std::mem::take;
