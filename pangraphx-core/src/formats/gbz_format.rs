@@ -1,7 +1,7 @@
 use crate::core::core_types::{Edge, NodeId, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::{PanGraphXError, PanResult};
-use crate::formats::id_map::IdMap;
+use crate::formats::common::id_map::IdMap;
 use crate::traits::{GraphParser, GraphSerializer};
 use gbz_construct::sequences::Sequences;
 use gbz_construct::{

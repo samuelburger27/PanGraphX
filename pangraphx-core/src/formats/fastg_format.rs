@@ -19,7 +19,9 @@ use crate::core::core_types::{Edge, Node, NodeId, NodeName, Nodes, Orientation, 
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::core::graph_utils::oriented_bases;
 use crate::error::{PanGraphXError, PanResult};
-use crate::formats::gfa_format::{RECORDS_PER_CHUNK, node_names, one_based_names, write_records};
+use crate::formats::common::chunked::{RECORDS_PER_CHUNK, write_records};
+use crate::formats::common::names::{node_names, one_based_names};
+use crate::formats::common::text::{line_error, lossy};
 use crate::traits::{GraphParser, GraphSerializer};
 use log::warn;
 use memchr::memchr;
@@ -41,14 +43,6 @@ const SEQUENCE_BYTES: [bool; 256] = {
     }
     table
 };
-
-fn line_error(line_no: usize, message: &str) -> PanGraphXError {
-    PanGraphXError::Parse(format!("FASTG line {line_no}: {message}"))
-}
-
-fn lossy(bytes: &[u8]) -> Cow<'_, str> {
-    String::from_utf8_lossy(bytes)
-}
 
 /// Whether `name` can be written inside a SPAdes-style record name: non-empty
 /// printable ASCII without `_` (Bandage splits on it) or FASTG delimiters.
@@ -97,13 +91,14 @@ fn split_strand(name: &[u8]) -> (&[u8], Orientation) {
 fn parse_name(raw: &[u8], line_no: usize) -> PanResult<(&[u8], Orientation)> {
     let (name, orientation) = split_strand(raw);
     if name.is_empty() {
-        return Err(line_error(line_no, "empty node name"));
+        return Err(line_error("FASTG", line_no, "empty node name"));
     }
     if !name
         .iter()
         .all(|&b| b.is_ascii_graphic() && !matches!(b, b':' | b',' | b';' | b'\''))
     {
         return Err(line_error(
+            "FASTG",
             line_no,
             &format!("invalid node name {:?}", lossy(raw)),
         ));
@@ -158,7 +153,7 @@ impl FastgReader {
         let body = line
             .get(1..)
             .and_then(|rest| rest.strip_suffix(b";"))
-            .ok_or_else(|| line_error(line_no, "header must end with ';'"))?;
+            .ok_or_else(|| line_error("FASTG", line_no, "header must end with ';'"))?;
         let (record, list) =
             memchr(b':', body).map_or((body, &[][..]), |i| (&body[..i], &body[i + 1..]));
 
@@ -186,10 +181,15 @@ impl FastgReader {
 
     fn sequence_line(&mut self, line: &[u8], line_no: usize) -> PanResult<()> {
         if self.current.is_none() {
-            return Err(line_error(line_no, "sequence before the first header"));
+            return Err(line_error(
+                "FASTG",
+                line_no,
+                "sequence before the first header",
+            ));
         }
         if let Some(&b) = line.iter().find(|&&b| !SEQUENCE_BYTES[usize::from(b)]) {
             return Err(line_error(
+                "FASTG",
                 line_no,
                 &format!("invalid character {:?} in sequence", char::from(b)),
             ));
@@ -211,6 +211,7 @@ impl FastgReader {
         };
         match &self.sequences[id] {
             Some(existing) if *existing != forward => Err(line_error(
+                "FASTG",
                 line_no,
                 "sequence differs from an earlier record of the same node",
             )),
