@@ -7,8 +7,10 @@ use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::error::{PanGraphXError, PanResult};
 use crate::proto_gen::vg as vg_proto;
 use crate::traits::{GraphParser, GraphSerializer};
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use std::collections::HashMap;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 
 // ---- Orientation mapping tests ----
 
@@ -680,6 +682,65 @@ fn test_truncated_message_is_rejected() {
         error.to_string().contains("Unexpected EOF in a VG message"),
         "{error}"
     );
+}
+
+/// `data` as gzip members of at most `block` bytes each, like BGZF (whose
+/// members also carry a block size field, which readers need not use).
+fn gzip_members(data: &[u8], block: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    for chunk in data.chunks(block) {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(chunk).unwrap();
+        out.extend(encoder.finish().unwrap());
+    }
+    out
+}
+
+#[test]
+fn test_compressed_stream_is_decompressed() {
+    let mut raw = Vec::new();
+    VGCodec.serialize(&make_simple_graph(), &mut raw).unwrap();
+    let expected = VGCodec.parse(&mut Cursor::new(&raw)).unwrap();
+
+    // One member, and members splitting varints and messages.
+    for block in [raw.len(), 7, 1] {
+        let compressed = gzip_members(&raw, block);
+        let parsed = VGCodec.parse(&mut Cursor::new(&compressed)).unwrap();
+        assert_eq!(parsed, expected, "members of {block} bytes");
+    }
+}
+
+#[test]
+fn test_compressed_stream_keeps_framing_checks() {
+    let mut raw = Vec::new();
+    write_vg_group(&mut raw, &[]).unwrap();
+    raw[2..4].copy_from_slice(b"GA"); // tag "VG" → "GA"
+    let error = VGCodec
+        .parse(&mut Cursor::new(gzip_members(&raw, raw.len())))
+        .unwrap_err();
+    assert!(error.to_string().contains(r#"type tag "GA""#), "{error}");
+}
+
+#[test]
+fn test_truncated_compressed_stream_is_rejected() {
+    let mut raw = Vec::new();
+    VGCodec.serialize(&make_simple_graph(), &mut raw).unwrap();
+    let mut compressed = gzip_members(&raw, raw.len());
+    compressed.truncate(compressed.len() / 2);
+    assert!(VGCodec.parse(&mut Cursor::new(&compressed)).is_err());
+}
+
+#[test]
+fn test_gzip_detection_keeps_position() {
+    let mut cursor = Cursor::new(b"xx\x1F\x8B\x08rest".to_vec());
+    assert!(!super::framing::is_gzip(&mut cursor).unwrap());
+    cursor.set_position(2);
+    assert!(super::framing::is_gzip(&mut cursor).unwrap());
+    assert_eq!(cursor.position(), 2);
+    // Shorter than the magic, and the empty stream (an empty graph).
+    assert!(!super::framing::is_gzip(&mut Cursor::new(b"\x1F\x8B")).unwrap());
+    let empty = VGCodec.parse(&mut Cursor::new(b"")).unwrap();
+    assert_eq!(empty.nodes().len(), 0);
 }
 
 fn make_simple_graph_proto() -> vg_proto::Graph {

@@ -1,6 +1,8 @@
 //! VG codec: the protobuf `Graph` messages of `vg`, in libvgio framing.
 //!
 //! - `framing`: varints and the group / length-prefixed message framing.
+//!   Streams compressed with BGZF, as libvgio writes them by default, are
+//!   decompressed while they are read; the writer does not compress.
 //! - `reader`: decodes message windows in parallel and merges them in stream order.
 //! - `writer`: splits the graph into `Graph` chunks and encodes them in parallel.
 //!
@@ -19,14 +21,28 @@ use crate::core::core_types::Orientation;
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::PanResult;
 use crate::traits::{GraphParser, GraphSerializer};
-use std::io::{Read, Seek, Write};
+use flate2::read::MultiGzDecoder;
+use log::debug;
+use std::io::{BufReader, Read, Seek, Write};
+
+/// Buffer between the BGZF decoder and the framing, which reads varints a
+/// byte at a time; a few BGZF blocks (64 KiB each, uncompressed).
+const DECOMPRESSED_BUFFER: usize = 256 << 10;
 
 /// Codec for vg's protobuf graph format (`.vg`).
 pub struct VGCodec;
 
 impl<R: Read + Seek> GraphParser<R> for VGCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
-        reader::parse_vg(reader, reader::VG_READ_WINDOW)
+        if framing::is_gzip(reader)? {
+            debug!("VG stream is BGZF compressed");
+            // BGZF is a series of gzip members; `MultiGzDecoder` reads them all.
+            let decoder = MultiGzDecoder::new(reader);
+            let mut decompressed = BufReader::with_capacity(DECOMPRESSED_BUFFER, decoder);
+            reader::parse_vg(&mut decompressed, reader::VG_READ_WINDOW)
+        } else {
+            reader::parse_vg(reader, reader::VG_READ_WINDOW)
+        }
     }
 }
 

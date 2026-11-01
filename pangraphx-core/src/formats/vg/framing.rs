@@ -1,9 +1,10 @@
 //! libvgio framing: groups of varint-length-prefixed messages, the first of
-//! which may be a type tag naming the message type.
+//! which may be a type tag naming the message type. libvgio compresses the
+//! stream with BGZF by default; the codec decompresses it before framing.
 
 use crate::error::{PanGraphXError, PanResult};
 use prost::Message;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Range;
 
 #[cfg(test)]
@@ -61,6 +62,27 @@ pub(super) fn write_varint(writer: &mut dyn Write, mut value: u64) -> PanResult<
 /// Largest message length accepted when reading: protobuf messages are limited
 /// to 2 GB, so a larger length means a corrupt stream, not a huge allocation.
 pub(super) const VG_MAX_MESSAGE_LEN: u64 = i32::MAX as u64;
+
+/// The first bytes of a gzip member, and so of a BGZF stream: the gzip magic
+/// and the deflate method.
+const GZIP_MAGIC: [u8; 3] = [0x1F, 0x8B, 0x08];
+
+/// Whether the stream at the reader's position is gzip (BGZF) compressed; the
+/// position is left unchanged.
+///
+/// An uncompressed stream starts the same way only if its first group holds
+/// 31 messages and starts with an untagged one of a particular length, which
+/// vg has not written since it began tagging groups.
+pub(super) fn is_gzip<R: Read + Seek>(reader: &mut R) -> PanResult<bool> {
+    let start = reader.stream_position()?;
+    let mut magic = Vec::with_capacity(GZIP_MAGIC.len());
+    reader
+        .by_ref()
+        .take(GZIP_MAGIC.len() as u64)
+        .read_to_end(&mut magic)?;
+    reader.seek(SeekFrom::Start(start))?;
+    Ok(magic == GZIP_MAGIC)
+}
 
 /// The libvgio type tag of `Graph` messages.
 pub(super) const VG_TYPE_TAG: &str = "VG";
