@@ -14,7 +14,7 @@ transforming pangenome graphs, including de Bruijn graph construction.
 | Format | Extension | Notes |
 |---|---|---|
 | GFA 1.0 / 1.1 | `.gfa` | `W` lines are read as paths with vg-style names and written as `P` lines; `C`/`J` lines are ignored |
-| VG | `.vg` | Older protobuf format, per-step path overlaps are dropped |
+| VG | `.vg` | Older protobuf format, read plain or BGZF-compressed; per-step path overlaps are dropped |
 | GBZ | `.gbz` | keeps only what the paths imply (no overlaps, off-path edges); nodes are not chopped |
 | ODGI | `.og` | native reader/writer; overlaps are dropped |
 | FASTG | `.fastg` | SPAdes dialect; paths and overlaps are dropped |

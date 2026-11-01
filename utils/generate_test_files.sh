@@ -3,6 +3,7 @@
 # generate_test_files.sh — writes the committed VG / GBZ / OG test files with
 # vg and odgi from the GFA fixtures in pangraphx-core/tests/test_files/gfa/,
 # plus MANIFEST.tsv (source GFA, checksum, tool version and command per file).
+# One VG file is BGZF compressed, as libvgio writes by default.
 #
 # tests/test_reference_files.rs reads them with our codecs and compares them
 # with their source GFA. Never PanGraphX output: a file we wrote ourselves
@@ -47,6 +48,10 @@ skipped() {
     esac
 }
 
+# `vg convert` writes uncompressed VG; the deprecated `vg view -Fv` writes it
+# BGZF compressed. Lambda spans several BGZF blocks.
+BGZF_FIXTURES=(escherichia_phage_lambda)
+
 sha256() {
     if have sha256sum; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
 }
@@ -84,5 +89,13 @@ for base in "${FIXTURES[@]}"; do
             "$(sha256 "$OUT_DIR/$out")" "$tool" "$version" "$cmd" >> "$manifest"
         echo "  wrote ($tool): $OUT_DIR/$out"
     done
+done
+for base in "${BGZF_FIXTURES[@]}"; do
+    out="vg/$base.bgzf.vg"
+    cmd="vg view -Fv gfa/$base.gfa > $out"
+    vg view -Fv "$GFA_DIR/$base.gfa" 2>/dev/null > "$OUT_DIR/$out"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$out" "gfa/$base.gfa" \
+        "$(sha256 "$OUT_DIR/$out")" vg "$vg_version" "$cmd" >> "$manifest"
+    echo "  wrote (vg): $OUT_DIR/$out"
 done
 echo "Done. Manifest: $manifest"

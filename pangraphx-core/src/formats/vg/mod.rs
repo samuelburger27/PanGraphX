@@ -1,6 +1,9 @@
 //! VG codec: the protobuf `Graph` messages of `vg`, in libvgio framing.
 //!
 //! - `framing`: varints and the group / length-prefixed message framing.
+//!   Streams compressed with BGZF, as libvgio writes them by default, are
+//!   inflated in parallel while they are read (`common::bgzf`); other gzip
+//!   streams serially. The writer does not compress.
 //! - `reader`: decodes message windows in parallel and merges them in stream order.
 //! - `writer`: splits the graph into `Graph` chunks and encodes them in parallel.
 //!
@@ -18,15 +21,38 @@ mod tests;
 use crate::core::core_types::Orientation;
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::PanResult;
+use crate::formats::common::bgzf::{self, BgzfReader, Compression};
 use crate::traits::{GraphParser, GraphSerializer};
-use std::io::{Read, Seek, Write};
+use flate2::read::MultiGzDecoder;
+use log::debug;
+use std::io::{BufReader, Read, Seek, Write};
+
+/// Buffer between the serial gzip decoder and the framing, which reads
+/// varints a byte at a time.
+const DECOMPRESSED_BUFFER: usize = 256 << 10;
 
 /// Codec for vg's protobuf graph format (`.vg`).
 pub struct VGCodec;
 
 impl<R: Read + Seek> GraphParser<R> for VGCodec {
     fn parse(&self, reader: &mut R) -> PanResult<CoreGraphDTO> {
-        reader::parse_vg(reader, reader::VG_READ_WINDOW)
+        // An uncompressed stream starts like gzip only if its first group
+        // holds 31 messages, the first untagged and of a particular length;
+        // vg has tagged every group for years.
+        match bgzf::detect(reader)? {
+            Compression::None => reader::parse_vg(reader, reader::VG_READ_WINDOW),
+            Compression::Bgzf => {
+                debug!("VG stream is BGZF compressed");
+                reader::parse_vg(&mut BgzfReader::new(reader), reader::VG_READ_WINDOW)
+            }
+            Compression::Gzip => {
+                debug!("VG stream is gzip compressed (not BGZF), inflating serially");
+                // `MultiGzDecoder` also reads gzip files concatenated together.
+                let decoder = MultiGzDecoder::new(reader);
+                let mut decompressed = BufReader::with_capacity(DECOMPRESSED_BUFFER, decoder);
+                reader::parse_vg(&mut decompressed, reader::VG_READ_WINDOW)
+            }
+        }
     }
 }
 

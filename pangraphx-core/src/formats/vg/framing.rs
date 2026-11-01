@@ -1,8 +1,8 @@
 //! libvgio framing: groups of varint-length-prefixed messages, the first of
-//! which may be a type tag.
+//! which may be a type tag naming the message type. libvgio compresses the
+//! stream with BGZF by default; the codec decompresses it before framing.
 
 use crate::error::{PanGraphXError, PanResult};
-use log::debug;
 use prost::Message;
 use std::io::{Read, Write};
 use std::ops::Range;
@@ -63,6 +63,20 @@ pub(super) fn write_varint(writer: &mut dyn Write, mut value: u64) -> PanResult<
 /// to 2 GB, so a larger length means a corrupt stream, not a huge allocation.
 pub(super) const VG_MAX_MESSAGE_LEN: u64 = i32::MAX as u64;
 
+/// The libvgio type tag of `Graph` messages.
+pub(super) const VG_TYPE_TAG: &str = "VG";
+
+/// The other protobuf types libvgio registers (`registry.cpp`), with what
+/// they hold. Their streams share the framing but are not graphs.
+const OTHER_TYPE_TAGS: [(&str, &str); 6] = [
+    ("GAM", "read alignments"),
+    ("MGAM", "multipath read alignments"),
+    ("SNARL", "snarls"),
+    ("PILEUP", "pileups"),
+    ("LOCUS", "genotype loci"),
+    ("TRANS", "node id translations"),
+];
+
 /// Raw `Graph` messages, stored back to back.
 #[derive(Default)]
 pub(super) struct RawWindow {
@@ -81,7 +95,8 @@ impl RawWindow {
 ///
 /// The VG framing format consists of groups. Each group starts with a varint
 /// count of messages, each message is length-prefixed with a varint. The first
-/// message in a group may be a type tag string (e.g. `"VG"`), which is skipped.
+/// message in a group may be a type tag, which must be `"VG"` and is skipped;
+/// groups without one (written by old vg versions) are read as `Graph`s.
 pub(super) struct VgFrames<'r, R> {
     reader: &'r mut R,
     /// Messages left in the current group.
@@ -141,14 +156,12 @@ impl<'r, R: Read> VgFrames<'r, R> {
                 )));
             }
 
-            // Type tags are short ASCII strings; Graph messages are protobuf-encoded.
-            if index == 0 {
-                let (is_type_tag, tag_str) = detect_type_tag(&window.bytes[start..]);
-                if is_type_tag {
-                    debug!("VG stream type tag: {tag_str:?}");
-                    window.bytes.truncate(start);
-                    continue;
-                }
+            if index == 0
+                && let Some(tag) = type_tag(&window.bytes[start..])
+            {
+                check_type_tag(tag)?;
+                window.bytes.truncate(start);
+                continue;
             }
             window.messages.push(start..window.bytes.len());
         }
@@ -210,14 +223,34 @@ pub(super) fn decode_graph<M: Message + Default>(message: &[u8]) -> PanResult<M>
         .map_err(|e| PanGraphXError::Parse(format!("Failed to decode VG Graph message: {e}")))
 }
 
-/// Heuristic to determine if a message buffer is a type tag string.
-/// Type tags are short (typically <= 10 bytes), all printable ASCII.
-pub(super) fn detect_type_tag(buf: &[u8]) -> (bool, String) {
-    if buf.len() <= 16 && !buf.is_empty() && buf.iter().all(|&b| b.is_ascii_graphic()) {
-        let s = String::from_utf8_lossy(buf).to_string();
-        return (true, s);
+/// The type tag a group's first message holds, if it is one.
+///
+/// Type tags are short printable ASCII strings. A non-empty `Graph` message
+/// starts with the key of field 1, 2 or 3 (`0x0A`, `0x12`, `0x1A`), which is
+/// not printable, so it is never taken for one.
+fn type_tag(buf: &[u8]) -> Option<&str> {
+    if buf.is_empty() || buf.len() > 16 || !buf.iter().all(u8::is_ascii_graphic) {
+        return None;
     }
-    (false, String::new())
+    std::str::from_utf8(buf).ok()
+}
+
+/// Rejects a stream whose type tag is not `"VG"`: it holds other messages
+/// (e.g. GAM alignments), which would otherwise fail to decode as `Graph`s
+/// with an error that does not name the cause.
+fn check_type_tag(tag: &str) -> PanResult<()> {
+    if tag == VG_TYPE_TAG {
+        return Ok(());
+    }
+    let contents = OTHER_TYPE_TAGS
+        .iter()
+        .find(|&&(other, _)| other == tag)
+        .map_or_else(String::new, |(_, contents)| {
+            format!(", which holds {contents}")
+        });
+    Err(PanGraphXError::Parse(format!(
+        "Not a VG graph: the stream has type tag {tag:?}{contents}, expected {VG_TYPE_TAG:?}"
+    )))
 }
 
 /// Writes one framing group: the `"VG"` type tag followed by already-encoded `Graph` messages.
@@ -225,7 +258,7 @@ pub(super) fn write_vg_group(writer: &mut dyn Write, encoded_graphs: &[Vec<u8>])
     let count = encoded_graphs.len() + 1; // +1 for type tag
     write_varint(writer, count as u64)?;
 
-    let tag = b"VG";
+    let tag = VG_TYPE_TAG.as_bytes();
     write_varint(writer, tag.len() as u64)?;
     writer.write_all(tag)?;
 
@@ -349,6 +382,61 @@ mod tests {
         assert_eq!(decoded.len(), 2);
         assert_eq!(decoded[0].node[0].sequence, "AA");
         assert_eq!(decoded[1].node[0].sequence, "CC");
+    }
+
+    /// A group of `messages`, without the `"VG"` tag `write_vg_group` adds.
+    fn raw_group(messages: &[&[u8]]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        write_varint(&mut buf, messages.len() as u64).unwrap();
+        for message in messages {
+            write_varint(&mut buf, message.len() as u64).unwrap();
+            buf.extend_from_slice(message);
+        }
+        buf
+    }
+
+    #[test]
+    fn test_untagged_group_is_read() {
+        let graph = vg_proto::Graph {
+            node: vec![vg_proto::Node {
+                id: 1,
+                sequence: "ACGT".to_string(),
+                name: String::new(),
+            }],
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let decoded = read_vg_graphs(&mut Cursor::new(raw_group(&[&graph]))).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].node[0].sequence, "ACGT");
+    }
+
+    #[test]
+    fn test_other_type_tags_are_rejected() {
+        let alignment = [0x0A, 0x02, b'A', b'C']; // Alignment { sequence: "AC" }
+        let err = read_vg_graphs(&mut Cursor::new(raw_group(&[b"GAM", &alignment]))).unwrap_err();
+        assert!(matches!(err, PanGraphXError::Parse(_)), "{err}");
+        assert!(
+            err.to_string()
+                .contains(r#""GAM", which holds read alignments"#),
+            "{err}"
+        );
+
+        let err = read_vg_graphs(&mut Cursor::new(raw_group(&[b"OTHER"]))).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains(r#"type tag "OTHER", expected "VG""#),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn test_other_tag_in_a_later_group_is_rejected() {
+        let mut buf = Vec::new();
+        write_vg_graphs(&mut buf, &[vg_proto::Graph::default()]).unwrap();
+        buf.extend(raw_group(&[b"SNARL"]));
+        let err = read_vg_graphs(&mut Cursor::new(buf)).unwrap_err();
+        assert!(err.to_string().contains("SNARL"), "{err}");
     }
 
     #[test]

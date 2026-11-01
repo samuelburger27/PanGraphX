@@ -49,6 +49,7 @@ pangraphx-core/src/
   formats/               one directory per format: mod.rs (codec + trait impls delegating
                          to reader/writer, constants both sides use), reader, writer, tests.rs
     common/              helpers shared by several formats
+      bgzf.rs            BgzfReader: parallel BGZF inflation (batches of blocks, stream order)
       id_map.rs          external integer id → NodeId (dense table or hash map)
       chunked.rs         write_records: parallel, order-preserving record formatting
       names.rs           node name tables for the text writers
@@ -92,6 +93,7 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 
 ## Format notes
 
+- **VG streams**: read plain or BGZF-compressed (libvgio's default, e.g. `vg view -Fv`; inflated in parallel, other gzip serially), written plain. Groups tagged with another libvgio type (GAM, SNARL, …) are rejected.
 - **IDs**: VG and ODGI keep node ids only when every name is a distinct, positive, canonically written integer; otherwise nodes are numbered `1..=n`. `common/id_map.rs` is shared by VG, GBZ and numeric GFA names.
 - **Fidelity**: VG drops per-step path overlaps; GBZ keeps only what its paths imply (no overlaps, no off-path or repeated edges); ODGI drops overlaps; FASTG drops paths and overlaps.
 - **GFA walks**: `W` lines become paths named as vg names them (`gfa/reader/walks.rs::walk_path_name`, checked against vg 1.73); the writer emits P lines only. odgi ignores W lines and GBZ keeps only a walk's subrange start, so the `walks` fixture has only a VG reference file.
