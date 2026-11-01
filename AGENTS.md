@@ -46,14 +46,21 @@ pangraphx-core/src/
     graph_utils.rs       path sequence helpers
     serialization.rs     CoreGraphDTO::load/load_from_file/save/save_to_file
     stats.rs             CoreGraph::compute_stats → GraphStats (N50, components, degrees, paths)
-  formats/
-    gfa_format.rs        GFACodec; parallel chunked writer
-    gfa_parser.rs        in-house streaming two-pass GFA parser (no external GFA crate)
-    vg_format.rs         VGCodec; libvgio framing, chunked Graph messages
-    gbz_format.rs        GBZCodec via the `gbz-construct` crate; writes GBZ version 2 for vg compatibility
-    odgi_format.rs       ODGICodec; native .og reader/writer (no odgi dependency)
-    fastg_format.rs      FastgCodec; SPAdes/Bandage dialect, paths and overlaps dropped
-    id_map.rs            external integer id → NodeId (dense table or hash map)
+  formats/               one directory per format: mod.rs (codec + trait impls delegating
+                         to reader/writer, constants both sides use), reader, writer, tests.rs
+    common/              helpers shared by several formats
+      id_map.rs          external integer id → NodeId (dense table or hash map)
+      chunked.rs         write_records: parallel, order-preserving record formatting
+      names.rs           node name tables for the text writers
+      text.rs            line_error / lossy for the text readers
+    gfa/                 GFACodec; in-house streaming two-pass parser (reader/: blocks, segments,
+                         records, walks, steps), parallel chunked writer
+    vg/                  VGCodec; framing.rs (libvgio framing), reader/ (parallel decode, paths.rs),
+                         writer.rs (chunked Graph messages)
+    gbz/                 GBZCodec via the `gbz-construct` crate; writes GBZ version 2 for vg compatibility
+    odgi/                ODGICodec; native .og reader/writer (no odgi dependency); encoding.rs
+                         (packed vectors), reader/ (records, paths), writer/ (numbering, edges, steps)
+    fastg/               FastgCodec; SPAdes/Bandage dialect, paths and overlaps dropped
   de_bruijn_conversion/
     de_bruijn_graph.rs   DeBruijn (paths or full topology), compaction to DTO
     colored_dbg.rs       ColoredDBG (input paths re-walked through the k-mers on output)
@@ -85,9 +92,9 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 
 ## Format notes
 
-- **IDs**: VG and ODGI keep node ids only when every name is a distinct, positive, canonically written integer; otherwise nodes are numbered `1..=n`. `id_map.rs` is shared by VG, GBZ and numeric GFA names.
+- **IDs**: VG and ODGI keep node ids only when every name is a distinct, positive, canonically written integer; otherwise nodes are numbered `1..=n`. `common/id_map.rs` is shared by VG, GBZ and numeric GFA names.
 - **Fidelity**: VG drops per-step path overlaps; GBZ keeps only what its paths imply (no overlaps, no off-path or repeated edges); ODGI drops overlaps; FASTG drops paths and overlaps.
-- **GFA walks**: `W` lines become paths named as vg names them (`gfa_parser::walk_path_name`, checked against vg 1.73); the writer emits P lines only. odgi ignores W lines and GBZ keeps only a walk's subrange start, so the `walks` fixture has only a VG reference file.
+- **GFA walks**: `W` lines become paths named as vg names them (`gfa/reader/walks.rs::walk_path_name`, checked against vg 1.73); the writer emits P lines only. odgi ignores W lines and GBZ keeps only a walk's subrange start, so the `walks` fixture has only a VG reference file.
 - **ODGI**: the `.og` layout is odgi-internal and unversioned. `docs/odgi_format.md` documents it; `utils/dump_odgi.py` dumps a file.
 - **GBZ**: unlike `vg gbwt`, we do not chop nodes to 1024 bp, and all paths are written as generic paths.
 
@@ -105,13 +112,14 @@ Other directories: `docs/odgi_format.md` (ODGI binary layout), `utils/` (fixture
 - **No panics in the library**: no `unwrap`/`expect`/unchecked indexing on untrusted data; validate and return an error. Tests may unwrap.
 - **CLI errors**: `anyhow::Result` in handlers with `.context(...)`; `main.rs` prints the chain. Usage errors go through clap.
 - **Logging**: `log` macros (`debug!`, `info!`, `warn!`). Logs go to stderr; the CLI shows `info` (progress) by default, `-q` / `-v` change that and `RUST_LOG` overrides. stdout is for data only (`println!` only for actual CLI output), since `-o -` writes graphs there.
+- **Module visibility**: inside `formats/<name>/`, share items between sibling files with `pub(super)` (`pub(crate)` in a private module trips clippy's `redundant_pub_crate`). Unit tests that need internals of several submodules go in `<name>/tests.rs`.
 - **Safety**: safe Rust; any `unsafe` needs a measured reason and a `// SAFETY:` comment.
 - **Performance**: large inputs (e.g. HPRC chr22) are the target. Stream I/O, avoid per-element allocation in hot loops, parallelize with `rayon`, and keep output deterministic.
 - Match surrounding code: doc comments on public items (`# Errors` sections where clippy asks), module-level `//!` docs describing the algorithm or format.
 
 ## Adding a format
 
-1. Add `formats/<name>_format.rs` with a codec struct implementing `GraphParser` and/or `GraphSerializer`.
+1. Add `formats/<name>/` with a codec struct in `mod.rs` implementing `GraphParser` and/or `GraphSerializer` by delegating to `reader.rs` / `writer.rs` (split further into submodules when they grow; shared helpers go to `formats/common/`).
 2. Export it from `formats/mod.rs`.
 3. Register it in `GraphFormat` (`lib.rs`): variant, `iter`, `Display`, extension mapping, parser/serializer, description.
 4. Add a `Fidelity` constant in `tests/common/mod.rs`, round-trip tests, and fixtures.
