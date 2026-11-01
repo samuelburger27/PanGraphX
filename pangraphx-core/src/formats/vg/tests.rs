@@ -5,6 +5,7 @@ use super::*;
 use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::error::{PanGraphXError, PanResult};
+use crate::formats::common::bgzf::{self, BgzfReader};
 use crate::proto_gen::vg as vg_proto;
 use crate::traits::{GraphParser, GraphSerializer};
 use flate2::Compression;
@@ -574,12 +575,17 @@ fn test_parallel_parse_is_deterministic() {
     let mut buf = Vec::new();
     VGCodec.serialize(&original, &mut buf).unwrap();
 
-    let parse = |threads: usize, window: usize| {
+    let on_threads = |threads: usize, parse: &(dyn Fn() -> CoreGraphDTO + Sync)| {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
             .build()
             .unwrap();
-        pool.install(|| parse_vg(&mut Cursor::new(&buf), window).unwrap())
+        pool.install(parse)
+    };
+    let parse = |threads: usize, window: usize| {
+        on_threads(threads, &|| {
+            parse_vg(&mut Cursor::new(&buf), window).unwrap()
+        })
     };
     let expected = parse(1, VG_READ_WINDOW);
     assert!(
@@ -597,6 +603,23 @@ fn test_parallel_parse_is_deterministic() {
             parse(threads, window),
             expected,
             "{threads} threads, window {window}"
+        );
+    }
+
+    // BGZF batches of one block, a few blocks and the whole stream.
+    let compressed = bgzf::compress(&buf, 4096);
+    for (threads, window, batch) in [
+        (1, 1, 1),
+        (4, 50_000, 20_000),
+        (3, VG_READ_WINDOW, usize::MAX),
+    ] {
+        let parsed = on_threads(threads, &|| {
+            let mut reader = BgzfReader::with_batch_len(Cursor::new(&compressed), batch);
+            parse_vg(&mut reader, window).unwrap()
+        });
+        assert_eq!(
+            parsed, expected,
+            "BGZF: {threads} threads, window {window}, batch {batch}"
         );
     }
 }
@@ -684,8 +707,8 @@ fn test_truncated_message_is_rejected() {
     );
 }
 
-/// `data` as gzip members of at most `block` bytes each, like BGZF (whose
-/// members also carry a block size field, which readers need not use).
+/// `data` as plain gzip members (without BGZF's block size field) of at most
+/// `block` bytes each.
 fn gzip_members(data: &[u8], block: usize) -> Vec<u8> {
     let mut out = Vec::new();
     for chunk in data.chunks(block) {
@@ -702,11 +725,15 @@ fn test_compressed_stream_is_decompressed() {
     VGCodec.serialize(&make_simple_graph(), &mut raw).unwrap();
     let expected = VGCodec.parse(&mut Cursor::new(&raw)).unwrap();
 
-    // One member, and members splitting varints and messages.
+    // One member or block, and members or blocks splitting varints and messages.
     for block in [raw.len(), 7, 1] {
-        let compressed = gzip_members(&raw, block);
-        let parsed = VGCodec.parse(&mut Cursor::new(&compressed)).unwrap();
-        assert_eq!(parsed, expected, "members of {block} bytes");
+        let gzip = gzip_members(&raw, block);
+        let parsed = VGCodec.parse(&mut Cursor::new(&gzip)).unwrap();
+        assert_eq!(parsed, expected, "gzip members of {block} bytes");
+
+        let bgzf = bgzf::compress(&raw, block);
+        let parsed = VGCodec.parse(&mut Cursor::new(&bgzf)).unwrap();
+        assert_eq!(parsed, expected, "BGZF blocks of {block} bytes");
     }
 }
 
@@ -731,14 +758,7 @@ fn test_truncated_compressed_stream_is_rejected() {
 }
 
 #[test]
-fn test_gzip_detection_keeps_position() {
-    let mut cursor = Cursor::new(b"xx\x1F\x8B\x08rest".to_vec());
-    assert!(!super::framing::is_gzip(&mut cursor).unwrap());
-    cursor.set_position(2);
-    assert!(super::framing::is_gzip(&mut cursor).unwrap());
-    assert_eq!(cursor.position(), 2);
-    // Shorter than the magic, and the empty stream (an empty graph).
-    assert!(!super::framing::is_gzip(&mut Cursor::new(b"\x1F\x8B")).unwrap());
+fn test_empty_input_is_an_empty_graph() {
     let empty = VGCodec.parse(&mut Cursor::new(b"")).unwrap();
     assert_eq!(empty.nodes().len(), 0);
 }
