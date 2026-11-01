@@ -1,6 +1,6 @@
 use super::core_types::{Edge, Node, NodeId, NodeName, Nodes, Path};
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// The main graph data transfer object (DTO) containing nodes, edges, and paths
 /// for serialization and deserialization.
@@ -60,17 +60,19 @@ impl CoreGraphDTO {
     }
 }
 
+#[cfg(test)]
 impl CoreGraphDTO {
-    /// Checks whether two graphs are equal up to node, edge and path order.
+    /// Checks whether two graphs are equal up to node, edge and path order,
+    /// matching nodes by name (from `node_name_map` or stringified IDs).
     ///
-    /// Despite the name this is *name-based*, not a graph isomorphism: nodes
-    /// are matched by name (from `node_name_map` or stringified IDs), so
-    /// duplicate sequences are handled. Edges are compared as a set in their
-    /// stored direction (`a+ -> b+` differs from its mirror `b- -> a-`, and
-    /// repeated edges are not counted), and path overlaps are ignored. The
-    /// integration tests compare graphs with `tests/common::canonical` instead.
-    #[must_use]
-    pub fn isomorphic(&self, other: &Self) -> bool {
+    /// Duplicate sequences are handled since matching is by name. Edges are
+    /// compared as a set in their stored direction (`a+ -> b+` differs from
+    /// its mirror `b- -> a-`, and repeated edges are not counted), and path
+    /// overlaps are ignored. The integration tests compare graphs with
+    /// `tests/common::canonical` instead.
+    pub(crate) fn eq_by_node_names(&self, other: &Self) -> bool {
+        use std::collections::HashSet;
+
         // Quick cardinality checks
         if self.nodes.len() != other.nodes.len()
             || self.edges.len() != other.edges.len()
