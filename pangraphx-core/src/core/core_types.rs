@@ -38,12 +38,13 @@ impl From<bool> for Orientation {
 }
 
 /// A node (or segment) in the graph, containing a DNA sequence.
+///
+/// A node's id is its index in [`Nodes`]; it is not stored, so iterate with
+/// `enumerate` when the id is needed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Node {
-    // DNA sequence of the node
+    /// DNA sequence of the node.
     pub sequence: Sequence,
-    // Unique identifier for the node (also used as index into node vector)
-    pub id: NodeId,
 }
 
 /// An edge (or link) connecting two nodes with specific orientations.
@@ -136,10 +137,7 @@ pub struct Path {
     pub overlaps: Vec<u32>,
 }
 
-/// A collection of nodes in the graph.
-///
-/// Wraps a vector of `Node` and enforces the invariant that node IDs correspond to their index in the vector.
-/// Invariant: Node IDs are unique and correspond to their index in the vector.
+/// A collection of nodes in the graph, indexed by [`NodeId`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Nodes(Vec<Node>);
 
@@ -149,38 +147,21 @@ impl Nodes {
     pub const fn new() -> Self {
         Self(Vec::new())
     }
-    /// Creates a new `Nodes` collection from a vector of sequences
+    /// Creates a new `Nodes` collection from a vector of sequences; the
+    /// sequence at index `i` becomes node `i`.
     #[must_use]
     pub fn from_seq(nodes: Vec<Sequence>) -> Self {
-        let nodes = nodes
-            .into_iter()
-            .enumerate()
-            .map(|(id, sequence)| Node { sequence, id })
-            .collect();
-        Self(nodes)
+        Self(
+            nodes
+                .into_iter()
+                .map(|sequence| Node { sequence })
+                .collect(),
+        )
     }
 
-    /// Creates a `Nodes` collection from a vector of `Node`, ensuring that node IDs are unique and correspond to their index.
-    ///
-    /// # Errors
-    /// Returns an error if any node ID does not match its index in the vector.
-    pub fn from_node_vec(nodes: Vec<Node>) -> PanResult<Self> {
-        // Ensure node IDs are unique and correspond to their index
-        for (index, node) in nodes.iter().enumerate() {
-            if node.id != index {
-                return Err(PanGraphXError::InvalidGraph(format!(
-                    "Node ID {} does not match its index {}",
-                    node.id, index
-                )));
-            }
-        }
-        Ok(Self(nodes))
-    }
-
-    /// Adds a new node with the given sequence, automatically assigning it the next available ID.
+    /// Adds a new node with the given sequence; its id is the next index.
     pub fn push(&mut self, sequence: Sequence) {
-        let id = self.0.len();
-        self.0.push(Node { sequence, id });
+        self.0.push(Node { sequence });
     }
 
     /// Returns the number of nodes in the collection.
@@ -195,8 +176,7 @@ impl Nodes {
         self.0.is_empty()
     }
 
-    /// Returns the sequence of a node for editing. Nodes themselves are not
-    /// handed out mutably, so their ids always match their index.
+    /// Returns the sequence of a node for editing.
     pub fn sequence_mut(&mut self, node_id: NodeId) -> Option<&mut Sequence> {
         self.0.get_mut(node_id).map(|node| &mut node.sequence)
     }
@@ -217,17 +197,10 @@ impl Nodes {
         self.0.iter()
     }
 
-    /// Removes a node by its ID and returns it if it exists.
-    /// Note: This will shift all subsequent nodes down by one and update their IDs accordingly.
+    /// Removes a node by its ID and returns it if it exists. Every later
+    /// node's id drops by one.
     pub(crate) fn remove(&mut self, node_id: NodeId) -> Option<Node> {
-        if node_id < self.0.len() {
-            for i in (node_id + 1)..self.0.len() {
-                self.0[i].id = i - 1;
-            }
-            Some(self.0.remove(node_id))
-        } else {
-            None
-        }
+        (node_id < self.0.len()).then(|| self.0.remove(node_id))
     }
 
     /// Returns a parallel iterator over the nodes in the collection.

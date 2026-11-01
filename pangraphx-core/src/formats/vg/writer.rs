@@ -2,7 +2,7 @@
 
 use super::framing::write_vg_group;
 use super::orientations_to_vg_edge;
-use crate::core::core_types::{Edge, Node, Path};
+use crate::core::core_types::{Edge, Node, NodeId, Path};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::error::PanResult;
 use crate::formats::common::id_map::{IdMap, parse_canonical_int};
@@ -24,7 +24,11 @@ pub(super) const VG_GROUP_SIZE: usize = 1000;
 /// Nodes come first, then edges, then paths, so every message only refers to
 /// nodes a reader has already seen.
 pub(super) enum VgChunk<'a> {
-    Nodes(&'a [Node]),
+    /// Nodes `first..first + nodes.len()`.
+    Nodes {
+        first: NodeId,
+        nodes: &'a [Node],
+    },
     Edges(&'a [Edge]),
     /// Steps `start..end` of `path`.
     Path {
@@ -40,7 +44,11 @@ pub(super) fn vg_chunks(graph: &CoreGraphDTO) -> Vec<VgChunk<'_>> {
         .nodes()
         .as_slice()
         .chunks(VG_CHUNK_SIZE)
-        .map(VgChunk::Nodes)
+        .enumerate()
+        .map(|(i, nodes)| VgChunk::Nodes {
+            first: i * VG_CHUNK_SIZE,
+            nodes,
+        })
         .collect();
     chunks.extend(graph.edges().chunks(VG_CHUNK_SIZE).map(VgChunk::Edges));
     for path in graph.paths() {
@@ -94,14 +102,14 @@ impl<'a> VgWriteContext<'a> {
         Self { graph, vg_ids }
     }
 
-    fn node(&self, node: &Node) -> vg_proto::Node {
-        let vg_id = self.vg_ids[node.id];
+    fn node(&self, id: NodeId, node: &Node) -> vg_proto::Node {
+        let vg_id = self.vg_ids[id];
         // Only set name if it differs from the ID string
         let name = self
             .graph
             .node_name_map()
             .as_ref()
-            .and_then(|m| m.get(&node.id))
+            .and_then(|m| m.get(&id))
             .filter(|name| name.as_slice() != itoa::Buffer::new().format(vg_id).as_bytes())
             .map(|name| String::from_utf8_lossy(name).into_owned())
             .unwrap_or_default();
@@ -159,8 +167,12 @@ impl<'a> VgWriteContext<'a> {
 
     fn encode(&self, chunk: &VgChunk<'_>) -> Vec<u8> {
         let graph = match *chunk {
-            VgChunk::Nodes(nodes) => vg_proto::Graph {
-                node: nodes.iter().map(|n| self.node(n)).collect(),
+            VgChunk::Nodes { first, nodes } => vg_proto::Graph {
+                node: nodes
+                    .iter()
+                    .zip(first..)
+                    .map(|(n, id)| self.node(id, n))
+                    .collect(),
                 ..Default::default()
             },
             VgChunk::Edges(edges) => vg_proto::Graph {

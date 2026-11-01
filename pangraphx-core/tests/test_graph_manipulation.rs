@@ -116,8 +116,6 @@ fn test_remove_node() {
     assert_eq!(graph.node_count(), 2);
     assert_eq!(graph.nodes()[0].sequence, b"TGCA");
     assert_eq!(graph.nodes()[1].sequence, b"GCTA");
-    assert_eq!(graph.nodes()[0].id, 0);
-    assert_eq!(graph.nodes()[1].id, 1);
 }
 
 #[test]

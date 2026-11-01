@@ -1,6 +1,6 @@
 //! FASTG writer: a forward and a reverse (`'`) record per node, `SPAdes` style.
 
-use crate::core::core_types::{Edge, Node, NodeId, Nodes, Orientation};
+use crate::core::core_types::{Edge, NodeId, Nodes, Orientation};
 use crate::core::graph_dto::CoreGraphDTO;
 use crate::core::graph_utils::oriented_bases;
 use crate::error::PanResult;
@@ -109,11 +109,11 @@ pub(super) fn format_record(
     nodes: &Nodes,
     names: &[Cow<'_, [u8]>],
     successors: &Successors,
-    node: &Node,
+    id: NodeId,
     orientation: Orientation,
     buf: &mut Vec<u8>,
 ) {
-    let strand = handle(node.id, orientation);
+    let strand = handle(id, orientation);
     buf.push(b'>');
     push_record_name(nodes, names, strand, buf);
     let mut previous = None;
@@ -126,6 +126,7 @@ pub(super) fn format_record(
         previous = Some(target);
     }
     buf.extend_from_slice(b";\n");
+    let node = &nodes[id];
     match orientation {
         Orientation::Forward => buf.extend_from_slice(&node.sequence),
         Orientation::Reverse => {
@@ -170,9 +171,9 @@ pub(super) fn write(graph: &CoreGraphDTO, writer: &mut dyn Write) -> PanResult<(
         writer,
         graph.nodes().as_slice(),
         nodes_per_chunk(graph.nodes()),
-        |_, node, buf| {
+        |id, _, buf| {
             for orientation in [Orientation::Forward, Orientation::Reverse] {
-                format_record(graph.nodes(), &names, &successors, node, orientation, buf);
+                format_record(graph.nodes(), &names, &successors, id, orientation, buf);
             }
             Ok(())
         },

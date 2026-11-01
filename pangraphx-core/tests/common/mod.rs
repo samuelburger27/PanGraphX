@@ -193,9 +193,9 @@ pub fn canonical(g: &CoreGraphDTO, f: Fidelity) -> CanonicalGraph {
     let label = labels(g, f.names);
 
     let mut segments = BTreeMap::new();
-    for node in g.nodes().iter() {
+    for (id, node) in g.nodes().iter().enumerate() {
         *segments
-            .entry((label[node.id].clone(), sequence(&node.sequence)))
+            .entry((label[id].clone(), sequence(&node.sequence)))
             .or_insert(0) += 1;
     }
 

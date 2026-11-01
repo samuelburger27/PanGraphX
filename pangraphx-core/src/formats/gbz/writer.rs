@@ -40,10 +40,10 @@ pub(super) fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
         .as_ref()
         .filter(|map| !names_are_gbz_ids(map, graph.nodes().len()))
     {
-        for node in graph.nodes().iter() {
-            let name = name_map.get(&node.id).ok_or_else(|| {
-                PanGraphXError::Serialize(format!("Missing name for node {}", node.id))
-            })?;
+        for (id, node) in graph.nodes().iter().enumerate() {
+            let name = name_map
+                .get(&id)
+                .ok_or_else(|| PanGraphXError::Serialize(format!("Missing name for node {id}")))?;
             let name = std::str::from_utf8(name).map_err(|e| {
                 PanGraphXError::Serialize(format!("Invalid UTF-8 segment name: {e}"))
             })?;
@@ -52,9 +52,9 @@ pub(super) fn build_gbz(graph: &CoreGraphDTO) -> PanResult<GBZ> {
                 .map_err(PanGraphXError::Serialize)?;
         }
     } else {
-        for node in graph.nodes().iter() {
+        for (id, node) in graph.nodes().iter().enumerate() {
             graph_builder
-                .add_node(node.id + 1, &node.sequence)
+                .add_node(id + 1, &node.sequence)
                 .map_err(PanGraphXError::Serialize)?;
         }
     }
