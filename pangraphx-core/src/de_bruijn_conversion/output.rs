@@ -15,7 +15,7 @@ use super::word::{KmerWord, decode_word_into, edge_ends};
 use crate::core::core_types::Sequence;
 use crate::error::PanResult;
 use crate::formats::common::chunked::{RECORDS_PER_CHUNK, write_records};
-use crate::formats::gfa_format::{GFA_HEADER, orientation_byte};
+use crate::formats::gfa::{GFA_HEADER, orientation_byte};
 use std::io::Write;
 
 /// Appends the decimal form of `value` to `buf`.
