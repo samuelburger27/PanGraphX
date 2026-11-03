@@ -123,8 +123,10 @@ OPS="gfa_to_vg vg_to_gfa" RUNS=20 benchmarks/compare_tools.sh merged
 ```
 
 How sampling works:
-- hyperfine's sample count scales with input size: 20 runs under 1 MiB, down to
-  3 runs at 256 MiB and above. `WARMUP` / `RUNS` override this.
+- hyperfine's sample count scales with input size: 20 runs under 1 MiB and 10
+  runs above. Warmups drop from 3 to 0 as inputs grow. `gfa_to_vg` on inputs of
+  64 MiB and above is the exception: 3 runs, no warmup, since `vg convert` is
+  slow there. `WARMUP` / `RUNS` override all of this.
 - hyperfine ≥ 2 records the peak RSS of every run alongside its wall-clock
   time (`getrusage` of the child, the same number `time -l` / `time -v`
   reports). `summary.md` gets a time table and a peak-RSS table (median and

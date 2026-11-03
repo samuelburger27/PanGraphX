@@ -69,9 +69,9 @@ for ds in "${DATASETS[@]}"; do
     dir="$WORK/$name"
     dataset_banner "$name ($gfa)"
 
-    sampling_for_size "$(file_size "$gfa")"
+    size="$(file_size "$gfa")"
     prepare_inputs "$dir" "$gfa"
-    printf '\n## %s (warmup %s, runs %s)\n' "$name" "$HF_WARMUP" "$HF_RUNS" >>"$SUMMARY"
+    printf '\n## %s\n' "$name" >>"$SUMMARY"
 
     for op in "${OPS_SELECTED[@]}"; do
         if ! op_available "$op"; then continue; fi
@@ -81,9 +81,10 @@ for ds in "${DATASETS[@]}"; do
         fi
         tool="$(op_tool "$op")"
         out="$RUN_DIR/${op}_$name"
+        sampling_for_size "$size" "$op"
 
         echo
-        echo "=== $(op_title "$op") ($name) ==="
+        echo "=== $(op_title "$op") ($name, warmup $HF_WARMUP, runs $HF_RUNS) ==="
         # An explicit --shell is required by hyperfine >= 2 for the '>' in
         # the reference-tool commands. Peak RSS is per run (the largest
         # process, as reported by `time`), so both tools are measured alike.
@@ -92,7 +93,8 @@ for ds in "${DATASETS[@]}"; do
             --export-markdown "$out.md" --export-csv "$out.csv" --export-json "$out.json" \
             --command-name pangraphx "$(op_px_cmd "$op" "$dir" "$gfa")" \
             --command-name "$tool" "$(op_tool_cmd "$op" "$dir" "$gfa")"; then
-            printf '\n### %s\n\n' "$(op_title "$op")" >>"$SUMMARY"
+            printf '\n### %s (warmup %s, runs %s)\n\n' \
+                "$(op_title "$op")" "$HF_WARMUP" "$HF_RUNS" >>"$SUMMARY"
             cat "$out.md" >>"$SUMMARY"
             echo >>"$SUMMARY"
             memory_table "$out.csv" >>"$SUMMARY"

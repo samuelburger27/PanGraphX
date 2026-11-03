@@ -219,16 +219,20 @@ finish_run() {
 
 # --- Sampling ---------------------------------------------------------------
 
-# sampling_for_size <bytes> — sets HF_WARMUP / HF_RUNS for hyperfine, fewer for
-# larger inputs. WARMUP / RUNS env vars override the scaled values.
+# sampling_for_size <bytes> [op] — sets HF_WARMUP / HF_RUNS for hyperfine,
+# fewer for larger inputs. Inputs of 64 MiB and above get 10 runs, except
+# gfa_to_vg (vg convert is slow on big graphs), which is capped at 3 runs with
+# no warmup. WARMUP / RUNS env vars override the scaled values.
 sampling_for_size() {
-    local size="$1" mib=$(( $1 / 1024 / 1024 ))
-    if   (( mib >= 256 )); then HF_WARMUP=0; HF_RUNS=3
-    elif (( mib >= 64 ));  then HF_WARMUP=1; HF_RUNS=5
+    local mib=$(( $1 / 1024 / 1024 )) op="${2:-}"
+    if   (( mib >= 256 )); then HF_WARMUP=0; HF_RUNS=10
+    elif (( mib >= 64 ));  then HF_WARMUP=1; HF_RUNS=10
     elif (( mib >= 1 ));   then HF_WARMUP=2; HF_RUNS=10
     else                        HF_WARMUP=3; HF_RUNS=20
     fi
-    : "$size"
+    if [[ "$op" == gfa_to_vg ]] && (( mib >= 64 )); then
+        HF_WARMUP=0; HF_RUNS=3
+    fi
     HF_WARMUP="${WARMUP:-$HF_WARMUP}"
     HF_RUNS="${RUNS:-$HF_RUNS}"
 }
