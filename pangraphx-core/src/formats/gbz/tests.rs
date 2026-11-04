@@ -246,3 +246,68 @@ fn flat_bwt_follows_the_same_positions_as_the_gbwt() {
     assert_eq!(positions + gbwt.sequences(), gbwt.len());
     assert!(flat.lf(gbwt.alphabet_size(), 0).is_err());
 }
+
+/// A graph over the named nodes a, b, c, d with a path over the given node ids.
+fn named_graph_with_path(steps: &[usize]) -> CoreGraphDTO {
+    let names = [b"a", b"b", b"c", b"d"];
+    CoreGraphDTO::try_from(GraphParts {
+        nodes: Nodes::from_seq(vec![
+            b"AA".to_vec(),
+            b"CC".to_vec(),
+            b"GG".to_vec(),
+            b"TT".to_vec(),
+        ]),
+        edges: Vec::new(),
+        paths: vec![Path {
+            name: b"p".to_vec(),
+            steps: steps
+                .iter()
+                .map(|&node| Step::new(node, Orientation::Forward).unwrap())
+                .collect(),
+            overlaps: Vec::new(),
+        }],
+        node_name_map: Some(
+            names
+                .iter()
+                .enumerate()
+                .map(|(i, name)| (i, name.to_vec()))
+                .collect(),
+        ),
+    })
+    .unwrap()
+}
+
+#[test]
+fn segments_off_the_paths_are_dropped_wherever_they_are() {
+    // The first segment is off the paths, in the middle, and at the end.
+    for (visited, expected) in [
+        (&[1, 3][..], &["b", "d"]),
+        (&[0, 3], &["a", "d"]),
+        (&[1, 2], &["b", "c"]),
+    ] {
+        let graph = named_graph_with_path(visited);
+        let mut buf = Vec::new();
+        GBZCodec.serialize(&graph, &mut buf).unwrap();
+        let parsed = GBZCodec.parse(&mut Cursor::new(&buf)).unwrap();
+
+        assert_eq!(parsed.nodes().len(), 2, "visiting {visited:?}");
+        for (id, name) in expected.iter().enumerate() {
+            assert_eq!(parsed.node_label(id), *name, "visiting {visited:?}");
+        }
+        let names: Vec<String> = parsed.paths()[0]
+            .steps
+            .iter()
+            .map(|step| parsed.node_label(step.node_id()).to_string())
+            .collect();
+        assert_eq!(names, expected.map(String::from), "visiting {visited:?}");
+    }
+}
+
+#[test]
+fn graph_without_path_steps_is_an_error() {
+    let mut buf = Vec::new();
+    let error = GBZCodec
+        .serialize(&named_graph_with_path(&[]), &mut buf)
+        .unwrap_err();
+    assert!(error.to_string().contains("without path steps"), "{error}");
+}
