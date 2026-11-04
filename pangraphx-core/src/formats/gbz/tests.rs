@@ -3,13 +3,14 @@ use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::traits::{GraphParser, GraphSerializer};
 use gbz_construct::sequences::Sequences;
 use gbz_construct::{
-    FullPathName, GBWTBuilder, GBZ, GENERIC_HAPLOTYPE, GraphBuilder, Orientation as GbzOrientation,
-    Tags, support,
+    FullPathName, GBWT, GBWTBuilder, GBZ, GENERIC_HAPLOTYPE, GraphBuilder,
+    Orientation as GbzOrientation, Tags, support,
 };
 use simple_sds::serialize::SerializeVersion;
 use std::collections::HashMap;
 use std::io::Cursor;
 
+use super::flat_bwt::FlatBwt;
 use super::writer::{GBWT_BUFFER_SIZE, GBZ_SERIALIZE_VERSION, build_gbz};
 use super::*;
 
@@ -127,4 +128,121 @@ fn reads_reference_and_haplotype_paths() {
     for path in parsed.paths() {
         assert_eq!(path.steps, expected_steps);
     }
+}
+
+/// Serializes a GBZ over the given segments and paths of encoded GBZ nodes.
+fn gbz_bytes_with_segments(
+    segments: &[(&str, &[u8], usize)],
+    paths: &[(&str, Vec<usize>)],
+) -> Vec<u8> {
+    let mut graph_builder = GraphBuilder::new();
+    for (name, sequence, max_length) in segments {
+        graph_builder
+            .translate_segment(name, sequence, *max_length)
+            .unwrap();
+    }
+    let mut gbwt_builder = GBWTBuilder::new(true, true, GBWT_BUFFER_SIZE);
+    for (name, path) in paths {
+        gbwt_builder
+            .insert(path, Some(FullPathName::generic(name)))
+            .unwrap();
+    }
+    let gbwt = gbwt_builder.build().unwrap();
+    let sequences = Sequences::from_graph(&gbwt, &graph_builder).unwrap();
+    let gbz = GBZ::from_parts(gbwt, sequences, Tags::new()).unwrap();
+    let mut buf = Vec::new();
+    gbz.serialize_version(&mut buf, GBZ_SERIALIZE_VERSION)
+        .unwrap();
+    buf
+}
+
+fn forward(node: usize) -> usize {
+    support::encode_node(node, GbzOrientation::Forward)
+}
+
+fn reverse(node: usize) -> usize {
+    support::encode_node(node, GbzOrientation::Reverse)
+}
+
+#[test]
+fn segments_of_several_nodes_become_one_step() {
+    // Segment a is the GBZ nodes 1..=3 and b is node 4.
+    let segments: [(&str, &[u8], usize); 2] = [("a", b"GATTACA", 3), ("b", b"CG", 3)];
+    let paths = [
+        ("fw", vec![forward(1), forward(2), forward(3), forward(4)]),
+        ("rv", vec![reverse(4), reverse(3), reverse(2), reverse(1)]),
+        (
+            "mixed",
+            vec![forward(4), reverse(3), reverse(2), reverse(1)],
+        ),
+    ];
+    let buf = gbz_bytes_with_segments(&segments, &paths);
+    let parsed = GBZCodec.parse(&mut Cursor::new(&buf)).unwrap();
+
+    assert_eq!(parsed.nodes().len(), 2);
+    assert_eq!(parsed.nodes()[0].sequence, b"GATTACA");
+    let step = |node, orientation| Step::new(node, orientation).unwrap();
+    let (fw, rv) = (Orientation::Forward, Orientation::Reverse);
+    assert_eq!(parsed.paths()[0].steps, [step(0, fw), step(1, fw)]);
+    assert_eq!(parsed.paths()[1].steps, [step(1, rv), step(0, rv)]);
+    assert_eq!(parsed.paths()[2].steps, [step(1, fw), step(0, rv)]);
+}
+
+#[test]
+fn path_over_part_of_a_segment_is_an_error() {
+    let segments: [(&str, &[u8], usize); 2] = [("a", b"GATTACA", 3), ("b", b"CG", 3)];
+    for (description, path) in [
+        ("skips a node", vec![forward(1), forward(3), forward(4)]),
+        ("starts inside", vec![forward(2), forward(3), forward(4)]),
+        ("leaves early", vec![forward(1), forward(4)]),
+    ] {
+        // The valid path keeps all nodes in the GBWT.
+        let valid = vec![forward(1), forward(2), forward(3), forward(4)];
+        let buf = gbz_bytes_with_segments(&segments, &[("valid", valid), ("p", path)]);
+        let result = GBZCodec.parse(&mut Cursor::new(&buf));
+        assert!(result.is_err(), "the path {description}");
+    }
+}
+
+#[test]
+fn flat_bwt_follows_the_same_positions_as_the_gbwt() {
+    // Branching paths with a repeated node, so that records have several runs.
+    let paths = [
+        ("p1", vec![forward(1), forward(2), forward(4), forward(5)]),
+        ("p2", vec![forward(1), forward(3), forward(4), reverse(5)]),
+        (
+            "p3",
+            vec![forward(1), forward(2), forward(4), forward(1), forward(3)],
+        ),
+        ("p4", vec![forward(1), forward(3), forward(4), forward(5)]),
+        ("p5", vec![forward(1), forward(2), forward(4), reverse(5)]),
+    ];
+    let segments: [(&str, &[u8], usize); 5] = [
+        ("a", b"A", 0),
+        ("b", b"C", 0),
+        ("c", b"G", 0),
+        ("d", b"T", 0),
+        ("e", b"AA", 0),
+    ];
+    let buf = gbz_bytes_with_segments(&segments, &paths);
+    let gbz: GBZ = simple_sds::serialize::Serialize::load(&mut Cursor::new(&buf)).unwrap();
+    let gbwt: &GBWT = gbz.as_ref();
+    let flat = FlatBwt::new(gbwt).unwrap();
+
+    let mut positions = 0;
+    for sequence in 0..gbwt.sequences() {
+        let mut position = gbwt.start(sequence);
+        while let Some(pos) = position {
+            let next = gbwt.forward(pos);
+            assert_eq!(
+                flat.lf(pos.node, pos.offset).unwrap(),
+                next.map(|next| (next.node, next.offset)),
+                "at {pos:?}"
+            );
+            position = next;
+            positions += 1;
+        }
+    }
+    assert_eq!(positions + gbwt.sequences(), gbwt.len());
+    assert!(flat.lf(gbwt.alphabet_size(), 0).is_err());
 }

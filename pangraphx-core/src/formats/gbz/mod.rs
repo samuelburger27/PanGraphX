@@ -5,6 +5,7 @@
 //! the paths and writes GBZ version 2, which vg can read. Only what the paths
 //! imply is kept: no overlaps, no off-path or repeated edges.
 
+mod flat_bwt;
 mod reader;
 mod writer;
 
