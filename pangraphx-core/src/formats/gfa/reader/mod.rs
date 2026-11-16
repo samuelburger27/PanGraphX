@@ -38,7 +38,7 @@ use records::read_links_and_paths;
 use segments::{SegmentIndex, read_segments, segment_line};
 use std::io::{Read, Seek, SeekFrom};
 
-/// Target size of a block of lines read at once.
+/// Target size of a block of lines read at once (16mb)
 const BLOCK_SIZE: usize = 16 << 20;
 
 /// Result of parsing a single record; the message is prefixed with the line number by the caller.
