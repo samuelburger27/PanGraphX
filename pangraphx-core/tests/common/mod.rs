@@ -396,8 +396,7 @@ pub fn fixture(rel: &str) -> PathBuf {
 #[must_use]
 pub fn stem(path: &Path) -> String {
     path.file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_else(String::new, |s| s.to_string_lossy().into_owned())
 }
 
 /// Parses a file, panicking with its path on failure.
