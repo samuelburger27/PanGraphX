@@ -101,9 +101,7 @@ impl<'r, R: Read> VgFrames<'r, R> {
 
     /// Replaces the contents of `window` with the next messages, until they
     /// hold at least `budget` bytes or the stream ends; an empty window means
-    /// the stream has ended. Windows are reused: allocating a fresh buffer per
-    /// window left the freed ones resident in the macOS allocator and doubled
-    /// the peak memory of a chr22 load.
+    /// the stream has ended. Windows are reused
     fn read_window(&mut self, budget: usize, window: &mut RawWindow) -> PanResult<()> {
         window.bytes.clear();
         window.messages.clear();
