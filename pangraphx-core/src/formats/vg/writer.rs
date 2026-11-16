@@ -111,8 +111,9 @@ impl<'a> VgWriteContext<'a> {
             .as_ref()
             .and_then(|m| m.get(&id))
             .filter(|name| name.as_slice() != itoa::Buffer::new().format(vg_id).as_bytes())
-            .map(|name| String::from_utf8_lossy(name).into_owned())
-            .unwrap_or_default();
+            .map_or_else(String::new, |name| {
+                String::from_utf8_lossy(name).into_owned()
+            });
         vg_proto::Node {
             sequence: String::from_utf8_lossy(&node.sequence).into_owned(),
             name,
