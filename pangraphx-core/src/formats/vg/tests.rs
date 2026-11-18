@@ -5,10 +5,13 @@ use super::*;
 use crate::core::core_types::{Edge, Nodes, Orientation, Path, Step};
 use crate::core::graph_dto::{CoreGraphDTO, GraphParts};
 use crate::error::{PanGraphXError, PanResult};
+use crate::formats::common::bgzf::{self, BgzfReader};
 use crate::proto_gen::vg as vg_proto;
 use crate::traits::{GraphParser, GraphSerializer};
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use std::collections::HashMap;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 
 // ---- Orientation mapping tests ----
 
@@ -572,12 +575,17 @@ fn test_parallel_parse_is_deterministic() {
     let mut buf = Vec::new();
     VGCodec.serialize(&original, &mut buf).unwrap();
 
-    let parse = |threads: usize, window: usize| {
+    let on_threads = |threads: usize, parse: &(dyn Fn() -> CoreGraphDTO + Sync)| {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
             .build()
             .unwrap();
-        pool.install(|| parse_vg(&mut Cursor::new(&buf), window).unwrap())
+        pool.install(parse)
+    };
+    let parse = |threads: usize, window: usize| {
+        on_threads(threads, &|| {
+            parse_vg(&mut Cursor::new(&buf), window).unwrap()
+        })
     };
     let expected = parse(1, VG_READ_WINDOW);
     assert!(
@@ -595,6 +603,23 @@ fn test_parallel_parse_is_deterministic() {
             parse(threads, window),
             expected,
             "{threads} threads, window {window}"
+        );
+    }
+
+    // BGZF batches of one block, a few blocks and the whole stream.
+    let compressed = bgzf::compress(&buf, 4096);
+    for (threads, window, batch) in [
+        (1, 1, 1),
+        (4, 50_000, 20_000),
+        (3, VG_READ_WINDOW, usize::MAX),
+    ] {
+        let parsed = on_threads(threads, &|| {
+            let mut reader = BgzfReader::with_batch_len(Cursor::new(&compressed), batch);
+            parse_vg(&mut reader, window).unwrap()
+        });
+        assert_eq!(
+            parsed, expected,
+            "BGZF: {threads} threads, window {window}, batch {batch}"
         );
     }
 }
@@ -680,6 +705,62 @@ fn test_truncated_message_is_rejected() {
         error.to_string().contains("Unexpected EOF in a VG message"),
         "{error}"
     );
+}
+
+/// `data` as plain gzip members (without BGZF's block size field) of at most
+/// `block` bytes each.
+fn gzip_members(data: &[u8], block: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    for chunk in data.chunks(block) {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(chunk).unwrap();
+        out.extend(encoder.finish().unwrap());
+    }
+    out
+}
+
+#[test]
+fn test_compressed_stream_is_decompressed() {
+    let mut raw = Vec::new();
+    VGCodec.serialize(&make_simple_graph(), &mut raw).unwrap();
+    let expected = VGCodec.parse(&mut Cursor::new(&raw)).unwrap();
+
+    // One member or block, and members or blocks splitting varints and messages.
+    for block in [raw.len(), 7, 1] {
+        let gzip = gzip_members(&raw, block);
+        let parsed = VGCodec.parse(&mut Cursor::new(&gzip)).unwrap();
+        assert_eq!(parsed, expected, "gzip members of {block} bytes");
+
+        let bgzf = bgzf::compress(&raw, block);
+        let parsed = VGCodec.parse(&mut Cursor::new(&bgzf)).unwrap();
+        assert_eq!(parsed, expected, "BGZF blocks of {block} bytes");
+    }
+}
+
+#[test]
+fn test_compressed_stream_keeps_framing_checks() {
+    let mut raw = Vec::new();
+    write_vg_group(&mut raw, &[]).unwrap();
+    raw[2..4].copy_from_slice(b"GA"); // tag "VG" → "GA"
+    let error = VGCodec
+        .parse(&mut Cursor::new(gzip_members(&raw, raw.len())))
+        .unwrap_err();
+    assert!(error.to_string().contains(r#"type tag "GA""#), "{error}");
+}
+
+#[test]
+fn test_truncated_compressed_stream_is_rejected() {
+    let mut raw = Vec::new();
+    VGCodec.serialize(&make_simple_graph(), &mut raw).unwrap();
+    let mut compressed = gzip_members(&raw, raw.len());
+    compressed.truncate(compressed.len() / 2);
+    assert!(VGCodec.parse(&mut Cursor::new(&compressed)).is_err());
+}
+
+#[test]
+fn test_empty_input_is_an_empty_graph() {
+    let empty = VGCodec.parse(&mut Cursor::new(b"")).unwrap();
+    assert_eq!(empty.nodes().len(), 0);
 }
 
 fn make_simple_graph_proto() -> vg_proto::Graph {
