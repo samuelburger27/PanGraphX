@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # dbg.sh — de Bruijn graph construction benchmark (time + peak RSS) of the
-# PanGraphX CLI (`pangraphx-cli dbg`), swept over mode, k and thread count.
+# PanGraphX CLI (`pgx dbg`), swept over mode, k and thread count.
 #
 # Usage:
 #   benchmarks/dbg.sh [DATASET ...]
@@ -76,7 +76,7 @@ CSV="$RUN_DIR/dbg.csv"
 MD="$RUN_DIR/dbg.md"
 echo "dataset,path_bp,mode,k,threads,est_mib,rss_mib,wall_s,status" >"$CSV"
 {
-    echo "# de Bruijn graph construction (pangraphx-cli dbg)"
+    echo "# de Bruijn graph construction (pgx dbg)"
     echo
     echo "Budget $BUDGET_MIB MiB, timeout ${TIMEOUT_S}s. Output written as GFA (included in time)."
     echo
@@ -84,13 +84,13 @@ echo "dataset,path_bp,mode,k,threads,est_mib,rss_mib,wall_s,status" >"$CSV"
     echo "|---------|------|--:|--------:|---------------:|---------:|--------|"
 } >"$MD"
 
-# path_bp <gfa> -> total bases over all paths (via `pangraphx-cli stats`).
+# path_bp <gfa> -> total bases over all paths (via `pgx stats`).
 path_bp() {
     NO_COLOR=1 "$PANGRAPHX" stats "$1" 2>/dev/null |
         sed -n 's/.*(total \([0-9,]*\) bp).*/\1/p' | tr -d ',' | head -1
 }
 
-# node_bp <gfa> -> total node sequence length (via `pangraphx-cli stats`).
+# node_bp <gfa> -> total node sequence length (via `pgx stats`).
 node_bp() {
     NO_COLOR=1 "$PANGRAPHX" stats "$1" 2>/dev/null |
         sed -n 's/^ *Total length: *\([0-9,]*\) bp.*/\1/p' | tr -d ',' | head -1

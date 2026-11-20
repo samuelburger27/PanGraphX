@@ -17,7 +17,7 @@
 #
 # Environment:
 #   PANGRAPHX_BIN  benchmark this pre-built binary instead of building
-#   SKIP_BUILD=1   reuse target/dist/pangraphx-cli without rebuilding
+#   SKIP_BUILD=1   reuse target/dist/pgx without rebuilding
 #   WARMUP, RUNS   fixed hyperfine sampling (default: scaled by input size)
 #   OPS            space-separated subset of operations (default: all)
 #   VG_THREADS     jobs given to vg gbwt (default: all cores)

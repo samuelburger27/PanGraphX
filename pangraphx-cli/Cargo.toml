@@ -5,6 +5,10 @@ edition = "2024"
 description = "CLI tool based on PanGraphX: converting and inspecting genome graphs."
 license = "MIT"
 
+[[bin]]
+name = "pgx"
+path = "src/main.rs"
+
 [lints]
 workspace = true
 

@@ -64,7 +64,11 @@ fn init_logging(cli: &Cli) {
     } else {
         "info"
     };
-    let default = format!("warn,pangraphx_cli={level},pangraphx_core={level}");
+    // The binary's log target is its crate name (the bin name), not the package name.
+    let default = format!(
+        "warn,{}={level},pangraphx_core={level}",
+        env!("CARGO_CRATE_NAME")
+    );
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default))
         .format(|buf, record| {
             if record.level() == Level::Info {
