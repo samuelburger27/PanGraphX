@@ -8,7 +8,7 @@
 #   benchmarks/setup_ubuntu.sh [--skip-data] [--skip-build]
 #
 #   --skip-data   do not download the large GFA graphs (utils/download_gfa.sh)
-#   --skip-build  do not build target/dist/pangraphx-cli
+#   --skip-build  do not build target/dist/pgx
 #
 # Safe to re-run: every step is skipped when its result is already present.
 # vg and odgi are pinned to the versions the thesis results were measured with.

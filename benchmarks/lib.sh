@@ -35,7 +35,7 @@ DEFAULT_DATASETS=(
     chr22.hprc-v1.1-mc-grch38
 )
 
-PANGRAPHX="$REPO_ROOT/target/dist/pangraphx-cli"
+PANGRAPHX="$REPO_ROOT/target/dist/pgx"
 
 log()  { echo ">>> $*"; }
 warn() { echo "WARNING: $*" >&2; }
@@ -132,7 +132,7 @@ discover_tools() {
 #
 # PANGRAPHX_BIN selects a pre-built executable; otherwise the CLI is built from
 # source with the fully optimized `dist` profile. SKIP_BUILD=1 reuses
-# target/dist/pangraphx-cli as-is.
+# target/dist/pgx as-is.
 ensure_pangraphx() {
     if [[ -n "${PANGRAPHX_BIN:-}" ]]; then
         PANGRAPHX="$PANGRAPHX_BIN"

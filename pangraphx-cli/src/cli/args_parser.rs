@@ -4,6 +4,7 @@ use std::fmt;
 
 #[derive(Parser, Debug)]
 #[command(
+    name = "pgx",
     version,
     about,
     subcommand_required = true,
@@ -49,14 +50,14 @@ pub enum Commands {
     /// Convert genome graphs between formats
     #[command(
         arg_required_else_help = true,
-        after_help = "Examples:\n  pangraphx-cli convert graph.gfa -o graph.gbz\n  pangraphx-cli convert graph.dat -o graph.vg --from gfa\n  zcat graph.gfa.gz | pangraphx-cli convert - --from gfa -o - --to vg > graph.vg"
+        after_help = "Examples:\n  pgx convert graph.gfa -o graph.gbz\n  pgx convert graph.dat -o graph.vg --from gfa\n  zcat graph.gfa.gz | pgx convert - --from gfa -o - --to vg > graph.vg"
     )]
     Convert(ConvertArgs),
 
     /// Build a de Bruijn graph from a variation graph
     #[command(
         arg_required_else_help = true,
-        after_help = "Output is GFA, or FASTA for unitigs (-u); other graph formats cannot store the\nk-1 overlaps of a de Bruijn graph.\n\nExamples:\n  pangraphx-cli dbg graph.vg -k 31 -o dbg.gfa\n  pangraphx-cli dbg graph.gfa -k 21 -c --compact -o unitigs.gfa\n  pangraphx-cli dbg graph.gfa -k 31 -u -o unitigs.fa"
+        after_help = "Output is GFA, or FASTA for unitigs (-u); other graph formats cannot store the\nk-1 overlaps of a de Bruijn graph.\n\nExamples:\n  pgx dbg graph.vg -k 31 -o dbg.gfa\n  pgx dbg graph.gfa -k 21 -c --compact -o unitigs.gfa\n  pgx dbg graph.gfa -k 31 -u -o unitigs.fa"
     )]
     Dbg(DbgArgs),
 

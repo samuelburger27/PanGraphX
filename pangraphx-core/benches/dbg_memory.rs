@@ -13,7 +13,7 @@
 //! * `dbg_retained` — held by the finished DBG (for colored modes this
 //!   includes the input graph, which is walked again on output);
 //! * `total_peak`   — peak including the output, produced as
-//!   `pangraphx-cli dbg` does: k-mer graphs are streamed to GFA (into
+//!   `pgx dbg` does: k-mer graphs are streamed to GFA (into
 //!   `io::sink()`), compacted graphs are converted to a `CoreGraphDTO`;
 //! * `bytes_per_bp` — `total_peak` per path base, the figure to drive down.
 //!
@@ -159,7 +159,7 @@ struct Sample {
 
 /// Builds the DBG for one configuration. All figures are heap bytes above the
 /// live heap before the input graph was cloned, so they include the input
-/// (which construction consumes), as in `pangraphx-cli dbg`.
+/// (which construction consumes), as in `pgx dbg`.
 fn measure(dto: &CoreGraphDTO, mode: Mode, k: usize) -> Sample {
     let base = PeakAlloc::current();
     let graph = dto.clone();
@@ -195,7 +195,7 @@ fn measure(dto: &CoreGraphDTO, mode: Mode, k: usize) -> Sample {
     }
 }
 
-/// Streams a k-mer graph to GFA, as `pangraphx-cli dbg` does.
+/// Streams a k-mer graph to GFA, as `pgx dbg` does.
 fn stream_kmers(dbg: &DeBruijn) -> (usize, usize) {
     let counts = (dbg.node_count(), dbg.edge_count());
     dbg.write_gfa(&mut std::io::sink()).expect("GFA output");

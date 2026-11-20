@@ -2,7 +2,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 fn cli() -> Command {
-    Command::cargo_bin("pangraphx-cli").expect("binary builds")
+    Command::cargo_bin("pgx").expect("binary builds")
 }
 
 fn sample_gfa() -> String {

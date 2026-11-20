@@ -7,7 +7,7 @@
 | `parallel` | criterion | Rayon thread scaling (1 → all cores) of DBG, GFA parse, GFA serialize |
 | `dbg_memory` | custom bench | Peak **heap** of DBG construction over mode × *k* × threads (deterministic) |
 | `compare_tools.sh` | shell + hyperfine | Wall-clock time and peak RSS of PanGraphX vs. `vg` / `odgi` conversions |
-| `dbg.sh` | shell + `time` | End-to-end `pangraphx-cli dbg` time + peak RSS over mode × *k* × threads, memory-guarded |
+| `dbg.sh` | shell + `time` | End-to-end `pgx dbg` time + peak RSS over mode × *k* × threads, memory-guarded |
 
 The Criterion benches measure in-process CPU cost with disk I/O excluded. The
 shell scripts measure whole CLI runs the way a user experiences them.

@@ -7,7 +7,7 @@ A Rust library and command-line tool for converting, inspecting and
 transforming pangenome graphs, including de Bruijn graph construction.
 
 - `pangraphx-core` — the library ([README](pangraphx-core/README.md))
-- `pangraphx-cli` — the command-line tool
+- `pangraphx-cli` — the command-line tool (binary `pgx`)
 
 ## Supported formats
 
@@ -53,34 +53,34 @@ Requires Rust 1.85+ and `protoc` (the VG protobuf schema is compiled at build ti
 ```bash
 git clone https://github.com/samuelburger27/PanGraphX.git
 cd PanGraphX
-cargo build --release          # → target/release/pangraphx-cli
-cargo build --profile dist     # fat LTO, slower build, fastest binary → target/dist/pangraphx-cli
+cargo build --release          # → target/release/pgx
+cargo build --profile dist     # fat LTO, slower build, fastest binary → target/dist/pgx
 ```
 
 ## Usage
 
 ```bash
 # Convert; formats are inferred from the extensions
-pangraphx-cli convert graph.gfa -o graph.gbz
+pgx convert graph.gfa -o graph.gbz
 
 # Use - for stdin/stdout; the format must then be given explicitly
-zcat graph.gfa.gz | pangraphx-cli convert - --from gfa -o - --to vg > graph.vg
+zcat graph.gfa.gz | pgx convert - --from gfa -o - --to vg > graph.vg
 
 # Summary and detailed statistics (N50, components, degrees, path lengths)
-pangraphx-cli info graph.gfa
-pangraphx-cli stats graph.gfa
+pgx info graph.gfa
+pgx stats graph.gfa
 
 # de Bruijn graph with k = 31 (1–63) from the sequences spelled by the paths
-pangraphx-cli dbg graph.vg -k 31 -o dbg.gfa
+pgx dbg graph.vg -k 31 -o dbg.gfa
 
 # Colored DBG (keeps every input path), compacted into unitigs
-pangraphx-cli dbg graph.vg -k 31 -c -u -o unitigs.gfa
+pgx dbg graph.vg -k 31 -c -u -o unitigs.gfa
 
 # Unitig sequences as FASTA, one record per unitig
-pangraphx-cli dbg graph.vg -k 31 -u -o unitigs.fa
+pgx dbg graph.vg -k 31 -u -o unitigs.fa
 
 # List formats
-pangraphx-cli formats
+pgx formats
 ```
 
 `dbg` options: `-c/--colored` keeps the input paths as walks through the

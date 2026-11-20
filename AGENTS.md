@@ -4,7 +4,7 @@ Rust workspace (edition 2024) for converting, inspecting and transforming
 pangenome graphs. Two crates:
 
 - `pangraphx-core` — the library: graph model, format codecs, statistics, de Bruijn construction.
-- `pangraphx-cli` — the `pangraphx-cli` binary built on the library.
+- `pangraphx-cli` — the `pgx` binary built on the library.
 
 Supported formats: GFA 1.0 and 1.1 (walks are read, written as P lines), VG (protobuf), GBZ, ODGI (`.og`), FASTG.
 
@@ -19,7 +19,7 @@ Supported formats: GFA 1.0 and 1.1 (walks are read, written as P lines), VG (pro
 
 ```bash
 cargo build --workspace
-cargo build --profile dist                  # fat LTO, panic=abort → target/dist/pangraphx-cli (benchmarks)
+cargo build --profile dist                  # fat LTO, panic=abort → target/dist/pgx (benchmarks)
 cargo fmt --all --check
 cargo clippy --all-targets --all-features   # must be clean
 cargo test --workspace                      # all tests
