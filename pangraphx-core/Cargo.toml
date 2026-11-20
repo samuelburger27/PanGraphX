@@ -6,7 +6,6 @@ description = "Core library for PanGraphX: a toolkit for genome graph loading an
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/samuelburger27/PanGraphX"
-homepage = "https://github.com/samuelburger27/PanGraphX"
 documentation = "https://docs.rs/pangraphx-core"
 keywords = ["pangenome", "genomics", "bioinformatics", "graph", "gfa", "odgi", "vg", "gbz"]
 categories = ["algorithms", "data-structures", "parsing", "science"]
